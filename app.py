@@ -5,13 +5,16 @@ import math
 # ⚙️ MOTORE MATEMATICO: SCORE EFFECTS & RED CARDS
 # ==========================================
 
-def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, SCALE=0.25):
+def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur):
     """
-    Mapping "più matematico" (punto 2):
-    - fusione pesata di AH e Tot (apertura vs corrente)
-    - AH negativo => casa favorita => Δ > 0
-    - Δ scalato con sqrt(Tot) per avere un comportamento più stabile
-    - conversione finale in lambda_home/lambda_away (medie Poisson dei gol rimanenti)
+    Calibrazione di Δ da AH (senza SCALE):
+    1) fondiamo AH e Tot (apertura vs corrente) via media pesata
+    2) imposto lambda_casa + lambda_trasf = tot_bayes
+    3) scelgo Δ (quindi la ripartizione tra lambda_casa e lambda_trasf) in modo che
+       il valore atteso della scommessa AH sia ~0 (linea "fair" a margine 0).
+
+    Nota: qui usiamo una modellazione indipendente per la differenza reti
+    (la componente comune bivariata non cambia la differenza).
     """
     peso_prior = 0.35
     peso_evidenza = 0.65
@@ -21,17 +24,119 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, SCALE=0.25):
 
     tot_bayes = max(0.2, float(tot_bayes))  # stabilità numerica
 
-    # Convenzione: AH negativo => casa favorita => lambda_home > lambda_away
-    delta = (-ah_bayes) * SCALE * math.sqrt(tot_bayes)
+    eps = 1e-6
 
-    # Cap per evitare lambda negative/assurde
-    max_delta = 0.95 * tot_bayes
-    delta = max(-max_delta, min(max_delta, delta))
+    def _poisson_pmf_for_ev(mu):
+        # PMF limitata e "pulita" per calcolo EV: accuracy alta ma runtime contenuto.
+        # Qui mu è tipicamente nell'intorno 0.5..6.
+        tail_mass = 1e-12
+        if mu <= 0:
+            return [1.0]
+        max_k = int(max(20.0, mu * 8.0 + 40.0))
+        max_k = min(max_k, 300)
+        p = math.exp(-mu)
+        pmfs = [p]
+        cumsum = p
+        k = 0
+        while cumsum < (1.0 - tail_mass) and k < max_k:
+            k += 1
+            p = p * mu / k
+            pmfs.append(p)
+            cumsum += p
+        pmfs = [x / cumsum for x in pmfs]
+        return pmfs
 
-    lambda_casa = 0.5 * (tot_bayes + delta)
-    lambda_trasf = 0.5 * (tot_bayes - delta)
+    def _asian_ev_half(mu_home, mu_away, h_half):
+        """
+        EV "fair" per una linea AH a passi di 0.5:
+        payoff: win => +1, lose => -1, push => 0.
+        """
+        pmf_h = _poisson_pmf_for_ev(mu_home)
+        pmf_a = _poisson_pmf_for_ev(mu_away)
+        ev = 0.0
+        # doppio ciclo con skip per ridurre lavoro
+        for i, pi in enumerate(pmf_h):
+            if pi < 1e-18:
+                continue
+            for j, pj in enumerate(pmf_a):
+                if pj < 1e-18:
+                    continue
+                d = i - j
+                s = d + h_half  # differenza effettiva "home + handicap"
+                prob = pi * pj
+                if s > 0:
+                    ev += prob
+                elif s < 0:
+                    ev -= prob
+                # se s == 0 => push => contributo 0
+        return ev
 
-    return max(1e-6, lambda_casa), max(1e-6, lambda_trasf)
+    def _asian_ev(mu_home, mu_away, ah):
+        """
+        EV per AH possibilmente a 0.25 (come nel tuo input). Se AH non è multiplo di 0.5,
+        applichiamo la convenzione di split tra due mezze-linee vicine.
+        """
+        ah2 = float(ah) * 2.0
+        if abs(ah2 - round(ah2)) < 1e-9:
+            # multiplo di 0.5 => nessuno split
+            return _asian_ev_half(mu_home, mu_away, float(ah))
+
+        # split su due mezze-linee (distanza 0.5): peso 0.5 ciascuna
+        h1 = math.floor(ah2) / 2.0
+        h2 = h1 + 0.5
+        return 0.5 * _asian_ev_half(mu_home, mu_away, h1) + 0.5 * _asian_ev_half(mu_home, mu_away, h2)
+
+    def _ev_for_delta(delta):
+        lam_h = 0.5 * (tot_bayes + delta)
+        lam_a = 0.5 * (tot_bayes - delta)
+        lam_h = max(eps, lam_h)
+        lam_a = max(eps, lam_a)
+        return _asian_ev(lam_h, lam_a, ah_bayes)
+
+    # d = lambda_home - lambda_away in [-tot, +tot]
+    lo = -tot_bayes + eps
+    hi = tot_bayes - eps
+    ev_lo = _ev_for_delta(lo)
+    ev_hi = _ev_for_delta(hi)
+
+    # Se non c'è attraversamento, scegliamo la soluzione che rende |EV| minimo.
+    if ev_lo == 0.0:
+        delta_star = lo
+    elif ev_hi == 0.0:
+        delta_star = hi
+    elif ev_lo * ev_hi > 0:
+        delta_star = lo if abs(ev_lo) < abs(ev_hi) else hi
+    else:
+        # Determiniamo la monotonicità empirica (in pratica dovrebbe essere crescente).
+        increasing = ev_hi > ev_lo
+        delta_l = lo
+        delta_r = hi
+        ev_l = ev_lo
+        ev_r = ev_hi
+
+        for _ in range(18):
+            mid = 0.5 * (delta_l + delta_r)
+            ev_mid = _ev_for_delta(mid)
+            # target: ev = 0. Se ev_mid è positivo, vuol dire "home troppo forte".
+            if increasing:
+                if ev_mid > 0:
+                    delta_r = mid
+                    ev_r = ev_mid
+                else:
+                    delta_l = mid
+                    ev_l = ev_mid
+            else:
+                if ev_mid > 0:
+                    delta_l = mid
+                    ev_l = ev_mid
+                else:
+                    delta_r = mid
+                    ev_r = ev_mid
+        delta_star = 0.5 * (delta_l + delta_r)
+
+    lambda_casa = 0.5 * (tot_bayes + delta_star)
+    lambda_trasf = 0.5 * (tot_bayes - delta_star)
+    return max(eps, lambda_casa), max(eps, lambda_trasf)
 
 
 def time_decay_dinamico(xg_casa, xg_trasf, minuto, gol_casa, gol_trasf, rossi_casa, rossi_trasf):
@@ -66,16 +171,17 @@ def time_decay_dinamico(xg_casa, xg_trasf, minuto, gol_casa, gol_trasf, rossi_ca
     att = 1.0 + A * sat
     de = 1.0 - B * sat
 
-    if differenza_reti < 0:  # Casa perde => casa attacca di più
-        xg_c_live *= att
-        xg_t_live *= de
-    elif differenza_reti > 0:  # Trasferta perde => trasferta attacca di più
-        xg_t_live *= att
-        xg_c_live *= de
-
-    # 3. Red Card Multipliers time-weighted (più affidabile)
+    # Rate-based: quando resta poco tempo, gli effetti su rate devono pesare meno
     frac = max(0.0, min(1.0, float(90 - minuto) / 90.0))  # frazione di tempo rimanente
 
+    if differenza_reti < 0:  # Casa perde => casa attacca di più
+        xg_c_live *= math.pow(att, frac)
+        xg_t_live *= math.pow(de, frac)
+    elif differenza_reti > 0:  # Trasferta perde => trasferta attacca di più
+        xg_t_live *= math.pow(att, frac)
+        xg_c_live *= math.pow(de, frac)
+
+    # 3. Red Card Multipliers time-weighted (più affidabile)
     if rossi_casa > 0:
         xg_c_live *= math.pow(0.65, rossi_casa * frac)  # casa perde potenziale offensivo
         xg_t_live *= math.pow(1.35, rossi_casa * frac)  # avversario guadagna potenziale
@@ -123,26 +229,37 @@ def _poisson_pmf_normalized(mu, tail_mass=1e-12, max_k=None):
 
 def probabilita_poisson_esatta(mu_casa_rem, mu_trasf_rem, gol_casa, gol_trasf, linea_ou):
     """
-    mu_*_rem: gol rimanenti attesi (medie Poisson).
+    mu_*_rem: gol rimanenti attesi (medie marginali).
     gol_*    : gol già fatti.
     linea_ou : es. 2.5, 3.5, ...
-    Definizione coerente col tuo originale:
-    - Over: (S + K) > linea_ou
-    - Under: (S + K) <= linea_ou
+
+    Upgrade 3 (correlazione): uso un bivariate Poisson con componente comune Z.
+    - Differenza reti (1X2) dipende da X-Y, quindi si ottiene usando le componenti "indipendenti"
+      mu_home_ind = mu_home_rem - lambda0, mu_away_ind = mu_away_rem - lambda0
+    - Totale (Under/Over) dipende anche da Z (perché compare come 2Z).
     """
     mu_casa_rem = max(1e-9, float(mu_casa_rem))
     mu_trasf_rem = max(1e-9, float(mu_trasf_rem))
 
-    pmf_c = _poisson_pmf_normalized(mu_casa_rem)
-    pmf_t = _poisson_pmf_normalized(mu_trasf_rem)
+    # Forza della correlazione tra goals: componente comune Z
+    # Valore conservativo per evitare instabilità.
+    rho_corr = 0.12
+    min_mu = min(mu_casa_rem, mu_trasf_rem)
+    lambda0 = rho_corr * min_mu
+    lambda0 = max(0.0, min(lambda0, 0.95 * min_mu))  # garantisce mu_ind >= 0
+
+    mu_c_ind = max(1e-9, mu_casa_rem - lambda0)
+    mu_t_ind = max(1e-9, mu_trasf_rem - lambda0)
+
+    # --- 1X2 via componenti indipendenti X-Y (Z cancella la differenza) ---
+    pmf_c = _poisson_pmf_normalized(mu_c_ind)
+    pmf_t = _poisson_pmf_normalized(mu_t_ind)
 
     p1 = px = p2 = 0.0
-
-    # Convoluzione sui gol aggiuntivi
-    for i, pi in enumerate(pmf_c):  # aggiuntivi casa
+    for i, pi in enumerate(pmf_c):  # aggiuntivi casa (X)
         if pi < 1e-16:
             continue
-        for j, pj in enumerate(pmf_t):  # aggiuntivi trasferta
+        for j, pj in enumerate(pmf_t):  # aggiuntivi trasferta (Y)
             if pj < 1e-16:
                 continue
             tot_c = gol_casa + i
@@ -154,28 +271,42 @@ def probabilita_poisson_esatta(mu_casa_rem, mu_trasf_rem, gol_casa, gol_trasf, l
             else:
                 p2 += pi * pj
 
-    # Under/Over sul totale finale
-    S = gol_casa + gol_trasf
-    mu_tot_rem = mu_casa_rem + mu_trasf_rem
-    pmf_tot = _poisson_pmf_normalized(mu_tot_rem)
-
-    # Under: S + K <= linea_ou  =>  K <= floor(linea_ou - S)
-    maxK_under = int(math.floor(float(linea_ou) - S))
-    if maxK_under < 0:
-        p_under = 0.0
-    else:
-        maxK_under = min(maxK_under, len(pmf_tot) - 1)
-        p_under = sum(pmf_tot[:maxK_under + 1])
-
-    p_under = min(max(p_under, 0.0), 1.0)
-    p_over = min(max(1.0 - p_under, 0.0), 1.0)
-
-    # Normalizza 1X2 per ridurre errori numerici da truncation/rounding.
+    # Normalizza 1X2 (errore da truncation)
     psum = p1 + px + p2
     if psum > 0:
         p1 /= psum
         px /= psum
         p2 /= psum
+
+    # --- Under/Over: totale = X + Y + 2Z ---
+    S = gol_casa + gol_trasf
+
+    pmf_z = _poisson_pmf_normalized(lambda0)  # distribuzione del common component
+    mu_w = mu_c_ind + mu_t_ind
+    pmf_w = _poisson_pmf_normalized(mu_w)  # W = X + Y, Poisson(mu_w)
+
+    # prefix sums per P(W <= k)
+    prefix = [0.0]
+    c = 0.0
+    for p in pmf_w:
+        c += p
+        prefix.append(c)
+
+    p_under = 0.0
+    for z, pz in enumerate(pmf_z):
+        if pz < 1e-16:
+            continue
+        # vogliamo: S + (W + 2Z) <= linea_ou  => W <= linea_ou - S - 2Z
+        maxK_under = int(math.floor(float(linea_ou) - S - 2 * z))
+        if maxK_under < 0:
+            continue
+        if maxK_under >= len(pmf_w) - 1:
+            p_under += pz  # probabilità ~1
+        else:
+            p_under += pz * prefix[maxK_under + 1]
+
+    p_under = min(max(p_under, 0.0), 1.0)
+    p_over = min(max(1.0 - p_under, 0.0), 1.0)
 
     return p1, px, p2, p_under, p_over
 
