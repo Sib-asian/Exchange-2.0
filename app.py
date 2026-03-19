@@ -50,34 +50,38 @@ def time_decay_dinamico(xg_casa, xg_trasf, minuto, gol_casa, gol_trasf, rossi_ca
     xg_c_live = xg_casa * fattore_tempo
     xg_t_live = xg_trasf * fattore_tempo
 
-    # 2. Score Effects con cap (stabilità)
+    # 2. Score Effects (bounded + liscio)
+    # Mappiamo il "who loses attacks more" con funzioni saturanti:
+    # - att (saturazione) tende a `max_attack_mult`
+    # - de  (saturazione) tende a `min_def_mult`
     differenza_reti = gol_casa - gol_trasf
     abs_diff = abs(differenza_reti)
 
-    alpha = 0.15   # aggressività attacco per gol di scarto
-    beta = 0.10    # riduzione avversario per gol di scarto
-
     max_attack_mult = 1.8
     min_def_mult = 0.6
+    A = max_attack_mult - 1.0  # ampiezza boost attacco
+    B = 1.0 - min_def_mult    # ampiezza riduzione difesa/attacco avversario
+
+    sat = (abs_diff / (1.0 + abs_diff)) if abs_diff > 0 else 0.0
+    att = 1.0 + A * sat
+    de = 1.0 - B * sat
 
     if differenza_reti < 0:  # Casa perde => casa attacca di più
-        att = min(max_attack_mult, 1.0 + alpha * abs_diff)
-        de = max(min_def_mult, 1.0 - beta * abs_diff)
         xg_c_live *= att
         xg_t_live *= de
     elif differenza_reti > 0:  # Trasferta perde => trasferta attacca di più
-        att = min(max_attack_mult, 1.0 + alpha * abs_diff)
-        de = max(min_def_mult, 1.0 - beta * abs_diff)
         xg_t_live *= att
         xg_c_live *= de
 
-    # 3. Red Card Multipliers (Impatto devastante)
+    # 3. Red Card Multipliers time-weighted (più affidabile)
+    frac = max(0.0, min(1.0, float(90 - minuto) / 90.0))  # frazione di tempo rimanente
+
     if rossi_casa > 0:
-        xg_c_live *= math.pow(0.65, rossi_casa)  # casa perde potenziale offensivo
-        xg_t_live *= math.pow(1.35, rossi_casa)  # avversario guadagna potenziale
+        xg_c_live *= math.pow(0.65, rossi_casa * frac)  # casa perde potenziale offensivo
+        xg_t_live *= math.pow(1.35, rossi_casa * frac)  # avversario guadagna potenziale
     if rossi_trasf > 0:
-        xg_t_live *= math.pow(0.65, rossi_trasf)
-        xg_c_live *= math.pow(1.35, rossi_trasf)
+        xg_t_live *= math.pow(0.65, rossi_trasf * frac)
+        xg_c_live *= math.pow(1.35, rossi_trasf * frac)
 
     return max(0.001, xg_c_live), max(0.001, xg_t_live)
 
@@ -86,13 +90,19 @@ def time_decay_dinamico(xg_casa, xg_trasf, minuto, gol_casa, gol_trasf, rossi_ca
 # 🎲 PROBABILITA' ESATTE: Poisson (niente Monte Carlo)
 # ==========================================
 
-def _poisson_pmf_normalized(mu, tail_mass=1e-12, max_k=160):
+def _poisson_pmf_normalized(mu, tail_mass=1e-12, max_k=None):
     """
     Calcola P(K=k) per k=0..kmax con taglio coda controllato e normalizzazione.
     Serve per evitare instabilità numeriche e garantire massa ~1.
     """
     if mu <= 0:
         return [1.0]
+
+    # Se max_k non è fissato, scegliamo un upper bound ragionevole in funzione della media.
+    # (Migliora precisione quando le λ sono alte, senza esplodere in runtime.)
+    if max_k is None:
+        max_k = int(max(20, mu * 12.0 + 60))
+        max_k = min(max_k, 500)
 
     p0 = math.exp(-mu)
     pmfs = [p0]
@@ -157,7 +167,16 @@ def probabilita_poisson_esatta(mu_casa_rem, mu_trasf_rem, gol_casa, gol_trasf, l
         maxK_under = min(maxK_under, len(pmf_tot) - 1)
         p_under = sum(pmf_tot[:maxK_under + 1])
 
-    p_over = max(0.0, 1.0 - p_under)
+    p_under = min(max(p_under, 0.0), 1.0)
+    p_over = min(max(1.0 - p_under, 0.0), 1.0)
+
+    # Normalizza 1X2 per ridurre errori numerici da truncation/rounding.
+    psum = p1 + px + p2
+    if psum > 0:
+        p1 /= psum
+        px /= psum
+        p2 /= psum
+
     return p1, px, p2, p_under, p_over
 
 
