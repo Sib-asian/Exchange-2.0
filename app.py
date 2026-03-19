@@ -3,7 +3,7 @@ import math
 import random
 
 # ==========================================
-# ⚙️ MOTORE MATEMATICO ISTITUZIONALE NASCOSTO
+# ⚙️ MOTORE MATEMATICO ISTITUZIONALE LIVE
 # ==========================================
 
 def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur):
@@ -31,25 +31,30 @@ def time_decay_weibull(xg_casa, xg_trasf, minuto):
     fattore_decadimento = math.pow((tempo_rimanente / 90.0), 0.85)
     return xg_casa * fattore_decadimento, xg_trasf * fattore_decadimento
 
-def monte_carlo_simulator_full(mu1, mu2, iterazioni=10000):
+def monte_carlo_simulator_live(mu1, mu2, gol_casa_attuali, gol_trasf_attuali, iterazioni=10000):
     vit_1 = pareggi = vit_2 = over25 = under25 = 0
     for _ in range(iterazioni):
+        # 1. Simula i gol nel TEMPO RIMANENTE
         L1, L2 = math.exp(-mu1), math.exp(-mu2)
         k1, p1_sim = 0, 1.0
         while p1_sim > L1:
             k1 += 1; p1_sim *= random.random()
-        gol1 = k1 - 1
+        gol_sim_1 = k1 - 1
         
         k2, p2_sim = 0, 1.0
         while p2_sim > L2:
             k2 += 1; p2_sim *= random.random()
-        gol2 = k2 - 1
+        gol_sim_2 = k2 - 1
         
-        if gol1 > gol2: vit_1 += 1
-        elif gol1 == gol2: pareggi += 1
+        # 2. Somma i gol simulati al RISULTATO ATTUALE
+        totale_casa = gol_casa_attuali + gol_sim_1
+        totale_trasf = gol_trasf_attuali + gol_sim_2
+        
+        if totale_casa > totale_trasf: vit_1 += 1
+        elif totale_casa == totale_trasf: pareggi += 1
         else: vit_2 += 1
             
-        if (gol1 + gol2) > 2.5: over25 += 1
+        if (totale_casa + totale_trasf) > 2.5: over25 += 1
         else: under25 += 1
         
     return vit_1/iterazioni, pareggi/iterazioni, vit_2/iterazioni, under25/iterazioni, over25/iterazioni
@@ -58,20 +63,30 @@ def calcola_quota_reale(probabilita):
     return 1 / probabilita if probabilita > 0.001 else 999.0
 
 # ==========================================
-# 🎨 STREAMLIT DASHBOARD (SEMPLIFICATA E OPERATIVA)
+# 🎨 STREAMLIT DASHBOARD (LIVE TRADING)
 # ==========================================
 st.set_page_config(page_title="Radar Exchange Pro", page_icon="🎯", layout="centered")
 
 st.title("🎯 Radar Exchange Pro")
-st.markdown("*Modalità Operativa Live - Segnali Diretti*")
+st.markdown("*Modalità Operativa Live - Segnali Diretti State-Space*")
 
-# --- 1. DATI INGRESSO ---
+# --- 1. DATI LIVE (RISULTATO E MINUTO) ---
+st.header("⏱️ Stato della Partita (Live)")
 col_min, col_cassa = st.columns(2)
 with col_min:
-    minuto_gioco = st.slider("⏱️ Minuto Attuale (0 = Pre-match)", 0, 90, 0, 1)
+    minuto_gioco = st.slider("Minuto Attuale (0 = Pre-match)", 0, 90, 0, 1)
 with col_cassa:
     cassa = st.number_input("💰 Cassa Totale (€)", value=1000.0, step=100.0)
 
+col_g1, col_g2 = st.columns(2)
+with col_g1:
+    gol_casa = st.number_input("⚽ Gol segnati CASA", value=0, min_value=0, step=1)
+with col_g2:
+    gol_trasf = st.number_input("⚽ Gol segnati TRASFERTA", value=0, min_value=0, step=1)
+
+st.divider()
+
+# --- 2. DATI MERCATO ---
 st.header("📊 Dati Mercato Asiatico")
 col1, col2 = st.columns(2)
 with col1:
@@ -83,19 +98,20 @@ with col2:
 
 st.divider()
 
-if st.button("🚀 GENERA SEGNALI OPERATIVI", use_container_width=True, type="primary"):
+if st.button("🚀 GENERA SEGNALI OPERATIVI LIVE", use_container_width=True, type="primary"):
     
     with st.spinner("Elaborazione dati Istituzionali in corso..."):
         xg1_base, xg2_base = calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur)
         xg1_live, xg2_live = time_decay_weibull(xg1_base, xg2_base, minuto_gioco)
-        mc_1, mc_x, mc_2, mc_u25, mc_o25 = monte_carlo_simulator_full(xg1_live, xg2_live, 10000)
+        
+        # Simulazione tenendo conto del risultato attuale!
+        mc_1, mc_x, mc_2, mc_u25, mc_o25 = monte_carlo_simulator_live(xg1_live, xg2_live, gol_casa, gol_trasf, 10000)
         
         delta_ah = ah_cur - ah_op
         delta_tot = tot_cur - tot_op
 
-    # --- QUOTE REALI (IL TUO FARO) ---
-    st.header(f"⚖️ Quote Reali (Minuto {minuto_gioco}')")
-    st.markdown("Queste sono le quote matematiche pure. Il tuo obiettivo è **Puntare a una quota più ALTA** o **Bancare a una quota più BASSA**.")
+    # --- QUOTE REALI ---
+    st.header(f"⚖️ Quote Reali (Minuto {minuto_gioco}' | Risultato {gol_casa}-{gol_trasf})")
     
     c_1, c_x, c_2 = st.columns(3)
     c_1.metric("1 (Casa)", f"@{calcola_quota_reale(mc_1):.2f}")
@@ -108,47 +124,44 @@ if st.button("🚀 GENERA SEGNALI OPERATIVI", use_container_width=True, type="pr
 
     st.divider()
 
-    # --- SEGNALI OPERATIVI DIRETTI ---
+    # --- SEGNALI OPERATIVI ---
     st.header("🎯 ISTRUZIONI EXCHANGE")
     segnali = False
-    stake_sicuro = cassa * 0.025 # 2.5% della cassa come stake base raccomandato
+    stake_sicuro = cassa * 0.025 
 
-    # Analisi Handicap (1X2)
+    # Se la partita è finita o quasi
+    if minuto_gioco >= 85:
+        st.error("🛑 **NO BET:** Mancano meno di 5 minuti. La liquidità è troppo bassa e la varianza troppo alta. Non operare.")
+        st.stop()
+
+    # Analisi Handicap
     if delta_ah <= -0.25:
-        q_target = calcola_quota_reale(mc_1) * 1.05 # Chiede almeno il 5% di vantaggio
-        st.success("🟢 **SEGNALE: PUNTA 1 (Squadra di Casa)**")
-        st.write(f"I volumi asiatici stanno schiacciando la casa. Apri l'Exchange:")
-        st.write(f"👉 **Azione:** Se trovi una quota per l'1 **MAGGIORE di @{q_target:.2f}**, PUNTALA.")
+        q_target = calcola_quota_reale(mc_1) * 1.05 
+        st.success(f"🟢 **SEGNALE: PUNTA 1 (Squadra di Casa) a quota > @{q_target:.2f}**")
+        st.write(f"I flussi asiatici sono sulla squadra di casa. Aggiungi il punteggio live ({gol_casa}-{gol_trasf}) a tuo vantaggio.")
         st.write(f"💰 **Stake consigliato:** € {stake_sicuro:.2f}")
         segnali = True
     elif delta_ah >= 0.25:
         q_target = calcola_quota_reale(mc_2) * 1.05
-        st.success("🟢 **SEGNALE: PUNTA 2 (Squadra in Trasferta)**")
-        st.write(f"I flussi stanno crollando sulla squadra di casa. Apri l'Exchange:")
-        st.write(f"👉 **Azione:** Se trovi una quota per il 2 **MAGGIORE di @{q_target:.2f}**, PUNTALA.")
+        st.success(f"🟢 **SEGNALE: PUNTA 2 (Squadra Trasferta) a quota > @{q_target:.2f}**")
+        st.write(f"Flussi crollati sulla casa, fiducia in trasferta. Controlla il mercato live.")
         st.write(f"💰 **Stake consigliato:** € {stake_sicuro:.2f}")
         segnali = True
 
     # Analisi Totale Gol
-    if delta_tot >= 0.25:
+    if delta_tot >= 0.25 and (gol_casa + gol_trasf) < 3: # Ha senso puntare over 2.5 solo se non ci sono già 3 gol
         q_target_o = calcola_quota_reale(mc_o25) * 1.05
-        q_target_x = calcola_quota_reale(mc_x) * 0.90 # Per bancare cerchiamo quota più bassa
+        q_target_x = calcola_quota_reale(mc_x) * 0.90 
         
-        st.warning("🔥 **SEGNALE: PUNTA OVER 2.5** (o BANCA X)")
-        st.write("I soldi pesanti si aspettano una pioggia di gol rispetto all'apertura.")
-        st.write(f"👉 **Azione 1:** PUNTA l'Over 2.5 se trovi quota **MAGGIORE di @{q_target_o:.2f}**")
-        if mc_x < 0.25:
-            st.write(f"👉 **Azione 2 (Lay The Draw):** BANCA la X se trovi quota **MINORE di @{q_target_x:.2f}**")
-        st.write(f"💰 **Stake consigliato:** € {stake_sicuro:.2f}")
+        st.warning(f"🔥 **SEGNALE: PUNTA OVER 2.5 a quota > @{q_target_o:.2f}**")
+        if mc_x < 0.25 and gol_casa == gol_trasf: # Suggerisce LTD solo se in pareggio
+            st.write(f"👉 **Azione 2 (Lay The Draw):** Poiché il risultato è {gol_casa}-{gol_trasf}, puoi BANCARE la X se trovi quota < @{q_target_x:.2f}")
         segnali = True
-    elif delta_tot <= -0.25:
+        
+    elif delta_tot <= -0.25 and (gol_casa + gol_trasf) < 3:
         q_target_u = calcola_quota_reale(mc_u25) * 1.05
-        st.info("🧊 **SEGNALE: PUNTA UNDER 2.5**")
-        st.write("I professionisti stanno comprando l'Under. Partita tattica e chiusa.")
-        st.write(f"👉 **Azione:** PUNTA l'Under 2.5 se trovi quota **MAGGIORE di @{q_target_u:.2f}**")
-        st.write(f"💰 **Stake consigliato:** € {stake_sicuro:.2f}")
+        st.info(f"🧊 **SEGNALE: PUNTA UNDER 2.5 a quota > @{q_target_u:.2f}**")
         segnali = True
 
     if not segnali:
-        st.error("⚖️ **NESSUN SEGNALE. MERCATO FERMO.**")
-        st.write("I bookmaker e gli scommettitori sono d'accordo sulle quote (nessun Delta). Stai fermo, scommettere qui significa affidarsi al caso. Passa a un'altra partita.")
+        st.error("⚖️ **NESSUN SEGNALE NETTO. MERCATO FERMO.**")
