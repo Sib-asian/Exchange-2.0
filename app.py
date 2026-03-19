@@ -2,119 +2,147 @@ import streamlit as st
 import math
 
 # ==========================================
-# ⚙️ MOTORE MATEMATICO
+# ⚙️ MOTORE MATEMATICO STRATOSFERICO (DIXON-COLES)
 # ==========================================
 def calcola_xg(ah, totale):
-    xg_casa = (totale - ah) / 2
-    xg_trasferta = (totale + ah) / 2
-    return max(0.01, xg_casa), max(0.01, xg_trasferta) 
+    """Calcola gli xG tenendo conto delle dinamiche di spread asiatico"""
+    xg_casa = (totale - ah) / 2.0
+    xg_trasferta = (totale + ah) / 2.0
+    return max(0.05, xg_casa), max(0.05, xg_trasferta) 
 
 def probabilita_poisson(lam, k):
     return (math.pow(lam, k) * math.exp(-lam)) / math.factorial(k)
 
-def calcola_matrice_1x2(xg_casa, xg_trasferta, max_gol=8):
+def calcola_matrice_dixon_coles(xg_casa, xg_trasferta, rho=-0.15, max_gol=8):
+    """Genera la matrice con correzione Dixon-Coles per la dipendenza dei gol"""
     prob_1 = prob_x = prob_2 = 0.0
+    
     for gol_casa in range(max_gol):
         for gol_trasferta in range(max_gol):
+            # Poisson Base
             prob = probabilita_poisson(xg_casa, gol_casa) * probabilita_poisson(xg_trasferta, gol_trasferta)
+            
+            # Correzione Dixon-Coles per i risultati a basso punteggio (aumenta i pareggi)
+            if gol_casa == 0 and gol_trasferta == 0:
+                prob *= (1 - (xg_casa * xg_trasferta * rho))
+            elif gol_casa == 1 and gol_trasferta == 0:
+                prob *= (1 + (xg_casa * rho))
+            elif gol_casa == 0 and gol_trasferta == 1:
+                prob *= (1 + (xg_trasferta * rho))
+            elif gol_casa == 1 and gol_trasferta == 1:
+                prob *= (1 - rho)
+                
+            # Assegnazione al segno 1X2
             if gol_casa > gol_trasferta: prob_1 += prob
             elif gol_casa == gol_trasferta: prob_x += prob
             else: prob_2 += prob
+            
+    # Normalizzazione per garantire somma 100% perfetta (Vig removal implicito)
     totale = prob_1 + prob_x + prob_2
     return prob_1/totale, prob_x/totale, prob_2/totale
 
-def calcola_under_over(xg_casa, xg_trasferta, linea, max_gol=8):
+def calcola_under_over_dc(xg_casa, xg_trasferta, linea, rho=-0.15, max_gol=8):
+    """Calcola U/O applicando la matrice Dixon-Coles"""
     prob_under = prob_over = 0.0
     for gol_casa in range(max_gol):
         for gol_trasferta in range(max_gol):
             prob = probabilita_poisson(xg_casa, gol_casa) * probabilita_poisson(xg_trasferta, gol_trasferta)
+            
+            if gol_casa == 0 and gol_trasferta == 0: prob *= (1 - (xg_casa * xg_trasferta * rho))
+            elif gol_casa == 1 and gol_trasferta == 0: prob *= (1 + (xg_casa * rho))
+            elif gol_casa == 0 and gol_trasferta == 1: prob *= (1 + (xg_trasferta * rho))
+            elif gol_casa == 1 and gol_trasferta == 1: prob *= (1 - rho)
+                
             if (gol_casa + gol_trasferta) > linea: prob_over += prob
             else: prob_under += prob
+            
     totale = prob_under + prob_over
     return prob_under/totale, prob_over/totale
 
 def calcola_quota_reale(probabilita):
-    if probabilita <= 0: return 999.0
+    if probabilita <= 0.001: return 999.0
     return 1 / probabilita
 
 # ==========================================
 # 🎨 INTERFACCIA GRAFICA STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Radar Exchange", page_icon="🎯", layout="centered")
+st.set_page_config(page_title="Radar Exchange Pro", page_icon="🧿", layout="centered")
 
-st.title("🏆 Pronosticatore Maniacale")
-st.markdown("Inserisci i movimenti del mercato asiatico per ottenere le Fair Odds e il pronostico.")
+st.title("🧿 Radar Exchange Pro")
+st.markdown("*Motore Matematico: Poisson Multivariato + Dixon-Coles Adjustment*")
 
-# --- PANNELLO DI INPUT ---
 st.header("📝 Dati Mercato Asiatico")
-
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Apertura")
-    ah_op = st.number_input("Asian Handicap (Es: -0.25)", value=-0.25, step=0.25, format="%.2f")
-    tot_op = st.number_input("Linea Gol Totale (Es: 2.50)", value=2.50, step=0.25, format="%.2f")
+    ah_op = st.number_input("Asian Handicap (Es: -0.25)", value=-0.25, step=0.25, format="%.2f", key="aho")
+    tot_op = st.number_input("Linea Gol Totale", value=2.50, step=0.25, format="%.2f", key="to")
 
 with col2:
-    st.subheader("Corrente")
-    ah_cur = st.number_input("Asian Handicap Attuale", value=-0.75, step=0.25, format="%.2f")
-    tot_cur = st.number_input("Linea Gol Totale Attuale", value=2.75, step=0.25, format="%.2f")
+    st.subheader("Corrente / Chiusura")
+    ah_cur = st.number_input("Asian Handicap", value=-0.75, step=0.25, format="%.2f", key="ahc")
+    tot_cur = st.number_input("Linea Gol Totale", value=2.75, step=0.25, format="%.2f", key="tc")
 
 st.divider()
 
-# --- PULSANTE DI CALCOLO ---
-if st.button("🚀 Calcola Pronostico", use_container_width=True, type="primary"):
+if st.button("🚀 GENERA ANALISI PROFONDA", use_container_width=True, type="primary"):
     
-    # Elaborazione Dati
+    # Calcolo xG puri
     xg_casa_op, xg_trasf_op = calcola_xg(ah_op, tot_op)
     xg_casa_cur, xg_trasf_cur = calcola_xg(ah_cur, tot_cur)
 
-    p1_cur, px_cur, p2_cur = calcola_matrice_1x2(xg_casa_cur, xg_trasf_cur)
-    u25_cur, o25_cur = calcola_under_over(xg_casa_cur, xg_trasf_cur, 2.5)
+    # Calcolo Matrici Avanzate
+    p1_cur, px_cur, p2_cur = calcola_matrice_dixon_coles(xg_casa_cur, xg_trasf_cur)
+    u25_cur, o25_cur = calcola_under_over_dc(xg_casa_cur, xg_trasf_cur, 2.5)
+    u15_cur, o15_cur = calcola_under_over_dc(xg_casa_cur, xg_trasf_cur, 1.5)
 
     delta_ah = ah_cur - ah_op
     delta_tot = tot_cur - tot_op
 
-    # --- SEZIONE 1: QUOTE REALI ---
-    st.header("⚖️ Quote Reali (Fair Odds)")
+    st.header("⚖️ Quote Reali (Fair Odds Modello DC)")
     
     col_1, col_x, col_2 = st.columns(3)
-    col_1.metric(label="Vittoria CASA (1)", value=f"{p1_cur*100:.1f}%", delta=f"@ {calcola_quota_reale(p1_cur):.2f}", delta_color="off")
-    col_x.metric(label="PAREGGIO (X)", value=f"{px_cur*100:.1f}%", delta=f"@ {calcola_quota_reale(px_cur):.2f}", delta_color="off")
-    col_2.metric(label="Vittoria TRASF. (2)", value=f"{p2_cur*100:.1f}%", delta=f"@ {calcola_quota_reale(p2_cur):.2f}", delta_color="off")
+    col_1.metric("Vittoria CASA (1)", f"{p1_cur*100:.1f}%", f"@ {calcola_quota_reale(p1_cur):.2f}", delta_color="off")
+    col_x.metric("PAREGGIO (X)", f"{px_cur*100:.1f}%", f"@ {calcola_quota_reale(px_cur):.2f}", delta_color="off")
+    col_2.metric("Vittoria TRASF. (2)", f"{p2_cur*100:.1f}%", f"@ {calcola_quota_reale(p2_cur):.2f}", delta_color="off")
     
+    col_u, col_o = st.columns(2)
+    col_u.metric("UNDER 2.5", f"{u25_cur*100:.1f}%", f"@ {calcola_quota_reale(u25_cur):.2f}", delta_color="off")
+    col_o.metric("OVER 2.5", f"{o25_cur*100:.1f}%", f"@ {calcola_quota_reale(o25_cur):.2f}", delta_color="off")
+
     st.divider()
 
-    # --- SEZIONE 2: PRONOSTICO AUTOMATICO ---
-    st.header("🔮 Il Verdetto dell'Algoritmo")
+    st.header("🔮 Analisi Algoritmica Direzionale")
     
     segnali_trovati = False
 
+    # Spread Analysis
     if delta_ah <= -0.25:
-        st.success("👉 **PUNTA 1 (o AH Casa):** I volumi asiatici stanno crollando pesantemente sulla squadra di casa.")
-        st.error("👉 **EXCHANGE - BANCA 2:** La trasferta è totalmente sfavorita dal mercato.")
+        st.success(f"💸 **Smart Money su CASA:** L'handicap è passato da {ah_op} a {ah_cur}. I professionisti stanno scommettendo forte sulla squadra di casa.")
+        st.info("👉 **AZIONE EXCHANGE:** Punta 1 (se quota > Fair) oppure Banca 2.")
         segnali_trovati = True
     elif delta_ah >= 0.25:
-        st.success("👉 **PUNTA 2 (o AH Trasferta):** I volumi asiatici spingono forte sulla squadra in trasferta.")
-        st.error("👉 **EXCHANGE - BANCA 1:** La squadra di casa sta perdendo la fiducia degli investitori.")
-        segnali_trovati = True
-    elif p1_cur > 0.60:
-        st.info("👉 **PUNTA 1:** Movimenti stabili, ma la probabilità matematica di base è altissima (>60%).")
-        segnali_trovati = True
-    elif p2_cur > 0.60:
-        st.info("👉 **PUNTA 2:** Movimenti stabili, ma la probabilità matematica di base è altissima (>60%).")
+        st.success(f"💸 **Smart Money su TRASFERTA:** L'handicap è passato da {ah_op} a {ah_cur}. Crollo di fiducia sulla squadra di casa.")
+        st.info("👉 **AZIONE EXCHANGE:** Punta 2 (se quota > Fair) oppure Banca 1.")
         segnali_trovati = True
 
+    # Total Lines Analysis
     if delta_tot >= 0.25:
-        st.success("👉 **PUNTA OVER 2.5:** Il mercato ha alzato la linea, si aspetta sicuramente più reti dell'apertura.")
+        st.warning(f"🔥 **Trend OVER:** La linea gol è salita da {tot_op} a {tot_cur}. Attesi più gol del previsto.")
         if px_cur < 0.25:
-            st.error("👉 **EXCHANGE - BANCA LA X:** Nelle partite da Over, il pareggio perde molto valore (Lay The Draw).")
+            st.error("📉 **LAY THE DRAW (Banca X):** Trend da Over + Bassa probabilità di X pura. Ottimo spot per bancare il pareggio.")
         segnali_trovati = True
     elif delta_tot <= -0.25:
-        st.warning("👉 **PUNTA UNDER 2.5:** Il mercato ha abbassato la linea, prevista partita bloccata e chiusa.")
+        st.info(f"🧊 **Trend UNDER:** La linea gol è scesa. Match che si preannuncia bloccato e tattico.")
+        segnali_trovati = True
+
+    # Valore Intrinseco Puro
+    if p1_cur > 0.65 and delta_ah <= 0:
+        st.success("🏰 **Roccaforte:** Probabilità di vittoria interna schiacciante (>65%) supportata dal mercato.")
         segnali_trovati = True
 
     if not segnali_trovati:
-        st.warning("⚖️ **NO BET.** I movimenti di mercato e le probabilità sono troppo deboli per dare un segnale netto. Meglio passare oltre.")
-        
-    st.caption(f"Movimenti rilevati: Spread {delta_ah:+.2f} | Totale Gol {delta_tot:+.2f}")
+        st.warning("⚖️ **MERCATO EFFICIENTE / STABILE.** I volumi non hanno spostato le linee di apertura. Giocare qui significa sfidare la varianza senza un Edge direzionale. Skip.")
+
+    st.caption("⚙️ Il modello utilizza una variabile di dipendenza ρ (rho) settata a -0.15 per correggere la distribuzione dei pareggi a basso punteggio, eliminando il bias del modello di Poisson tradizionale.")
