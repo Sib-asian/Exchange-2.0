@@ -1,81 +1,169 @@
 import streamlit as st
 import math
-import random
 
 # ==========================================
 # ⚙️ MOTORE MATEMATICO: SCORE EFFECTS & RED CARDS
 # ==========================================
 
-def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur):
+def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, SCALE=0.25):
+    """
+    Mapping "più matematico" (punto 2):
+    - fusione pesata di AH e Tot (apertura vs corrente)
+    - AH negativo => casa favorita => Δ > 0
+    - Δ scalato con sqrt(Tot) per avere un comportamento più stabile
+    - conversione finale in lambda_home/lambda_away (medie Poisson dei gol rimanenti)
+    """
     peso_prior = 0.35
     peso_evidenza = 0.65
+
     ah_bayes = (ah_op * peso_prior) + (ah_cur * peso_evidenza)
     tot_bayes = (tot_op * peso_prior) + (tot_cur * peso_evidenza)
-    
-    supremazia = -ah_bayes
-    gamma = 1.0 + (abs(supremazia) * 0.05) 
-    
-    if supremazia > 0:
-        xg_casa = (tot_bayes / 2.0) + (supremazia / 2.0) * gamma
-        xg_trasf = tot_bayes - xg_casa
-    else:
-        xg_trasf = (tot_bayes / 2.0) + (abs(supremazia) / 2.0) * gamma
-        xg_casa = tot_bayes - xg_trasf
 
-    return max(0.01, xg_casa), max(0.01, xg_trasf)
+    tot_bayes = max(0.2, float(tot_bayes))  # stabilità numerica
+
+    # Convenzione: AH negativo => casa favorita => lambda_home > lambda_away
+    delta = (-ah_bayes) * SCALE * math.sqrt(tot_bayes)
+
+    # Cap per evitare lambda negative/assurde
+    max_delta = 0.95 * tot_bayes
+    delta = max(-max_delta, min(max_delta, delta))
+
+    lambda_casa = 0.5 * (tot_bayes + delta)
+    lambda_trasf = 0.5 * (tot_bayes - delta)
+
+    return max(1e-6, lambda_casa), max(1e-6, lambda_trasf)
+
 
 def time_decay_dinamico(xg_casa, xg_trasf, minuto, gol_casa, gol_trasf, rossi_casa, rossi_trasf):
-    if minuto >= 90: return 0.001, 0.001
-    
+    """
+    - Weibull/potenza sul tempo rimanente
+    - Score effects: chi è sotto aumenta l'attacco, chi è sopra riduce l'attacco avversario
+      (con cap/min per evitare moltiplicatori esplosivi)
+    - Red cards: multipli come nel tuo originale
+    """
+    if minuto >= 90:
+        return 0.001, 0.001
+
     # 1. Decadimento Weibull Base
     tempo_rimanente = 90 - minuto
     fattore_tempo = math.pow((tempo_rimanente / 90.0), 0.85)
     xg_c_live = xg_casa * fattore_tempo
     xg_t_live = xg_trasf * fattore_tempo
 
-    # 2. Score Effects (Chi perde attacca di più, chi vince difende)
+    # 2. Score Effects con cap (stabilità)
     differenza_reti = gol_casa - gol_trasf
-    if differenza_reti < 0: # Casa perde
-        xg_c_live *= (1.0 + 0.15 * abs(differenza_reti)) # +15% xG per ogni gol di scarto
-        xg_t_live *= max(0.5, 1.0 - 0.10 * abs(differenza_reti)) # Trasferta si difende
-    elif differenza_reti > 0: # Trasferta perde
-        xg_t_live *= (1.0 + 0.15 * abs(differenza_reti))
-        xg_c_live *= max(0.5, 1.0 - 0.10 * abs(differenza_reti))
+    abs_diff = abs(differenza_reti)
+
+    alpha = 0.15   # aggressività attacco per gol di scarto
+    beta = 0.10    # riduzione avversario per gol di scarto
+
+    max_attack_mult = 1.8
+    min_def_mult = 0.6
+
+    if differenza_reti < 0:  # Casa perde => casa attacca di più
+        att = min(max_attack_mult, 1.0 + alpha * abs_diff)
+        de = max(min_def_mult, 1.0 - beta * abs_diff)
+        xg_c_live *= att
+        xg_t_live *= de
+    elif differenza_reti > 0:  # Trasferta perde => trasferta attacca di più
+        att = min(max_attack_mult, 1.0 + alpha * abs_diff)
+        de = max(min_def_mult, 1.0 - beta * abs_diff)
+        xg_t_live *= att
+        xg_c_live *= de
 
     # 3. Red Card Multipliers (Impatto devastante)
     if rossi_casa > 0:
-        xg_c_live *= math.pow(0.65, rossi_casa) # Perde 35% potenziale offensivo
-        xg_t_live *= math.pow(1.35, rossi_casa) # Avversario guadagna 35%
+        xg_c_live *= math.pow(0.65, rossi_casa)  # casa perde potenziale offensivo
+        xg_t_live *= math.pow(1.35, rossi_casa)  # avversario guadagna potenziale
     if rossi_trasf > 0:
         xg_t_live *= math.pow(0.65, rossi_trasf)
         xg_c_live *= math.pow(1.35, rossi_trasf)
 
-    return max(0.01, xg_c_live), max(0.01, xg_t_live)
+    return max(0.001, xg_c_live), max(0.001, xg_t_live)
 
-def monte_carlo_live_dinamico(mu1, mu2, g_casa, g_trasf, linea_ou, iterazioni=10000):
-    vit_1 = pareggi = vit_2 = over_target = under_target = 0
-    for _ in range(iterazioni):
-        L1, L2 = math.exp(-mu1), math.exp(-mu2)
-        k1, p1 = 0, 1.0
-        while p1 > L1: k1 += 1; p1 *= random.random()
-        
-        k2, p2 = 0, 1.0
-        while p2 > L2: k2 += 1; p2 *= random.random()
-        
-        tot_casa = g_casa + (k1 - 1)
-        tot_trasf = g_trasf + (k2 - 1)
-        
-        if tot_casa > tot_trasf: vit_1 += 1
-        elif tot_casa == tot_trasf: pareggi += 1
-        else: vit_2 += 1
-            
-        if (tot_casa + tot_trasf) > linea_ou: over_target += 1
-        else: under_target += 1
-        
-    return vit_1/iterazioni, pareggi/iterazioni, vit_2/iterazioni, under_target/iterazioni, over_target/iterazioni
+
+# ==========================================
+# 🎲 PROBABILITA' ESATTE: Poisson (niente Monte Carlo)
+# ==========================================
+
+def _poisson_pmf_normalized(mu, tail_mass=1e-12, max_k=160):
+    """
+    Calcola P(K=k) per k=0..kmax con taglio coda controllato e normalizzazione.
+    Serve per evitare instabilità numeriche e garantire massa ~1.
+    """
+    if mu <= 0:
+        return [1.0]
+
+    p0 = math.exp(-mu)
+    pmfs = [p0]
+    cumsum = p0
+
+    k = 0
+    p = p0
+    while cumsum < (1.0 - tail_mass) and k < max_k:
+        k += 1
+        p = p * mu / k
+        pmfs.append(p)
+        cumsum += p
+
+    # normalizzazione (entro il taglio di coda)
+    pmfs = [x / cumsum for x in pmfs]
+    return pmfs
+
+
+def probabilita_poisson_esatta(mu_casa_rem, mu_trasf_rem, gol_casa, gol_trasf, linea_ou):
+    """
+    mu_*_rem: gol rimanenti attesi (medie Poisson).
+    gol_*    : gol già fatti.
+    linea_ou : es. 2.5, 3.5, ...
+    Definizione coerente col tuo originale:
+    - Over: (S + K) > linea_ou
+    - Under: (S + K) <= linea_ou
+    """
+    mu_casa_rem = max(1e-9, float(mu_casa_rem))
+    mu_trasf_rem = max(1e-9, float(mu_trasf_rem))
+
+    pmf_c = _poisson_pmf_normalized(mu_casa_rem)
+    pmf_t = _poisson_pmf_normalized(mu_trasf_rem)
+
+    p1 = px = p2 = 0.0
+
+    # Convoluzione sui gol aggiuntivi
+    for i, pi in enumerate(pmf_c):  # aggiuntivi casa
+        if pi < 1e-16:
+            continue
+        for j, pj in enumerate(pmf_t):  # aggiuntivi trasferta
+            if pj < 1e-16:
+                continue
+            tot_c = gol_casa + i
+            tot_t = gol_trasf + j
+            if tot_c > tot_t:
+                p1 += pi * pj
+            elif tot_c == tot_t:
+                px += pi * pj
+            else:
+                p2 += pi * pj
+
+    # Under/Over sul totale finale
+    S = gol_casa + gol_trasf
+    mu_tot_rem = mu_casa_rem + mu_trasf_rem
+    pmf_tot = _poisson_pmf_normalized(mu_tot_rem)
+
+    # Under: S + K <= linea_ou  =>  K <= floor(linea_ou - S)
+    maxK_under = int(math.floor(float(linea_ou) - S))
+    if maxK_under < 0:
+        p_under = 0.0
+    else:
+        maxK_under = min(maxK_under, len(pmf_tot) - 1)
+        p_under = sum(pmf_tot[:maxK_under + 1])
+
+    p_over = max(0.0, 1.0 - p_under)
+    return p1, px, p2, p_under, p_over
+
 
 def calcola_quota_reale(prob):
     return 1 / prob if prob > 0.001 else 999.0
+
 
 # ==========================================
 # 🎨 STREAMLIT DASHBOARD (UI OTTIMIZZATA MOBILE)
@@ -90,12 +178,16 @@ st.header("⏱️ 1. Eventi Live")
 minuto_gioco = st.slider("Minuto Attuale", 0, 90, 0, 1)
 
 col_g1, col_g2 = st.columns(2)
-with col_g1: gol_casa = st.number_input("⚽ Gol CASA", value=0, min_value=0)
-with col_g2: gol_trasf = st.number_input("⚽ Gol TRASF.", value=0, min_value=0)
+with col_g1:
+    gol_casa = st.number_input("⚽ Gol CASA", value=0, min_value=0)
+with col_g2:
+    gol_trasf = st.number_input("⚽ Gol TRASF.", value=0, min_value=0)
 
 col_r1, col_r2 = st.columns(2)
-with col_r1: rossi_casa = st.number_input("🟥 Rossi CASA", value=0, min_value=0, max_value=4)
-with col_r2: rossi_trasf = st.number_input("🟥 Rossi TRASF.", value=0, min_value=0, max_value=4)
+with col_r1:
+    rossi_casa = st.number_input("🟥 Rossi CASA", value=0, min_value=0, max_value=4)
+with col_r2:
+    rossi_trasf = st.number_input("🟥 Rossi TRASF.", value=0, min_value=0, max_value=4)
 
 st.divider()
 
@@ -116,18 +208,25 @@ cassa = st.number_input("💰 Tua Cassa (€)", value=1000.0, step=100.0)
 st.divider()
 
 if st.button("🚀 GENERA TARGET QUOTE", use_container_width=True, type="primary"):
-    
     with st.spinner("Calcolo Matrice Stocastica Dinamica..."):
+        # (1) mapping AH/Tot -> lambda rimanenti (gol attesi)
         xg1_base, xg2_base = calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur)
-        xg1_live, xg2_live = time_decay_dinamico(xg1_base, xg2_base, minuto_gioco, gol_casa, gol_trasf, rossi_casa, rossi_trasf)
-        
-        mc_1, mc_x, mc_2, mc_u, mc_o = monte_carlo_live_dinamico(xg1_live, xg2_live, gol_casa, gol_trasf, linea_target_ou, 10000)
-        
+
+        # (2) time-decay + score effects + red cards
+        xg1_live, xg2_live = time_decay_dinamico(
+            xg1_base, xg2_base, minuto_gioco, gol_casa, gol_trasf, rossi_casa, rossi_trasf
+        )
+
+        # (3) probabilita esatte Poisson (Win/Draw/Win + Under/Over)
+        mc_1, mc_x, mc_2, mc_u, mc_o = probabilita_poisson_esatta(
+            xg1_live, xg2_live, gol_casa, gol_trasf, linea_target_ou
+        )
+
         delta_ah = ah_cur - ah_op
         delta_tot = tot_cur - tot_op
 
     st.header(f"⚖️ Quote Reali (Min: {minuto_gioco}' | Ris: {gol_casa}-{gol_trasf})")
-    
+
     c_1, c_x, c_2 = st.columns(3)
     c_1.metric("1 (Casa)", f"@{calcola_quota_reale(mc_1):.2f}")
     c_x.metric("X (Pareggio)", f"@{calcola_quota_reale(mc_x):.2f}")
@@ -141,26 +240,35 @@ if st.button("🚀 GENERA TARGET QUOTE", use_container_width=True, type="primary
 
     st.header("🎯 AZIONI EXCHANGE RACCOMANDATE")
     segnali = False
-    stake = cassa * 0.025 
+    stake = cassa * 0.025
 
     if minuto_gioco >= 85:
         st.error("🛑 **FINE GIOCO:** Variabilità estrema, spread enormi sull'Exchange. Chiudere le posizioni o non entrare.")
         st.stop()
 
     if delta_ah <= -0.25:
-        st.success(f"🟢 **PUNTA 1:** I soldi sono su CASA. Punta se trovi la quota **> @{calcola_quota_reale(mc_1) * 1.05:.2f}**")
+        st.success(
+            f"🟢 **PUNTA 1:** I soldi sono su CASA. Punta se trovi la quota **> @{calcola_quota_reale(mc_1) * 1.05:.2f}**"
+        )
         st.write(f"Stake: € {stake:.2f}")
         segnali = True
     elif delta_ah >= 0.25:
-        st.success(f"🟢 **PUNTA 2:** I soldi sono su TRASFERTA. Punta se trovi la quota **> @{calcola_quota_reale(mc_2) * 1.05:.2f}**")
+        st.success(
+            f"🟢 **PUNTA 2:** I soldi sono su TRASF. Punta se trovi la quota **> @{calcola_quota_reale(mc_2) * 1.05:.2f}**"
+        )
         st.write(f"Stake: € {stake:.2f}")
         segnali = True
 
+    # Logica Totale (mantengo la tua struttura decisionale)
     if delta_tot >= 0.25 and (gol_casa + gol_trasf) < linea_target_ou:
-        st.warning(f"🔥 **PUNTA OVER {linea_target_ou}:** Punta se trovi la quota **> @{calcola_quota_reale(mc_o) * 1.05:.2f}**")
+        st.warning(
+            f"🔥 **PUNTA OVER {linea_target_ou}:** Punta se trovi la quota **> @{calcola_quota_reale(mc_o) * 1.05:.2f}**"
+        )
         segnali = True
     elif delta_tot <= -0.25 and (gol_casa + gol_trasf) < linea_target_ou:
-        st.info(f"🧊 **PUNTA UNDER {linea_target_ou}:** Punta se trovi la quota **> @{calcola_quota_reale(mc_u) * 1.05:.2f}**")
+        st.info(
+            f"🧊 **PUNTA UNDER {linea_target_ou}:** Punta se trovi la quota **> @{calcola_quota_reale(mc_u) * 1.05:.2f}**"
+        )
         segnali = True
 
     if not segnali:
