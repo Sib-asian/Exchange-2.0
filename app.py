@@ -14,11 +14,12 @@ def rho_dinamico(tot_cur, minuto):
     - Avanzare del minuto → i gol già osservati dominano l'informazione → rho scende
       (il modello dipende meno dalla struttura latente comune)
 
-    Range risultante: 0.03 (partita open late) → 0.20 (partita chiusa inizio gara)
+    Range risultante: ~0.03 (partita open late) → ~0.14 (partita chiusa inizio gara)
+    Nota: base = 0.14 - 0.018*tot_cur → massimo teorico 0.14 (a tot_cur=0, minuto=0).
     """
     base  = 0.14 - 0.018 * min(tot_cur, 4.5)
     decay = 1.0 - 0.40 * (minuto / 90.0)
-    return max(0.03, min(base * decay, 0.20))
+    return max(0.03, min(base * decay, 0.15))
 
 
 def dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=-0.13):
@@ -26,12 +27,12 @@ def dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=-0.13):
     Fattore correttivo Dixon-Coles per punteggi bassi rimanenti.
 
     Poisson indipendente sovrastima P(0-0) e sottostima P(1-0)/P(0-1).
-    tau(i,j) corregge solo per i punteggi con i+j <= 1:
+    tau(i,j) corregge solo per i 4 punteggi con i+j <= 2 (e i,j <= 1):
       tau(0,0) = 1 - lambda_h * lambda_a * rho_dc
       tau(1,0) = 1 + lambda_a * rho_dc
       tau(0,1) = 1 + lambda_h * rho_dc
       tau(1,1) = 1 - rho_dc
-      tau(i,j) = 1  per tutti gli altri punteggi
+      tau(i,j) = 1  per tutti gli altri punteggi (i+j > 2 o i>1 o j>1)
 
     rho_dc empiricamente negativo (-0.13): le due squadre tendono
     a non segnare simultaneamente.
@@ -314,14 +315,17 @@ def calcola_quota_reale(prob):
 
 def calcola_stake_kelly(prob_modello, quota_target, bankroll, frazione=0.5):
     """
-    Kelly frazionato: stake = bankroll * (edge / (quota-1)) * frazione
-    edge = prob_modello - 1/quota_target
+    Kelly frazionato: stake = bankroll * f* * frazione
+    Formula standard: f* = (p*Q - 1) / (Q - 1)
+      dove p = prob_modello, Q = quota_target (decimal odds)
+    Equivalentemente: f* = (b*p - (1-p)) / b  con b = Q-1 (net odds)
     Cap al 5% del bankroll. Restituisce 0 se edge <= 0.
     """
     edge = prob_modello - (1.0 / quota_target)
     if edge <= 0 or quota_target <= 1.0:
         return 0.0
-    kelly_pct = min(edge / (quota_target - 1.0), 0.05)
+    # Standard Kelly: (p*Q - 1) / (Q - 1)
+    kelly_pct = min((prob_modello * quota_target - 1.0) / (quota_target - 1.0), 0.05)
     return bankroll * kelly_pct * frazione
 
 
@@ -331,7 +335,7 @@ def calcola_stake_kelly(prob_modello, quota_target, bankroll, frazione=0.5):
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v42 · Dixon-Coles · Rho dinamico · Momentum · BTTS · Correct Score")
+st.caption("v43 · Dixon-Coles · Rho dinamico · Momentum stake · Kelly fix · Settled markets · BTTS No")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -442,6 +446,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     q_exc_o    = eqo.number_input(f"Quota Over {linea_target_ou}",  min_value=0.0, value=0.0, step=0.05, format="%.2f")
     q_exc_btts = eqb.number_input("Quota BTTS Sì",                  min_value=0.0, value=0.0, step=0.05, format="%.2f")
 
+    eqbn_col, _, _ = st.columns(3)
+    q_exc_btts_no = eqbn_col.number_input("Quota BTTS No",          min_value=0.0, value=0.0, step=0.05, format="%.2f")
+
     # ── SEGNALI ───────────────────────────────────────────────────────────────
     st.divider()
     st.header("Segnali Exchange")
@@ -475,6 +482,11 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     gol_mancanti = linea_target_ou - gol_attuali
     segnali      = False
 
+    # Fattore di riduzione stake in base al momentum:
+    # momentum > 4.0 = mercato estremo → possibili eventi non registrati → stake ridotta
+    # Scala lineare da 1.0 (momentum=0) a 0.4 (momentum=6.0)
+    momentum_stake_factor = max(0.4, 1.0 - 0.10 * max(0.0, momentum - 2.5))
+
     def _segnala(etichetta, prob_mod, q_fair, q_exc, soglia_min, tipo="success"):
         """
         Logica unificata per ogni mercato.
@@ -487,6 +499,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
           1. prob_mod > soglia_min  (modello sufficientemente convinto)
           2. edge > 0              (c'è valore reale)
           3. stake Kelly > 0       (bankroll management conferma)
+
+        Momentum adjustment: momentum > 2.5 riduce la stake proporzionalmente
+        per riflettere l'incertezza su eventi non ancora registrati.
         """
         nonlocal segnali
 
@@ -508,9 +523,12 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         if edge <= 0:
             return False
 
-        stake = calcola_stake_kelly(prob_mod, q_target, cassa)
-        if stake <= 0:
+        stake_raw = calcola_stake_kelly(prob_mod, q_target, cassa)
+        if stake_raw <= 0:
             return False
+
+        # Applica fattore momentum alla stake
+        stake = stake_raw * momentum_stake_factor
 
         edge_pct = edge * 100
         msg = (
@@ -529,7 +547,13 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         else:
             st.info(msg)
 
-        st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
+        if momentum_stake_factor < 1.0:
+            st.write(
+                f"Stake ½-Kelly: **€ {stake:.2f}** "
+                f"_(ridotta da € {stake_raw:.2f} · momentum {momentum:.1f}/6.0 · ×{momentum_stake_factor:.2f})_"
+            )
+        else:
+            st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
         segnali = True
         return True
 
@@ -550,16 +574,19 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         _segnala("PUNTA X — PAREGGIO", mc_x, calcola_quota_reale(mc_x), q_exc_x, soglia_min_1x2, "success")
 
     # Over
-    if gol_attuali < linea_target_ou:
-        if minuto_gioco >= 75 and gol_mancanti >= 2:
-            st.info(f"Over {linea_target_ou}: al {minuto_gioco}' mancano ancora {gol_mancanti:.0f} gol ({mc_o:.1%}). Troppo tardi.")
-        elif mc_o >= soglia_min_ou:
-            trovato = _segnala(f"OVER {linea_target_ou}", mc_o, calcola_quota_reale(mc_o), q_exc_o, soglia_min_ou, "warning")
-            if not trovato and q_exc_o > 1.0:
-                st.info(f"Over: modello {mc_o:.1%} vs exchange @{q_exc_o:.2f} — edge insufficiente.")
+    if gol_attuali >= linea_target_ou:
+        st.success(f"Over {linea_target_ou} già VINTO — {gol_attuali:.0f} gol segnati. Mercato chiuso.")
+    elif minuto_gioco >= 75 and gol_mancanti >= 2:
+        st.info(f"Over {linea_target_ou}: al {minuto_gioco}' mancano ancora {gol_mancanti:.0f} gol ({mc_o:.1%}). Troppo tardi.")
+    elif mc_o >= soglia_min_ou:
+        trovato = _segnala(f"OVER {linea_target_ou}", mc_o, calcola_quota_reale(mc_o), q_exc_o, soglia_min_ou, "warning")
+        if not trovato and q_exc_o > 1.0:
+            st.info(f"Over: modello {mc_o:.1%} vs exchange @{q_exc_o:.2f} — edge insufficiente.")
 
     # Under
-    if gol_attuali < linea_target_ou and mc_u >= soglia_min_ou:
+    if gol_attuali >= linea_target_ou:
+        st.error(f"Under {linea_target_ou} già PERSO — {gol_attuali:.0f} gol segnati. Mercato chiuso.")
+    elif mc_u >= soglia_min_ou:
         trovato = _segnala(f"UNDER {linea_target_ou}", mc_u, calcola_quota_reale(mc_u), q_exc_u, soglia_min_ou, "info")
         if not trovato and q_exc_u > 1.0:
             st.info(f"Under: modello {mc_u:.1%} vs exchange @{q_exc_u:.2f} — edge insufficiente.")
@@ -570,14 +597,13 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         if not trovato and q_exc_btts > 1.0:
             st.info(f"BTTS: modello {mc_btts:.1%} vs exchange @{q_exc_btts:.2f} — edge insufficiente.")
 
-    # BTTS No (solo se quota inserita)
+    # BTTS No (usa il campo dedicato q_exc_btts_no se inserito)
     mc_btts_no = 1.0 - mc_btts
-    if q_exc_btts > 1.0 and mc_btts_no >= soglia_min_btts:
-        # Ricaviamo quota fair BTTS No = 1/(1-mc_btts)
+    if mc_btts_no >= soglia_min_btts:
         q_fair_btts_no = calcola_quota_reale(mc_btts_no)
-        # L'exchange per BTTS No non è q_exc_btts ma il suo complemento — l'utente deve inserirlo separatamente
-        # Qui non possiamo calcolarlo, quindi usiamo solo il fair value
-        _segnala("BTTS No", mc_btts_no, q_fair_btts_no, 0.0, soglia_min_btts, "info")
+        trovato = _segnala("BTTS No", mc_btts_no, q_fair_btts_no, q_exc_btts_no, soglia_min_btts, "info")
+        if not trovato and q_exc_btts_no > 1.0:
+            st.info(f"BTTS No: modello {mc_btts_no:.1%} vs exchange @{q_exc_btts_no:.2f} — edge insufficiente.")
 
     # Avviso incoerenza Over + BTTS No
     if mc_o > 0.50 and mc_btts < 0.35 and gol_attuali < linea_target_ou:
@@ -598,21 +624,35 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     with st.expander("Parametri interni del motore"):
         col_l, col_r = st.columns(2)
         with col_l:
-            st.markdown("**Probabilita modello**")
+            st.markdown("**Probabilità modello**")
             st.write(f"P(1)       = {mc_1:.4f}")
             st.write(f"P(X)       = {mc_x:.4f}")
             st.write(f"P(2)       = {mc_2:.4f}")
+            sum_1x2 = mc_1 + mc_x + mc_2
+            ok_1x2  = "✅" if abs(sum_1x2 - 1.0) < 0.001 else "⚠️"
+            st.write(f"Σ(1+X+2)   = {sum_1x2:.4f} {ok_1x2}")
+            st.divider()
             st.write(f"P(U{linea_target_ou})  = {mc_u:.4f}")
             st.write(f"P(O{linea_target_ou})  = {mc_o:.4f}")
+            sum_ou  = mc_u + mc_o
+            ok_ou   = "✅" if abs(sum_ou - 1.0) < 0.001 else "⚠️"
+            st.write(f"Σ(U+O)     = {sum_ou:.4f} {ok_ou}")
+            st.divider()
             st.write(f"P(BTTS)    = {mc_btts:.4f}")
+            st.write(f"P(BTTSno)  = {1.0-mc_btts:.4f}")
         with col_r:
             st.markdown("**Parametri motore**")
             st.write(f"rho dinamico  = {rho_used:.4f}")
             st.write(f"lambda casa   = {xg1_live:.4f}")
             st.write(f"lambda trasf  = {xg2_live:.4f}")
+            st.write(f"xG base casa  = {xg1_base:.4f}")
+            st.write(f"xG base trasf = {xg2_base:.4f}")
+            st.divider()
             st.write(f"Soglia 1X2   = {soglia_min_1x2:.3f}")
             st.write(f"Soglia U/O   = {soglia_min_ou:.3f}")
             st.write(f"Soglia BTTS  = {soglia_min_btts:.3f}")
+            st.divider()
             st.write(f"Delta AH     = {delta_ah:+.2f}")
             st.write(f"Delta Tot    = {delta_tot:+.2f}")
             st.write(f"Momentum     = {momentum:.2f}/6.0")
+            st.write(f"Stake factor = ×{momentum_stake_factor:.2f}")
