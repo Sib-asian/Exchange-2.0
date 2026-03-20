@@ -360,28 +360,21 @@ if st.button("🚀 ANALIZZA", use_container_width=True, type="primary"):
     segnali      = False
 
     # ── 1X2 ──────────────────────────────────────────────────────────────────
-    def _emetti_segnale_1x2(prob, etichetta, emoji):
-        nonlocal segnali
-        q_fair   = calcola_quota_reale(prob)
-        q_target = q_fair * 1.05
-        stake    = calcola_stake_kelly(prob, q_target, cassa)
-        if stake > 0:
-            st.success(
-                f"{emoji} **{etichetta}**\n\n"
-                f"Prob. modello: **{prob:.1%}** · Quota fair: **@{q_fair:.2f}** · "
-                f"Entra solo se trovi **> @{q_target:.2f}**"
-            )
-            st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
-            segnali = True
-        else:
-            st.warning(
-                f"⚠️ {etichetta} segnalata dal mercato ma edge insufficiente "
-                f"(@{q_fair:.2f}). No bet."
-            )
-
     if delta_ah <= -0.25:
         if mc_1 > soglia_1x2 and (mc_1 - soglia_1x2 > 0.05 or minuto_gioco < 60):
-            _emetti_segnale_1x2(mc_1, "PUNTA 1 — CASA", "🟢")
+            q_fair   = calcola_quota_reale(mc_1)
+            q_target = q_fair * 1.05
+            stake    = calcola_stake_kelly(mc_1, q_target, cassa)
+            if stake > 0:
+                st.success(
+                    f"🟢 **PUNTA 1 — CASA**\n\n"
+                    f"Prob. modello: **{mc_1:.1%}** · Quota fair: **@{q_fair:.2f}** · "
+                    f"Entra solo se trovi **> @{q_target:.2f}**"
+                )
+                st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
+                segnali = True
+            else:
+                st.warning(f"⚠️ CASA segnalata dal mercato ma edge insufficiente (@{q_fair:.2f}). No bet.")
         else:
             st.info(
                 f"Mercato → CASA, ma modello: **{mc_1:.1%}** "
@@ -390,7 +383,19 @@ if st.button("🚀 ANALIZZA", use_container_width=True, type="primary"):
 
     elif delta_ah >= 0.25:
         if mc_2 > soglia_1x2 and (mc_2 - soglia_1x2 > 0.05 or minuto_gioco < 60):
-            _emetti_segnale_1x2(mc_2, "PUNTA 2 — TRASFERTA", "🟢")
+            q_fair   = calcola_quota_reale(mc_2)
+            q_target = q_fair * 1.05
+            stake    = calcola_stake_kelly(mc_2, q_target, cassa)
+            if stake > 0:
+                st.success(
+                    f"🟢 **PUNTA 2 — TRASFERTA**\n\n"
+                    f"Prob. modello: **{mc_2:.1%}** · Quota fair: **@{q_fair:.2f}** · "
+                    f"Entra solo se trovi **> @{q_target:.2f}**"
+                )
+                st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
+                segnali = True
+            else:
+                st.warning(f"⚠️ TRASF. segnalata dal mercato ma edge insufficiente (@{q_fair:.2f}). No bet.")
         else:
             st.info(
                 f"Mercato → TRASF., ma modello: **{mc_2:.1%}** "
