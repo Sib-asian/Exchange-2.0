@@ -503,7 +503,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         Momentum adjustment: momentum > 2.5 riduce la stake proporzionalmente
         per riflettere l'incertezza su eventi non ancora registrati.
         """
-        nonlocal segnali
+        global segnali
 
         if prob_mod < soglia_min:
             return False
