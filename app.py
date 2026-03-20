@@ -388,30 +388,21 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         delta_tot = tot_cur - tot_op
         momentum  = calcola_momentum_mercato(delta_ah, delta_tot, minuto_gioco)
 
-    # RIFERIMENTO MODELLO (sempre informativo, mai actionable)
-    has_movement = abs(delta_ah) >= 0.25 or abs(delta_tot) >= 0.25
+    # ── QUOTE FAIR (sempre visibili, sempre informative) ─────────────────────
+    st.header(f"Quote Fair  —  {minuto_gioco}' | {gol_casa}–{gol_trasf}")
+    st.caption("Riferimento del modello. Confrontale con quello che vedi sull'exchange.")
 
-    with st.expander(
-        "📐 Riferimento modello — quote fair e correct score" +
-        ("" if has_movement else "  *(nessun movimento — solo informativo)*"),
-        expanded=has_movement
-    ):
-        st.caption(
-            "Queste sono le quote calcolate dal motore sulla base delle linee inserite. "
-            "Non sono segnali di scommessa: servono solo come riferimento per valutare "
-            "se le quote del bookmaker/exchange hanno valore rispetto al modello."
-        )
-        c1, cx, c2 = st.columns(3)
-        c1.metric("1 — Casa",     f"@{calcola_quota_reale(mc_1):.2f}",  f"{mc_1:.1%}")
-        cx.metric("X — Pareggio", f"@{calcola_quota_reale(mc_x):.2f}", f"{mc_x:.1%}")
-        c2.metric("2 — Trasf.",   f"@{calcola_quota_reale(mc_2):.2f}", f"{mc_2:.1%}")
+    c1, cx, c2 = st.columns(3)
+    c1.metric("1 — Casa",     f"@{calcola_quota_reale(mc_1):.2f}",  f"{mc_1:.1%}")
+    cx.metric("X — Pareggio", f"@{calcola_quota_reale(mc_x):.2f}", f"{mc_x:.1%}")
+    c2.metric("2 — Trasf.",   f"@{calcola_quota_reale(mc_2):.2f}", f"{mc_2:.1%}")
 
-        cu, co, cb = st.columns(3)
-        cu.metric(f"Under {linea_target_ou}", f"@{calcola_quota_reale(mc_u):.2f}", f"{mc_u:.1%}")
-        co.metric(f"Over  {linea_target_ou}", f"@{calcola_quota_reale(mc_o):.2f}", f"{mc_o:.1%}")
-        cb.metric("BTTS — Si",               f"@{calcola_quota_reale(mc_btts):.2f}", f"{mc_btts:.1%}")
+    cu, co, cb = st.columns(3)
+    cu.metric(f"Under {linea_target_ou}", f"@{calcola_quota_reale(mc_u):.2f}", f"{mc_u:.1%}")
+    co.metric(f"Over  {linea_target_ou}", f"@{calcola_quota_reale(mc_o):.2f}", f"{mc_o:.1%}")
+    cb.metric("BTTS — Si",               f"@{calcola_quota_reale(mc_btts):.2f}", f"{mc_btts:.1%}")
 
-        st.markdown("**Correct Score — Top 5**")
+    with st.expander("Correct Score — Top 5"):
         cs_cols = st.columns(5)
         for idx, ((fc, ft), prob) in enumerate(top_cs):
             cs_cols[idx].metric(
@@ -420,189 +411,187 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                 delta=f"{prob:.1%}"
             )
 
-    # MOMENTUM
+    # ── MOMENTUM ─────────────────────────────────────────────────────────────
     st.divider()
-    st.header("Pressione di Mercato")
-
     if momentum < 1.0:
-        mom_label = f"Stabile — nessun movimento [{momentum:.2f}/6.0]"
+        mom_label = f"Mercato stabile [{momentum:.2f}/6.0]"
     elif momentum < 2.5:
-        mom_label = f"Moderato — qualcosa si muove [{momentum:.2f}/6.0]"
+        mom_label = f"Movimento moderato [{momentum:.2f}/6.0]"
     elif momentum < 4.0:
-        mom_label = f"Significativo — analizza il segnale [{momentum:.2f}/6.0]"
+        mom_label = f"Movimento significativo [{momentum:.2f}/6.0]"
     else:
-        mom_label = f"Estremo — info asimmetrica o evento non registrato [{momentum:.2f}/6.0]"
-
+        mom_label = f"Movimento estremo — verifica eventi non registrati [{momentum:.2f}/6.0]"
     st.progress(min(momentum / 6.0, 1.0), text=mom_label)
 
-    # SEGNALI — saltati completamente se non c'e' movimento
+    # ── QUOTE EXCHANGE (input utente) ─────────────────────────────────────────
+    st.divider()
+    st.header("Quote Exchange Attuali")
+    st.caption(
+        "Inserisci le quote che vedi ora sull'exchange. "
+        "Il motore calcola l'edge rispetto alla sua stima e segnala solo dove c'è valore reale. "
+        "Lascia a 0 i mercati che non ti interessano."
+    )
+
+    eq1, eqx, eq2 = st.columns(3)
+    q_exc_1 = eq1.number_input("Quota 1 (Casa)",     min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    q_exc_x = eqx.number_input("Quota X (Pareggio)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    q_exc_2 = eq2.number_input("Quota 2 (Trasf.)",   min_value=0.0, value=0.0, step=0.05, format="%.2f")
+
+    equ, eqo, eqb = st.columns(3)
+    q_exc_u    = equ.number_input(f"Quota Under {linea_target_ou}", min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    q_exc_o    = eqo.number_input(f"Quota Over {linea_target_ou}",  min_value=0.0, value=0.0, step=0.05, format="%.2f")
+    q_exc_btts = eqb.number_input("Quota BTTS Sì",                  min_value=0.0, value=0.0, step=0.05, format="%.2f")
+
+    # ── SEGNALI ───────────────────────────────────────────────────────────────
     st.divider()
     st.header("Segnali Exchange")
-
-    if not has_movement:
-        st.error(
-            "NO BET — Linee AH e Totale invariate rispetto all'apertura. "
-            "Nessun movimento di mercato da cui derivare un vantaggio algoritmico."
-        )
-        with st.expander("🔍 Parametri interni del motore"):
-            col_l, col_r = st.columns(2)
-            with col_l:
-                st.write(f"rho dinamico = {rho_used:.4f}")
-                st.write(f"lambda casa  = {xg1_live:.4f}")
-                st.write(f"lambda trasf = {xg2_live:.4f}")
-            with col_r:
-                st.write(f"Delta AH  = {delta_ah:+.2f}")
-                st.write(f"Delta Tot = {delta_tot:+.2f}")
-                st.write(f"Momentum  = {momentum:.2f}/6.0")
-        st.stop()
 
     if minuto_gioco >= 85:
         st.error("Fine partita — spread enormi, non entrare.")
         st.stop()
 
+    has_movement = abs(delta_ah) >= 0.25 or abs(delta_tot) >= 0.25
+    any_exc_quote = any(q > 1.0 for q in [q_exc_1, q_exc_x, q_exc_2, q_exc_u, q_exc_o, q_exc_btts])
+
+    if not has_movement and not any_exc_quote:
+        st.warning(
+            "Inserisci le quote che vedi sull'exchange (sezione sopra) oppure "
+            "aspetta un movimento di linea AH/Totale. "
+            "Senza almeno una delle due informazioni il motore non può calcolare edge."
+        )
+        with st.expander("Parametri interni"):
+            st.write(f"lambda casa = {xg1_live:.4f} · lambda trasf = {xg2_live:.4f} · rho = {rho_used:.4f}")
+            st.write(f"Delta AH = {delta_ah:+.2f} · Delta Tot = {delta_tot:+.2f}")
+        st.stop()
+
     frac_giocata = minuto_gioco / 90.0
-    soglia_1x2   = 0.45 + 0.15 * frac_giocata
-    soglia_ou    = 0.52 + 0.13 * frac_giocata
-    soglia_btts  = 0.50 + 0.10 * frac_giocata
+    # Soglie minime di probabilità — il modello deve essere sufficientemente
+    # sicuro prima di segnalare. Crescono col minuto (più tardi = più certezza richiesta).
+    soglia_min_1x2  = 0.40 + 0.15 * frac_giocata
+    soglia_min_ou   = 0.45 + 0.15 * frac_giocata
+    soglia_min_btts = 0.45 + 0.10 * frac_giocata
 
     gol_attuali  = gol_casa + gol_trasf
     gol_mancanti = linea_target_ou - gol_attuali
     segnali      = False
 
-    # Segnale 1X2
-    if delta_ah <= -0.25:
-        if mc_1 > soglia_1x2 and (mc_1 - soglia_1x2 > 0.05 or minuto_gioco < 60):
-            q_fair   = calcola_quota_reale(mc_1)
-            q_target = q_fair * 1.05
-            stake    = calcola_stake_kelly(mc_1, q_target, cassa)
-            if stake > 0:
-                st.success(
-                    f"PUNTA 1 — CASA\n\n"
-                    f"Prob. modello: **{mc_1:.1%}** · Quota fair: **@{q_fair:.2f}** · "
-                    f"Entra solo se trovi **> @{q_target:.2f}**"
-                )
-                st.write(f"Stake Kelly: **€ {stake:.2f}**")
-                segnali = True
-            else:
-                st.warning(f"CASA segnalata ma edge insufficiente (@{q_fair:.2f}). No bet.")
-        else:
-            st.info(
-                f"Mercato spinge CASA, ma modello: **{mc_1:.1%}** "
-                f"(soglia: {soglia_1x2:.0%}). Valore non confermato."
-            )
+    def _segnala(etichetta, prob_mod, q_fair, q_exc, soglia_min, tipo="success"):
+        """
+        Logica unificata per ogni mercato.
 
-    elif delta_ah >= 0.25:
-        if mc_2 > soglia_1x2 and (mc_2 - soglia_1x2 > 0.05 or minuto_gioco < 60):
-            q_fair   = calcola_quota_reale(mc_2)
-            q_target = q_fair * 1.05
-            stake    = calcola_stake_kelly(mc_2, q_target, cassa)
-            if stake > 0:
-                st.success(
-                    f"PUNTA 2 — TRASFERTA\n\n"
-                    f"Prob. modello: **{mc_2:.1%}** · Quota fair: **@{q_fair:.2f}** · "
-                    f"Entra solo se trovi **> @{q_target:.2f}**"
-                )
-                st.write(f"Stake Kelly: **€ {stake:.2f}**")
-                segnali = True
-            else:
-                st.warning(f"TRASF. segnalata ma edge insufficiente (@{q_fair:.2f}). No bet.")
-        else:
-            st.info(
-                f"Mercato spinge TRASF., ma modello: **{mc_2:.1%}** "
-                f"(soglia: {soglia_1x2:.0%}). Valore non confermato."
-            )
+        Fonti di segnale (OR logico — basta una):
+          A) Quote exchange inserita → edge diretto = prob_mod - 1/q_exc
+          B) Movimento di linea (delta) → confronto con fair value + margine 5%
 
-    # Segnale Over / Under
-    if delta_tot >= 0.25 and gol_attuali < linea_target_ou:
+        Il segnale si attiva solo se:
+          1. prob_mod > soglia_min  (modello sufficientemente convinto)
+          2. edge > 0              (c'è valore reale)
+          3. stake Kelly > 0       (bankroll management conferma)
+        """
+        nonlocal segnali
+
+        if prob_mod < soglia_min:
+            return False
+
+        # Determina quota target e fonte del segnale
+        if q_exc > 1.0:
+            # Fonte A: quota exchange reale inserita dall'utente
+            edge     = prob_mod - (1.0 / q_exc)
+            q_target = q_exc
+            fonte    = f"Exchange: @{q_exc:.2f}"
+        else:
+            # Fonte B: nessuna quota exchange — usa fair value + margine minimo 5%
+            edge     = prob_mod - (1.0 / (q_fair * 1.05))
+            q_target = q_fair * 1.05
+            fonte    = f"Fair + 5%: @{q_target:.2f}"
+
+        if edge <= 0:
+            return False
+
+        stake = calcola_stake_kelly(prob_mod, q_target, cassa)
+        if stake <= 0:
+            return False
+
+        edge_pct = edge * 100
+        msg = (
+            f"**{etichetta}**\n\n"
+            f"Prob. modello: **{prob_mod:.1%}** · "
+            f"Quota fair: **@{q_fair:.2f}** · "
+            f"Quota target: **@{q_target:.2f}** · "
+            f"Edge: **+{edge_pct:.1f}%** · "
+            f"Fonte: {fonte}"
+        )
+
+        if tipo == "success":
+            st.success(msg)
+        elif tipo == "warning":
+            st.warning(msg)
+        else:
+            st.info(msg)
+
+        st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
+        segnali = True
+        return True
+
+    # 1 — Casa
+    if mc_1 >= soglia_min_1x2:
+        trovato = _segnala("PUNTA 1 — CASA", mc_1, calcola_quota_reale(mc_1), q_exc_1, soglia_min_1x2, "success")
+        if not trovato and q_exc_1 > 1.0:
+            st.info(f"Casa: modello {mc_1:.1%} vs exchange @{q_exc_1:.2f} — edge insufficiente.")
+
+    # 2 — Trasferta
+    if mc_2 >= soglia_min_1x2:
+        trovato = _segnala("PUNTA 2 — TRASFERTA", mc_2, calcola_quota_reale(mc_2), q_exc_2, soglia_min_1x2, "success")
+        if not trovato and q_exc_2 > 1.0:
+            st.info(f"Trasf.: modello {mc_2:.1%} vs exchange @{q_exc_2:.2f} — edge insufficiente.")
+
+    # X — Pareggio (solo se quota inserita, troppo incerto senza)
+    if q_exc_x > 1.0 and mc_x >= soglia_min_1x2:
+        _segnala("PUNTA X — PAREGGIO", mc_x, calcola_quota_reale(mc_x), q_exc_x, soglia_min_1x2, "success")
+
+    # Over
+    if gol_attuali < linea_target_ou:
         if minuto_gioco >= 75 and gol_mancanti >= 2:
-            st.info(
-                f"Linea salita ma al {minuto_gioco}' mancano ancora {gol_mancanti:.0f} gol "
-                f"(P Over: {mc_o:.1%}). Troppo tardi."
-            )
-        elif mc_o > soglia_ou:
-            q_fair   = calcola_quota_reale(mc_o)
-            q_target = q_fair * 1.05
-            stake    = calcola_stake_kelly(mc_o, q_target, cassa)
-            if stake > 0:
-                st.warning(
-                    f"OVER {linea_target_ou}\n\n"
-                    f"Prob. modello: **{mc_o:.1%}** · Quota fair: **@{q_fair:.2f}** · "
-                    f"Entra solo se trovi **> @{q_target:.2f}**"
-                )
-                st.write(f"Stake Kelly: **€ {stake:.2f}**")
-                segnali = True
-            else:
-                st.info(f"Over segnalato ma edge insufficiente. No bet.")
-        else:
-            st.info(
-                f"Mercato spinge Over ma modello: **{mc_o:.1%}** "
-                f"(soglia: {soglia_ou:.0%}). No bet."
-            )
+            st.info(f"Over {linea_target_ou}: al {minuto_gioco}' mancano ancora {gol_mancanti:.0f} gol ({mc_o:.1%}). Troppo tardi.")
+        elif mc_o >= soglia_min_ou:
+            trovato = _segnala(f"OVER {linea_target_ou}", mc_o, calcola_quota_reale(mc_o), q_exc_o, soglia_min_ou, "warning")
+            if not trovato and q_exc_o > 1.0:
+                st.info(f"Over: modello {mc_o:.1%} vs exchange @{q_exc_o:.2f} — edge insufficiente.")
 
-    elif delta_tot <= -0.25 and gol_attuali < linea_target_ou:
-        if mc_u > soglia_ou:
-            q_fair   = calcola_quota_reale(mc_u)
-            q_target = q_fair * 1.05
-            stake    = calcola_stake_kelly(mc_u, q_target, cassa)
-            if stake > 0:
-                st.info(
-                    f"UNDER {linea_target_ou}\n\n"
-                    f"Prob. modello: **{mc_u:.1%}** · Quota fair: **@{q_fair:.2f}** · "
-                    f"Entra solo se trovi **> @{q_target:.2f}**"
-                )
-                st.write(f"Stake Kelly: **€ {stake:.2f}**")
-                segnali = True
-            else:
-                st.info(f"Under segnalato ma edge insufficiente. No bet.")
-        else:
-            st.info(
-                f"Mercato spinge Under ma modello: **{mc_u:.1%}** "
-                f"(soglia: {soglia_ou:.0%}). No bet."
-            )
+    # Under
+    if gol_attuali < linea_target_ou and mc_u >= soglia_min_ou:
+        trovato = _segnala(f"UNDER {linea_target_ou}", mc_u, calcola_quota_reale(mc_u), q_exc_u, soglia_min_ou, "info")
+        if not trovato and q_exc_u > 1.0:
+            st.info(f"Under: modello {mc_u:.1%} vs exchange @{q_exc_u:.2f} — edge insufficiente.")
 
-    # Segnale BTTS
-    if delta_tot >= 0.25 and mc_btts > soglia_btts:
-        q_fair   = calcola_quota_reale(mc_btts)
-        q_target = q_fair * 1.05
-        stake    = calcola_stake_kelly(mc_btts, q_target, cassa)
-        if stake > 0:
-            st.warning(
-                f"BTTS — Entrambe Segnano\n\n"
-                f"Prob. modello: **{mc_btts:.1%}** · Quota fair: **@{q_fair:.2f}** · "
-                f"Entra solo se trovi **> @{q_target:.2f}**"
-            )
-            st.write(f"Stake Kelly: **€ {stake:.2f}**")
-            segnali = True
+    # BTTS Sì
+    if mc_btts >= soglia_min_btts:
+        trovato = _segnala("BTTS — Entrambe Segnano", mc_btts, calcola_quota_reale(mc_btts), q_exc_btts, soglia_min_btts, "warning")
+        if not trovato and q_exc_btts > 1.0:
+            st.info(f"BTTS: modello {mc_btts:.1%} vs exchange @{q_exc_btts:.2f} — edge insufficiente.")
 
-    elif delta_tot <= -0.25 and (1.0 - mc_btts) > soglia_btts:
-        mc_btts_no = 1.0 - mc_btts
-        q_fair     = calcola_quota_reale(mc_btts_no)
-        q_target   = q_fair * 1.05
-        stake      = calcola_stake_kelly(mc_btts_no, q_target, cassa)
-        if stake > 0:
-            st.info(
-                f"BTTS No — Non Entrambe Segnano\n\n"
-                f"Prob. modello: **{mc_btts_no:.1%}** · Quota fair: **@{q_fair:.2f}** · "
-                f"Entra solo se trovi **> @{q_target:.2f}**"
-            )
-            st.write(f"Stake Kelly: **€ {stake:.2f}**")
-            segnali = True
+    # BTTS No (solo se quota inserita)
+    mc_btts_no = 1.0 - mc_btts
+    if q_exc_btts > 1.0 and mc_btts_no >= soglia_min_btts:
+        # Ricaviamo quota fair BTTS No = 1/(1-mc_btts)
+        q_fair_btts_no = calcola_quota_reale(mc_btts_no)
+        # L'exchange per BTTS No non è q_exc_btts ma il suo complemento — l'utente deve inserirlo separatamente
+        # Qui non possiamo calcolarlo, quindi usiamo solo il fair value
+        _segnala("BTTS No", mc_btts_no, q_fair_btts_no, 0.0, soglia_min_btts, "info")
 
     # Avviso incoerenza Over + BTTS No
-    if delta_tot >= 0.25 and mc_o > soglia_ou and mc_btts < 0.35:
+    if mc_o > 0.50 and mc_btts < 0.35 and gol_attuali < linea_target_ou:
         st.warning(
-            f"Attenzione: modello segnala Over {linea_target_ou} "
-            f"ma assegna solo {mc_btts:.0%} a BTTS. "
-            f"Over senza BTTS richiede gol multipli dalla stessa squadra — verifica le linee."
+            f"Incoerenza: modello vede Over {linea_target_ou} probabile ({mc_o:.0%}) "
+            f"ma BTTS solo {mc_btts:.0%}. "
+            f"Over senza BTTS richiede gol multipli dalla stessa squadra."
         )
 
     if not segnali:
-        msg = (
-            "NO BET — Linee stabili, nessun movimento di mercato."
-            if delta_ah == 0 and delta_tot == 0 else
-            "NO BET — Movimento di linea non confermato dal modello con probabilita sufficiente."
+        st.error(
+            "NO BET — Nessun mercato presenta edge sufficiente con i dati inseriti. "
+            "Prova ad aggiornare le quote exchange o attendi un movimento di linea."
         )
-        st.error(msg)
 
     # DEBUG
     st.divider()
@@ -621,9 +610,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
             st.write(f"rho dinamico  = {rho_used:.4f}")
             st.write(f"lambda casa   = {xg1_live:.4f}")
             st.write(f"lambda trasf  = {xg2_live:.4f}")
-            st.write(f"Soglia 1X2   = {soglia_1x2:.3f}")
-            st.write(f"Soglia U/O   = {soglia_ou:.3f}")
-            st.write(f"Soglia BTTS  = {soglia_btts:.3f}")
+            st.write(f"Soglia 1X2   = {soglia_min_1x2:.3f}")
+            st.write(f"Soglia U/O   = {soglia_min_ou:.3f}")
+            st.write(f"Soglia BTTS  = {soglia_min_btts:.3f}")
             st.write(f"Delta AH     = {delta_ah:+.2f}")
             st.write(f"Delta Tot    = {delta_tot:+.2f}")
             st.write(f"Momentum     = {momentum:.2f}/6.0")
