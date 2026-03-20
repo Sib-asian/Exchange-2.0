@@ -86,8 +86,19 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
     prima del blend: entrambi gli input diventano omogenei (gol rimanenti).
     """
     frac_rimasta = max(0.05, (90.0 - minuto) / 90.0)
-    ah_bayes  = (ah_op  * frac_rimasta) * 0.35 + ah_cur  * 0.65
-    tot_bayes = max(0.2, (tot_op * frac_rimasta) * 0.35 + tot_cur * 0.65)
+
+    # Se non c'e' movimento di linea, usa direttamente i valori correnti
+    # senza blend: il blend con frac_rimasta creerebbe deriva artificiale
+    # su linee piatte (le quote cambierebbero col solo passare del minuto
+    # anche senza nessuna informazione nuova dal mercato).
+    delta_ah_inner  = abs(ah_cur  - ah_op)
+    delta_tot_inner = abs(tot_cur - tot_op)
+    if delta_ah_inner < 1e-6 and delta_tot_inner < 1e-6:
+        ah_bayes  = float(ah_cur)
+        tot_bayes = max(0.2, float(tot_cur))
+    else:
+        ah_bayes  = (ah_op  * frac_rimasta) * 0.35 + ah_cur  * 0.65
+        tot_bayes = max(0.2, (tot_op * frac_rimasta) * 0.35 + tot_cur * 0.65)
     eps = 1e-6
 
     def _pmf_ev(mu):
@@ -377,49 +388,73 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         delta_tot = tot_cur - tot_op
         momentum  = calcola_momentum_mercato(delta_ah, delta_tot, minuto_gioco)
 
-    # QUOTE FAIR
-    st.header(f"Quote Fair  —  {minuto_gioco}' | {gol_casa}–{gol_trasf}")
+    # RIFERIMENTO MODELLO (sempre informativo, mai actionable)
+    has_movement = abs(delta_ah) >= 0.25 or abs(delta_tot) >= 0.25
 
-    c1, cx, c2 = st.columns(3)
-    c1.metric("1 — Casa",     f"@{calcola_quota_reale(mc_1):.2f}",  f"{mc_1:.1%}")
-    cx.metric("X — Pareggio", f"@{calcola_quota_reale(mc_x):.2f}", f"{mc_x:.1%}")
-    c2.metric("2 — Trasf.",   f"@{calcola_quota_reale(mc_2):.2f}", f"{mc_2:.1%}")
-
-    cu, co, cb = st.columns(3)
-    cu.metric(f"Under {linea_target_ou}", f"@{calcola_quota_reale(mc_u):.2f}", f"{mc_u:.1%}")
-    co.metric(f"Over  {linea_target_ou}", f"@{calcola_quota_reale(mc_o):.2f}", f"{mc_o:.1%}")
-    cb.metric("BTTS — Si",               f"@{calcola_quota_reale(mc_btts):.2f}", f"{mc_btts:.1%}")
-
-    # CORRECT SCORE
-    st.divider()
-    st.header("Correct Score — Top 5")
-
-    cs_cols = st.columns(5)
-    for idx, ((fc, ft), prob) in enumerate(top_cs):
-        cs_cols[idx].metric(
-            label=f"{fc}–{ft}",
-            value=f"@{calcola_quota_reale(prob):.1f}",
-            delta=f"{prob:.1%}"
+    with st.expander(
+        "📐 Riferimento modello — quote fair e correct score" +
+        ("" if has_movement else "  *(nessun movimento — solo informativo)*"),
+        expanded=has_movement
+    ):
+        st.caption(
+            "Queste sono le quote calcolate dal motore sulla base delle linee inserite. "
+            "Non sono segnali di scommessa: servono solo come riferimento per valutare "
+            "se le quote del bookmaker/exchange hanno valore rispetto al modello."
         )
+        c1, cx, c2 = st.columns(3)
+        c1.metric("1 — Casa",     f"@{calcola_quota_reale(mc_1):.2f}",  f"{mc_1:.1%}")
+        cx.metric("X — Pareggio", f"@{calcola_quota_reale(mc_x):.2f}", f"{mc_x:.1%}")
+        c2.metric("2 — Trasf.",   f"@{calcola_quota_reale(mc_2):.2f}", f"{mc_2:.1%}")
+
+        cu, co, cb = st.columns(3)
+        cu.metric(f"Under {linea_target_ou}", f"@{calcola_quota_reale(mc_u):.2f}", f"{mc_u:.1%}")
+        co.metric(f"Over  {linea_target_ou}", f"@{calcola_quota_reale(mc_o):.2f}", f"{mc_o:.1%}")
+        cb.metric("BTTS — Si",               f"@{calcola_quota_reale(mc_btts):.2f}", f"{mc_btts:.1%}")
+
+        st.markdown("**Correct Score — Top 5**")
+        cs_cols = st.columns(5)
+        for idx, ((fc, ft), prob) in enumerate(top_cs):
+            cs_cols[idx].metric(
+                label=f"{fc}–{ft}",
+                value=f"@{calcola_quota_reale(prob):.1f}",
+                delta=f"{prob:.1%}"
+            )
 
     # MOMENTUM
     st.divider()
     st.header("Pressione di Mercato")
 
     if momentum < 1.0:
-        mom_label = f"Stabile — nessun segnale [{momentum:.2f}/6.0]"
+        mom_label = f"Stabile — nessun movimento [{momentum:.2f}/6.0]"
     elif momentum < 2.5:
         mom_label = f"Moderato — qualcosa si muove [{momentum:.2f}/6.0]"
     elif momentum < 4.0:
-        mom_label = f"Significativo — segnale da analizzare [{momentum:.2f}/6.0]"
+        mom_label = f"Significativo — analizza il segnale [{momentum:.2f}/6.0]"
     else:
         mom_label = f"Estremo — info asimmetrica o evento non registrato [{momentum:.2f}/6.0]"
 
     st.progress(min(momentum / 6.0, 1.0), text=mom_label)
 
-    # SEGNALI
+    # SEGNALI — saltati completamente se non c'e' movimento
     st.divider()
     st.header("Segnali Exchange")
+
+    if not has_movement:
+        st.error(
+            "NO BET — Linee AH e Totale invariate rispetto all'apertura. "
+            "Nessun movimento di mercato da cui derivare un vantaggio algoritmico."
+        )
+        with st.expander("🔍 Parametri interni del motore"):
+            col_l, col_r = st.columns(2)
+            with col_l:
+                st.write(f"rho dinamico = {rho_used:.4f}")
+                st.write(f"lambda casa  = {xg1_live:.4f}")
+                st.write(f"lambda trasf = {xg2_live:.4f}")
+            with col_r:
+                st.write(f"Delta AH  = {delta_ah:+.2f}")
+                st.write(f"Delta Tot = {delta_tot:+.2f}")
+                st.write(f"Momentum  = {momentum:.2f}/6.0")
+        st.stop()
 
     if minuto_gioco >= 85:
         st.error("Fine partita — spread enormi, non entrare.")
