@@ -2,183 +2,53 @@ import streamlit as st
 import math
 
 # ==========================================
-# ⚙️ MOTORE MATEMATICO
+# ⚙️ FUNZIONI DI SUPPORTO
 # ==========================================
 
-def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
+def rho_dinamico(tot_cur, minuto):
     """
-    FIX BUG 1 — normalizzazione temporale prima del blend bayesiano.
+    Correlazione comune bivariata non più fissa a 0.12.
 
-    Il problema originale: tot_op (full 90') e tot_cur (gol rimanenti) vivono
-    su scale diverse. Blendarli direttamente produce un λ senza senso fisico.
+    Logica:
+    - tot_cur alto → partita aperta → le squadre segnano più indipendentemente → rho scende
+    - Avanzare del minuto → i gol già osservati dominano l'informazione → rho scende
+      (il modello dipende meno dalla struttura latente comune)
 
-    Soluzione: scaliamo la linea di apertura al tempo rimanente prima del blend,
-    in modo che entrambi gli input rappresentino la stessa cosa: gol attesi
-    dal minuto attuale al 90'.
-
-    tot_op_rem = tot_op × (90 − minuto) / 90
-    ah_op_rem  = ah_op  × (90 − minuto) / 90
-
-    Il blend 35/65 opera poi su grandezze omogenee.
+    Range risultante: 0.03 (partita open late) → 0.20 (partita chiusa inizio gara)
     """
-    peso_prior     = 0.35
-    peso_evidenza  = 0.65
-
-    frac_rimasta   = max(0.05, (90.0 - minuto) / 90.0)
-    tot_op_rem     = tot_op * frac_rimasta
-    ah_op_rem      = ah_op  * frac_rimasta
-
-    ah_bayes  = ah_op_rem * peso_prior + ah_cur * peso_evidenza
-    tot_bayes = tot_op_rem * peso_prior + tot_cur * peso_evidenza
-    tot_bayes = max(0.2, float(tot_bayes))
-
-    eps = 1e-6
-
-    def _poisson_pmf_for_ev(mu):
-        tail_mass = 1e-12
-        if mu <= 0:
-            return [1.0]
-        max_k = int(max(20.0, mu * 8.0 + 40.0))
-        max_k = min(max_k, 300)
-        p = math.exp(-mu)
-        pmfs   = [p]
-        cumsum = p
-        k = 0
-        while cumsum < (1.0 - tail_mass) and k < max_k:
-            k += 1
-            p = p * mu / k
-            pmfs.append(p)
-            cumsum += p
-        pmfs = [x / cumsum for x in pmfs]
-        return pmfs
-
-    def _asian_ev_half(mu_home, mu_away, h_half):
-        pmf_h = _poisson_pmf_for_ev(mu_home)
-        pmf_a = _poisson_pmf_for_ev(mu_away)
-        ev = 0.0
-        for i, pi in enumerate(pmf_h):
-            if pi < 1e-18:
-                continue
-            for j, pj in enumerate(pmf_a):
-                if pj < 1e-18:
-                    continue
-                s = (i - j) + h_half
-                prob = pi * pj
-                if s > 0:
-                    ev += prob
-                elif s < 0:
-                    ev -= prob
-        return ev
-
-    def _asian_ev(mu_home, mu_away, ah):
-        ah2 = float(ah) * 2.0
-        if abs(ah2 - round(ah2)) < 1e-9:
-            return _asian_ev_half(mu_home, mu_away, float(ah))
-        h1 = math.floor(ah2) / 2.0
-        h2 = h1 + 0.5
-        return 0.5 * _asian_ev_half(mu_home, mu_away, h1) + \
-               0.5 * _asian_ev_half(mu_home, mu_away, h2)
-
-    def _ev_for_delta(delta):
-        lam_h = max(eps, 0.5 * (tot_bayes + delta))
-        lam_a = max(eps, 0.5 * (tot_bayes - delta))
-        return _asian_ev(lam_h, lam_a, ah_bayes)
-
-    lo    = -tot_bayes + eps
-    hi    =  tot_bayes - eps
-    ev_lo = _ev_for_delta(lo)
-    ev_hi = _ev_for_delta(hi)
-
-    if ev_lo == 0.0:
-        delta_star = lo
-    elif ev_hi == 0.0:
-        delta_star = hi
-    elif ev_lo * ev_hi > 0:
-        delta_star = lo if abs(ev_lo) < abs(ev_hi) else hi
-    else:
-        increasing = ev_hi > ev_lo
-        delta_l, delta_r = lo, hi
-        for _ in range(18):
-            mid    = 0.5 * (delta_l + delta_r)
-            ev_mid = _ev_for_delta(mid)
-            if increasing:
-                if ev_mid > 0:
-                    delta_r = mid
-                else:
-                    delta_l = mid
-            else:
-                if ev_mid > 0:
-                    delta_l = mid
-                else:
-                    delta_r = mid
-        delta_star = 0.5 * (delta_l + delta_r)
-
-    lambda_casa  = max(eps, 0.5 * (tot_bayes + delta_star))
-    lambda_trasf = max(eps, 0.5 * (tot_bayes - delta_star))
-    return lambda_casa, lambda_trasf
+    base  = 0.14 - 0.018 * min(tot_cur, 4.5)
+    decay = 1.0 - 0.40 * (minuto / 90.0)
+    return max(0.03, min(base * decay, 0.20))
 
 
-def time_decay_dinamico(xg_casa, xg_trasf, minuto,
-                        gol_casa, gol_trasf, rossi_casa, rossi_trasf):
+def dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=-0.13):
     """
-    FIX BUG 2 — score effect rimosso (già prezzato nell'AH live).
-    FIX BUG 3 — red card senza moltiplicatore frac.
+    Fattore correttivo Dixon-Coles per punteggi bassi rimanenti.
 
-    Principio: la linea AH corrente che l'utente inserisce riflette
-    già il punteggio attuale. Applicare di nuovo uno score effect
-    significa conteggiarlo due volte.
+    Poisson indipendente sovrastima P(0-0) e sottostima P(1-0)/P(0-1).
+    tau(i,j) corregge solo per i punteggi con i+j <= 1:
+      tau(0,0) = 1 - lambda_h * lambda_a * rho_dc
+      tau(1,0) = 1 + lambda_a * rho_dc
+      tau(0,1) = 1 + lambda_h * rho_dc
+      tau(1,1) = 1 - rho_dc
+      tau(i,j) = 1  per tutti gli altri punteggi
 
-    Manteniamo solo un residuale comportamentale piccolo (max ±12%)
-    per catturare l'urgency emotiva non ancora completamente prezzata.
-
-    Red cards: l'effetto sul rate di gol rimanenti è costante dal
-    momento dell'espulsione in poi, non deve scemare col tempo.
-    math.pow(0.68, n_rossi) senza frac.
+    rho_dc empiricamente negativo (-0.13): le due squadre tendono
+    a non segnare simultaneamente.
     """
-    if minuto >= 90:
-        return 0.001, 0.001
-
-    # 1. Decadimento Weibull base
-    fattore_tempo = math.pow((90.0 - minuto) / 90.0, 0.85)
-    xg_c_live = xg_casa * fattore_tempo
-    xg_t_live = xg_trasf * fattore_tempo
-
-    # 2. Score effect RESIDUALE (solo componente comportamentale ≤ 12%)
-    diff = gol_casa - gol_trasf
-    if diff != 0:
-        sat      = abs(diff) / (2.0 + abs(diff))   # satura più lentamente
-        residual = 0.12 * sat                        # max +12% / -12%
-        if diff < 0:   # casa perde → spinge
-            xg_c_live *= (1.0 + residual)
-            xg_t_live *= (1.0 - residual)
-        else:          # trasf. perde → spinge
-            xg_t_live *= (1.0 + residual)
-            xg_c_live *= (1.0 - residual)
-
-    # 3. Red cards — effetto costante sul rate rimanente
-    if rossi_casa > 0:
-        xg_c_live *= math.pow(0.68, rossi_casa)   # casa perde potere offensivo
-        xg_t_live *= math.pow(1.28, rossi_casa)   # avversario ne approfitta
-    if rossi_trasf > 0:
-        xg_t_live *= math.pow(0.68, rossi_trasf)
-        xg_c_live *= math.pow(1.28, rossi_trasf)
-
-    return max(0.001, xg_c_live), max(0.001, xg_t_live)
+    if   i == 0 and j == 0: return max(1e-6, 1.0 - mu_h * mu_a * rho_dc)
+    elif i == 1 and j == 0: return max(1e-6, 1.0 + mu_a * rho_dc)
+    elif i == 0 and j == 1: return max(1e-6, 1.0 + mu_h * rho_dc)
+    elif i == 1 and j == 1: return max(1e-6, 1.0 - rho_dc)
+    return 1.0
 
 
-# ==========================================
-# 🎲 PROBABILITÀ ESATTE — Poisson bivariata
-# ==========================================
-
-def _poisson_pmf_normalized(mu, tail_mass=1e-12, max_k=None):
+def _poisson_pmf_norm(mu, tail_mass=1e-12):
     if mu <= 0:
         return [1.0]
-    if max_k is None:
-        max_k = min(int(max(20, mu * 12.0 + 60)), 500)
-    p0     = math.exp(-mu)
-    pmfs   = [p0]
-    cumsum = p0
-    k, p   = 0, p0
+    max_k = min(int(max(20, mu * 12.0 + 60)), 500)
+    p0 = math.exp(-mu)
+    pmfs, cumsum, k, p = [p0], p0, 0, p0
     while cumsum < (1.0 - tail_mass) and k < max_k:
         k += 1
         p = p * mu / k
@@ -187,65 +57,245 @@ def _poisson_pmf_normalized(mu, tail_mass=1e-12, max_k=None):
     return [x / cumsum for x in pmfs]
 
 
-def probabilita_poisson_esatta(mu_casa_rem, mu_trasf_rem,
-                                gol_casa, gol_trasf, linea_ou):
-    mu_casa_rem  = max(1e-9, float(mu_casa_rem))
-    mu_trasf_rem = max(1e-9, float(mu_trasf_rem))
+def calcola_momentum_mercato(delta_ah, delta_tot, minuto):
+    """
+    Indice 0-6 di intensita del movimento di mercato relativo al tempo giocato.
 
-    rho_corr = 0.12
-    min_mu   = min(mu_casa_rem, mu_trasf_rem)
-    lambda0  = max(0.0, min(rho_corr * min_mu, 0.95 * min_mu))
+    Un grande delta early-game vale di piu di uno late-game:
+    - early: il mercato ha ricevuto informazione non ancora scontata
+    - late: gran parte dell'informazione e gia incorporata nelle quote
 
-    mu_c_ind = max(1e-9, mu_casa_rem  - lambda0)
-    mu_t_ind = max(1e-9, mu_trasf_rem - lambda0)
+    Soglie interpretative:
+    - 0.0-1.0  Mercato stabile
+    - 1.0-2.5  Movimento moderato
+    - 2.5-4.0  Movimento significativo
+    - 4.0+     Movimento estremo (infortuni, rossi non registrati, info asimmetrica)
+    """
+    frac = max(0.10, minuto / 90.0)
+    return min((abs(delta_ah) + abs(delta_tot) * 0.5) / frac, 6.0)
 
-    pmf_c = _poisson_pmf_normalized(mu_c_ind)
-    pmf_t = _poisson_pmf_normalized(mu_t_ind)
 
-    p1 = px = p2 = 0.0
-    for i, pi in enumerate(pmf_c):
-        if pi < 1e-16:
-            continue
-        for j, pj in enumerate(pmf_t):
-            if pj < 1e-16:
-                continue
-            tc = gol_casa  + i
-            tt = gol_trasf + j
-            if tc > tt:
-                p1 += pi * pj
-            elif tc == tt:
-                px += pi * pj
+# ==========================================
+# CALIBRAZIONE BAYESIANA
+# ==========================================
+
+def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
+    """
+    Blend bayesiano 35/65 con normalizzazione temporale.
+    Scala la linea di apertura (full 90') al tempo rimanente
+    prima del blend: entrambi gli input diventano omogenei (gol rimanenti).
+    """
+    frac_rimasta = max(0.05, (90.0 - minuto) / 90.0)
+    ah_bayes  = (ah_op  * frac_rimasta) * 0.35 + ah_cur  * 0.65
+    tot_bayes = max(0.2, (tot_op * frac_rimasta) * 0.35 + tot_cur * 0.65)
+    eps = 1e-6
+
+    def _pmf_ev(mu):
+        if mu <= 0: return [1.0]
+        max_k = min(int(max(20, mu * 8 + 40)), 300)
+        p = math.exp(-mu); pmfs = [p]; cum = p; k = 0
+        while cum < 1 - 1e-12 and k < max_k:
+            k += 1; p = p * mu / k; pmfs.append(p); cum += p
+        return [x / cum for x in pmfs]
+
+    def _ah_ev_half(mh, ma, h):
+        ev = 0.0
+        for i, pi in enumerate(_pmf_ev(mh)):
+            if pi < 1e-18: continue
+            for j, pj in enumerate(_pmf_ev(ma)):
+                if pj < 1e-18: continue
+                s = (i - j) + h
+                if s > 0: ev += pi * pj
+                elif s < 0: ev -= pi * pj
+        return ev
+
+    def _ah_ev(mh, ma, ah):
+        ah2 = float(ah) * 2.0
+        if abs(ah2 - round(ah2)) < 1e-9:
+            return _ah_ev_half(mh, ma, float(ah))
+        h1 = math.floor(ah2) / 2.0
+        return 0.5 * _ah_ev_half(mh, ma, h1) + 0.5 * _ah_ev_half(mh, ma, h1 + 0.5)
+
+    def _ev(delta):
+        lh = max(eps, 0.5 * (tot_bayes + delta))
+        la = max(eps, 0.5 * (tot_bayes - delta))
+        return _ah_ev(lh, la, ah_bayes)
+
+    lo, hi       = -tot_bayes + eps, tot_bayes - eps
+    ev_lo, ev_hi = _ev(lo), _ev(hi)
+
+    if ev_lo == 0.0:
+        delta_star = lo
+    elif ev_hi == 0.0:
+        delta_star = hi
+    elif ev_lo * ev_hi > 0:
+        delta_star = lo if abs(ev_lo) < abs(ev_hi) else hi
+    else:
+        inc = ev_hi > ev_lo
+        dl, dr = lo, hi
+        for _ in range(18):
+            m  = 0.5 * (dl + dr)
+            em = _ev(m)
+            if inc:
+                if em > 0: dr = m
+                else:      dl = m
             else:
-                p2 += pi * pj
+                if em > 0: dl = m
+                else:      dr = m
+        delta_star = 0.5 * (dl + dr)
 
-    psum = p1 + px + p2
-    if psum > 0:
-        p1 /= psum; px /= psum; p2 /= psum
+    return max(eps, 0.5*(tot_bayes+delta_star)), max(eps, 0.5*(tot_bayes-delta_star))
 
-    S      = gol_casa + gol_trasf
-    pmf_z  = _poisson_pmf_normalized(lambda0)
-    pmf_w  = _poisson_pmf_normalized(mu_c_ind + mu_t_ind)
 
-    prefix = [0.0]
-    c = 0.0
-    for p in pmf_w:
-        c += p
-        prefix.append(c)
+# ==========================================
+# TIME DECAY + SCORE EFFECTS + RED CARDS
+# ==========================================
 
-    p_under = 0.0
-    for z, pz in enumerate(pmf_z):
-        if pz < 1e-16:
-            continue
-        mk = int(math.floor(float(linea_ou) - S - 2 * z))
-        if mk < 0:
-            continue
-        p_under += pz * (1.0 if mk >= len(pmf_w) - 1 else prefix[mk + 1])
+def time_decay_dinamico(xg_casa, xg_trasf, minuto,
+                         gol_casa, gol_trasf, rossi_casa, rossi_trasf):
+    """
+    - Decadimento Weibull sul tempo rimanente
+    - Score effect residuale max 12% (il grosso e gia nell'AH live)
+    - Red cards con effetto costante (senza moltiplicatore frac)
+    """
+    if minuto >= 90:
+        return 0.001, 0.001
 
+    fattore_tempo = math.pow((90.0 - minuto) / 90.0, 0.85)
+    xg_c = xg_casa  * fattore_tempo
+    xg_t = xg_trasf * fattore_tempo
+
+    diff = gol_casa - gol_trasf
+    if diff != 0:
+        sat      = abs(diff) / (2.0 + abs(diff))
+        residual = 0.12 * sat
+        if diff < 0:
+            xg_c *= (1.0 + residual)
+            xg_t *= (1.0 - residual)
+        else:
+            xg_t *= (1.0 + residual)
+            xg_c *= (1.0 - residual)
+
+    if rossi_casa > 0:
+        xg_c *= math.pow(0.68, rossi_casa)
+        xg_t *= math.pow(1.28, rossi_casa)
+    if rossi_trasf > 0:
+        xg_t *= math.pow(0.68, rossi_trasf)
+        xg_c *= math.pow(1.28, rossi_trasf)
+
+    return max(0.001, xg_c), max(0.001, xg_t)
+
+
+# ==========================================
+# CALCOLO PROBABILITA — UN UNICO PASSAGGIO
+# ==========================================
+
+def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, minuto):
+    """
+    Costruisce la matrice bivariata completa una volta sola e ne ricava
+    in un unico passaggio: 1X2, U/O, BTTS, Correct Score top-5.
+
+    Modello bivariate Poisson:
+      X_rem = X_ind + Z    (gol rimanenti casa)
+      Y_rem = Y_ind + Z    (gol rimanenti trasf.)
+      X_ind ~ Poisson(mu_c_ind)
+      Y_ind ~ Poisson(mu_t_ind)
+      Z     ~ Poisson(lambda0)   con lambda0 = rho_dinamico * min(mu_c, mu_t)
+
+    Novita v42:
+      - rho dinamico (non piu fisso 0.12)
+      - correzione Dixon-Coles sulle componenti indipendenti per i punteggi
+        bassi (0-0, 1-0, 0-1, 1-1): maggiore precisione a bassa intensita di gol
+    """
+    mu_c_rem = max(1e-9, float(mu_c_rem))
+    mu_t_rem = max(1e-9, float(mu_t_rem))
+
+    rho     = rho_dinamico(tot_cur, minuto)
+    min_mu  = min(mu_c_rem, mu_t_rem)
+    lambda0 = max(0.0, min(rho * min_mu, 0.95 * min_mu))
+
+    mu_c_ind = max(1e-9, mu_c_rem - lambda0)
+    mu_t_ind = max(1e-9, mu_t_rem - lambda0)
+
+    pmf_c = _poisson_pmf_norm(mu_c_ind)
+    pmf_t = _poisson_pmf_norm(mu_t_ind)
+    pmf_z = _poisson_pmf_norm(lambda0)
+
+    # 1. Matrice indipendente con correzione Dixon-Coles
+    joint_ind = {}
+    dc_sum    = 0.0
+    for i, pi in enumerate(pmf_c):
+        if pi < 1e-16: continue
+        for j, pj in enumerate(pmf_t):
+            if pj < 1e-16: continue
+            tau = dixon_coles_tau(i, j, mu_c_ind, mu_t_ind)
+            val = pi * pj * tau
+            joint_ind[(i, j)] = val
+            dc_sum += val
+
+    if dc_sum > 0:
+        joint_ind = {k: v / dc_sum for k, v in joint_ind.items()}
+
+    # 2. Matrice full: convoluzione con Z
+    # P(X_rem=a, Y_rem=b) = sum_z P(X_ind=a-z, Y_ind=b-z) * P(Z=z)
+    full = {}
+    for (i, j), pij in joint_ind.items():
+        for z, pz in enumerate(pmf_z):
+            if pz < 1e-16: continue
+            a, b = i + z, j + z
+            full[(a, b)] = full.get((a, b), 0.0) + pij * pz
+
+    fj_sum = sum(full.values())
+    if fj_sum > 0:
+        full = {k: v / fj_sum for k, v in full.items()}
+
+    # 3. 1X2 — Z si cancella nella differenza, usiamo joint_ind direttamente
+    p1 = px = p2 = 0.0
+    for (i, j), pij in joint_ind.items():
+        diff = (gol_casa + i) - (gol_trasf + j)
+        if   diff > 0: p1 += pij
+        elif diff < 0: p2 += pij
+        else:          px += pij
+
+    s12x = p1 + px + p2
+    if s12x > 0:
+        p1 /= s12x; px /= s12x; p2 /= s12x
+
+    # 4. Under / Over
+    S       = gol_casa + gol_trasf
+    p_under = sum(p for (a, b), p in full.items() if S + a + b < linea_ou)
     p_under = min(max(p_under, 0.0), 1.0)
     p_over  = 1.0 - p_under
 
-    return p1, px, p2, p_under, p_over
+    # 5. BTTS
+    if gol_casa > 0 and gol_trasf > 0:
+        p_btts = 1.0
+    elif gol_casa > 0:
+        p_btts = max(0.0, 1.0 - math.exp(-mu_t_rem))
+    elif gol_trasf > 0:
+        p_btts = max(0.0, 1.0 - math.exp(-mu_c_rem))
+    else:
+        # P(BTTS) = 1 - P(X_rem=0) - P(Y_rem=0) + P(X_rem=0 AND Y_rem=0)
+        # Con bivariate Poisson: P(X=0,Y=0) = exp(-(mu_c_ind + mu_t_ind + lambda0))
+        p_x0   = math.exp(-mu_c_rem)
+        p_y0   = math.exp(-mu_t_rem)
+        p_xy0  = math.exp(-(mu_c_ind + mu_t_ind + lambda0))
+        p_btts = max(0.0, min(1.0, 1.0 - p_x0 - p_y0 + p_xy0))
 
+    # 6. Correct Score (punteggio finale)
+    cs_final = {}
+    for (a, b), p in full.items():
+        key = (gol_casa + a, gol_trasf + b)
+        cs_final[key] = cs_final.get(key, 0.0) + p
+
+    top_cs = sorted(cs_final.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    return p1, px, p2, p_under, p_over, p_btts, top_cs, rho
+
+
+# ==========================================
+# UTILITY QUOTE E STAKING
+# ==========================================
 
 def calcola_quota_reale(prob):
     return 1.0 / prob if prob > 0.001 else 999.0
@@ -253,51 +303,44 @@ def calcola_quota_reale(prob):
 
 def calcola_stake_kelly(prob_modello, quota_target, bankroll, frazione=0.5):
     """
-    FIX BUG 5 — Kelly frazionato al posto dello stake piatto.
-
-    edge = prob_modello − 1/quota_target   (vantaggio atteso)
-    kelly% = edge / (quota_target − 1)     (formula Kelly)
-    stake  = bankroll × kelly% × frazione  (½-Kelly per prudenza)
-
-    Se edge ≤ 0 non c'è valore: stake = 0, non scommettere.
-    Cap assoluto al 5% del bankroll per gestione del rischio.
+    Kelly frazionato: stake = bankroll * (edge / (quota-1)) * frazione
+    edge = prob_modello - 1/quota_target
+    Cap al 5% del bankroll. Restituisce 0 se edge <= 0.
     """
-    prob_be = 1.0 / quota_target
-    edge    = prob_modello - prob_be
-    if edge <= 0:
+    edge = prob_modello - (1.0 / quota_target)
+    if edge <= 0 or quota_target <= 1.0:
         return 0.0
-    kelly_pct = edge / (quota_target - 1.0)
-    kelly_pct = min(kelly_pct, 0.05)
+    kelly_pct = min(edge / (quota_target - 1.0), 0.05)
     return bankroll * kelly_pct * frazione
 
 
 # ==========================================
-# 🎨 UI STREAMLIT
+# UI STREAMLIT
 # ==========================================
+
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
-
 st.title("⚡ Radar Pro Live")
-st.caption("v41 · Fix: normalizzazione temporale · score effect unico · segnali da probabilità · Kelly")
+st.caption("v42 · Dixon-Coles · Rho dinamico · Momentum · BTTS · Correct Score")
 
-# ── INPUT ────────────────────────────────────────────────────────────────────
-st.header("⏱️ 1. Stato Partita")
+# INPUT
+st.header("1. Stato Partita")
 minuto_gioco = st.slider("Minuto Attuale", 0, 90, 0, 1)
 
 col_g1, col_g2 = st.columns(2)
 with col_g1:
-    gol_casa  = st.number_input("⚽ Gol CASA",   value=0, min_value=0)
+    gol_casa  = st.number_input("Gol CASA",   value=0, min_value=0)
 with col_g2:
-    gol_trasf = st.number_input("⚽ Gol TRASF.", value=0, min_value=0)
+    gol_trasf = st.number_input("Gol TRASF.", value=0, min_value=0)
 
 col_r1, col_r2 = st.columns(2)
 with col_r1:
-    rossi_casa  = st.number_input("🟥 Rossi CASA",   value=0, min_value=0, max_value=4)
+    rossi_casa  = st.number_input("Rossi CASA",   value=0, min_value=0, max_value=4)
 with col_r2:
-    rossi_trasf = st.number_input("🟥 Rossi TRASF.", value=0, min_value=0, max_value=4)
+    rossi_trasf = st.number_input("Rossi TRASF.", value=0, min_value=0, max_value=4)
 
 st.divider()
+st.header("2. Linee Asiatiche")
 
-st.header("📊 2. Linee Asiatiche")
 col_a1, col_a2 = st.columns(2)
 with col_a1:
     st.markdown("**Apertura — full 90'**")
@@ -308,14 +351,16 @@ with col_a2:
     ah_cur  = st.number_input("AH Corrente",     value=-0.75, step=0.25)
     tot_cur = st.number_input("Totale Corrente", value=2.75,  step=0.25)
 
-linea_target_ou = st.selectbox("Linea U/O da analizzare:", [0.5, 1.5, 2.5, 3.5, 4.5, 5.5], index=2)
-cassa = st.number_input("💰 Bankroll (€)", value=1000.0, step=100.0)
+linea_target_ou = st.selectbox(
+    "Linea U/O da analizzare:", [0.5, 1.5, 2.5, 3.5, 4.5, 5.5], index=2
+)
+cassa = st.number_input("Bankroll (€)", value=1000.0, step=100.0)
 
 st.divider()
 
-# ── CALCOLO ──────────────────────────────────────────────────────────────────
-if st.button("🚀 ANALIZZA", use_container_width=True, type="primary"):
-    with st.spinner("Calcolo..."):
+if st.button("ANALIZZA", use_container_width=True, type="primary"):
+
+    with st.spinner("Calcolo matrice bivariata..."):
         xg1_base, xg2_base = calcola_xg_bayesiani(
             ah_op, tot_op, ah_cur, tot_cur, minuto_gioco
         )
@@ -323,43 +368,73 @@ if st.button("🚀 ANALIZZA", use_container_width=True, type="primary"):
             xg1_base, xg2_base, minuto_gioco,
             gol_casa, gol_trasf, rossi_casa, rossi_trasf
         )
-        mc_1, mc_x, mc_2, mc_u, mc_o = probabilita_poisson_esatta(
-            xg1_live, xg2_live, gol_casa, gol_trasf, linea_target_ou
+        mc_1, mc_x, mc_2, mc_u, mc_o, mc_btts, top_cs, rho_used = calcola_tutto(
+            xg1_live, xg2_live,
+            gol_casa, gol_trasf,
+            linea_target_ou, tot_cur, minuto_gioco
         )
         delta_ah  = ah_cur  - ah_op
         delta_tot = tot_cur - tot_op
+        momentum  = calcola_momentum_mercato(delta_ah, delta_tot, minuto_gioco)
 
-    # ── QUOTE FAIR ───────────────────────────────────────────────────────────
-    st.header(f"⚖️ Quote Fair  ·  {minuto_gioco}' | {gol_casa}–{gol_trasf}")
+    # QUOTE FAIR
+    st.header(f"Quote Fair  —  {minuto_gioco}' | {gol_casa}–{gol_trasf}")
 
     c1, cx, c2 = st.columns(3)
-    c1.metric("1 — Casa",      f"@{calcola_quota_reale(mc_1):.2f}", f"{mc_1:.1%}")
-    cx.metric("X — Pareggio",  f"@{calcola_quota_reale(mc_x):.2f}", f"{mc_x:.1%}")
-    c2.metric("2 — Trasf.",    f"@{calcola_quota_reale(mc_2):.2f}", f"{mc_2:.1%}")
+    c1.metric("1 — Casa",     f"@{calcola_quota_reale(mc_1):.2f}",  f"{mc_1:.1%}")
+    cx.metric("X — Pareggio", f"@{calcola_quota_reale(mc_x):.2f}", f"{mc_x:.1%}")
+    c2.metric("2 — Trasf.",   f"@{calcola_quota_reale(mc_2):.2f}", f"{mc_2:.1%}")
 
-    cu, co = st.columns(2)
+    cu, co, cb = st.columns(3)
     cu.metric(f"Under {linea_target_ou}", f"@{calcola_quota_reale(mc_u):.2f}", f"{mc_u:.1%}")
     co.metric(f"Over  {linea_target_ou}", f"@{calcola_quota_reale(mc_o):.2f}", f"{mc_o:.1%}")
+    cb.metric("BTTS — Si",               f"@{calcola_quota_reale(mc_btts):.2f}", f"{mc_btts:.1%}")
 
+    # CORRECT SCORE
     st.divider()
+    st.header("Correct Score — Top 5")
 
-    # ── SEGNALI (FIX BUG 4) ──────────────────────────────────────────────────
-    st.header("🎯 Segnali Exchange")
+    cs_cols = st.columns(5)
+    for idx, ((fc, ft), prob) in enumerate(top_cs):
+        cs_cols[idx].metric(
+            label=f"{fc}–{ft}",
+            value=f"@{calcola_quota_reale(prob):.1f}",
+            delta=f"{prob:.1%}"
+        )
+
+    # MOMENTUM
+    st.divider()
+    st.header("Pressione di Mercato")
+
+    if momentum < 1.0:
+        mom_label = f"Stabile — nessun segnale [{momentum:.2f}/6.0]"
+    elif momentum < 2.5:
+        mom_label = f"Moderato — qualcosa si muove [{momentum:.2f}/6.0]"
+    elif momentum < 4.0:
+        mom_label = f"Significativo — segnale da analizzare [{momentum:.2f}/6.0]"
+    else:
+        mom_label = f"Estremo — info asimmetrica o evento non registrato [{momentum:.2f}/6.0]"
+
+    st.progress(min(momentum / 6.0, 1.0), text=mom_label)
+
+    # SEGNALI
+    st.divider()
+    st.header("Segnali Exchange")
 
     if minuto_gioco >= 85:
-        st.error("🛑 Fine partita — spread enormi, non entrare.")
+        st.error("Fine partita — spread enormi, non entrare.")
         st.stop()
 
-    # Soglie dinamiche: crescono con il tempo rimasto
     frac_giocata = minuto_gioco / 90.0
-    soglia_1x2   = 0.45 + 0.15 * frac_giocata   # 0.45 (kick-off) → 0.60 (85')
-    soglia_ou    = 0.52 + 0.13 * frac_giocata   # 0.52 → 0.65
+    soglia_1x2   = 0.45 + 0.15 * frac_giocata
+    soglia_ou    = 0.52 + 0.13 * frac_giocata
+    soglia_btts  = 0.50 + 0.10 * frac_giocata
 
     gol_attuali  = gol_casa + gol_trasf
     gol_mancanti = linea_target_ou - gol_attuali
     segnali      = False
 
-    # ── 1X2 ──────────────────────────────────────────────────────────────────
+    # Segnale 1X2
     if delta_ah <= -0.25:
         if mc_1 > soglia_1x2 and (mc_1 - soglia_1x2 > 0.05 or minuto_gioco < 60):
             q_fair   = calcola_quota_reale(mc_1)
@@ -367,17 +442,17 @@ if st.button("🚀 ANALIZZA", use_container_width=True, type="primary"):
             stake    = calcola_stake_kelly(mc_1, q_target, cassa)
             if stake > 0:
                 st.success(
-                    f"🟢 **PUNTA 1 — CASA**\n\n"
+                    f"PUNTA 1 — CASA\n\n"
                     f"Prob. modello: **{mc_1:.1%}** · Quota fair: **@{q_fair:.2f}** · "
                     f"Entra solo se trovi **> @{q_target:.2f}**"
                 )
-                st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
+                st.write(f"Stake Kelly: **€ {stake:.2f}**")
                 segnali = True
             else:
-                st.warning(f"⚠️ CASA segnalata dal mercato ma edge insufficiente (@{q_fair:.2f}). No bet.")
+                st.warning(f"CASA segnalata ma edge insufficiente (@{q_fair:.2f}). No bet.")
         else:
             st.info(
-                f"Mercato → CASA, ma modello: **{mc_1:.1%}** "
+                f"Mercato spinge CASA, ma modello: **{mc_1:.1%}** "
                 f"(soglia: {soglia_1x2:.0%}). Valore non confermato."
             )
 
@@ -388,26 +463,26 @@ if st.button("🚀 ANALIZZA", use_container_width=True, type="primary"):
             stake    = calcola_stake_kelly(mc_2, q_target, cassa)
             if stake > 0:
                 st.success(
-                    f"🟢 **PUNTA 2 — TRASFERTA**\n\n"
+                    f"PUNTA 2 — TRASFERTA\n\n"
                     f"Prob. modello: **{mc_2:.1%}** · Quota fair: **@{q_fair:.2f}** · "
                     f"Entra solo se trovi **> @{q_target:.2f}**"
                 )
-                st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
+                st.write(f"Stake Kelly: **€ {stake:.2f}**")
                 segnali = True
             else:
-                st.warning(f"⚠️ TRASF. segnalata dal mercato ma edge insufficiente (@{q_fair:.2f}). No bet.")
+                st.warning(f"TRASF. segnalata ma edge insufficiente (@{q_fair:.2f}). No bet.")
         else:
             st.info(
-                f"Mercato → TRASF., ma modello: **{mc_2:.1%}** "
+                f"Mercato spinge TRASF., ma modello: **{mc_2:.1%}** "
                 f"(soglia: {soglia_1x2:.0%}). Valore non confermato."
             )
 
-    # ── OVER / UNDER ─────────────────────────────────────────────────────────
+    # Segnale Over / Under
     if delta_tot >= 0.25 and gol_attuali < linea_target_ou:
         if minuto_gioco >= 75 and gol_mancanti >= 2:
             st.info(
-                f"⏱️ Linea salita ma al {minuto_gioco}' mancano ancora "
-                f"{gol_mancanti:.0f} gol ({mc_o:.1%}). Troppo tardi."
+                f"Linea salita ma al {minuto_gioco}' mancano ancora {gol_mancanti:.0f} gol "
+                f"(P Over: {mc_o:.1%}). Troppo tardi."
             )
         elif mc_o > soglia_ou:
             q_fair   = calcola_quota_reale(mc_o)
@@ -415,17 +490,17 @@ if st.button("🚀 ANALIZZA", use_container_width=True, type="primary"):
             stake    = calcola_stake_kelly(mc_o, q_target, cassa)
             if stake > 0:
                 st.warning(
-                    f"🔥 **OVER {linea_target_ou}**\n\n"
+                    f"OVER {linea_target_ou}\n\n"
                     f"Prob. modello: **{mc_o:.1%}** · Quota fair: **@{q_fair:.2f}** · "
                     f"Entra solo se trovi **> @{q_target:.2f}**"
                 )
-                st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
+                st.write(f"Stake Kelly: **€ {stake:.2f}**")
                 segnali = True
             else:
-                st.info(f"OVER segnalato ma edge insufficiente. No bet.")
+                st.info(f"Over segnalato ma edge insufficiente. No bet.")
         else:
             st.info(
-                f"Mercato → OVER ma modello: **{mc_o:.1%}** "
+                f"Mercato spinge Over ma modello: **{mc_o:.1%}** "
                 f"(soglia: {soglia_ou:.0%}). No bet."
             )
 
@@ -436,43 +511,84 @@ if st.button("🚀 ANALIZZA", use_container_width=True, type="primary"):
             stake    = calcola_stake_kelly(mc_u, q_target, cassa)
             if stake > 0:
                 st.info(
-                    f"🧊 **UNDER {linea_target_ou}**\n\n"
+                    f"UNDER {linea_target_ou}\n\n"
                     f"Prob. modello: **{mc_u:.1%}** · Quota fair: **@{q_fair:.2f}** · "
                     f"Entra solo se trovi **> @{q_target:.2f}**"
                 )
-                st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
+                st.write(f"Stake Kelly: **€ {stake:.2f}**")
                 segnali = True
             else:
-                st.info(f"UNDER segnalato ma edge insufficiente. No bet.")
+                st.info(f"Under segnalato ma edge insufficiente. No bet.")
         else:
             st.info(
-                f"Mercato → UNDER ma modello: **{mc_u:.1%}** "
+                f"Mercato spinge Under ma modello: **{mc_u:.1%}** "
                 f"(soglia: {soglia_ou:.0%}). No bet."
             )
 
+    # Segnale BTTS
+    if delta_tot >= 0.25 and mc_btts > soglia_btts:
+        q_fair   = calcola_quota_reale(mc_btts)
+        q_target = q_fair * 1.05
+        stake    = calcola_stake_kelly(mc_btts, q_target, cassa)
+        if stake > 0:
+            st.warning(
+                f"BTTS — Entrambe Segnano\n\n"
+                f"Prob. modello: **{mc_btts:.1%}** · Quota fair: **@{q_fair:.2f}** · "
+                f"Entra solo se trovi **> @{q_target:.2f}**"
+            )
+            st.write(f"Stake Kelly: **€ {stake:.2f}**")
+            segnali = True
+
+    elif delta_tot <= -0.25 and (1.0 - mc_btts) > soglia_btts:
+        mc_btts_no = 1.0 - mc_btts
+        q_fair     = calcola_quota_reale(mc_btts_no)
+        q_target   = q_fair * 1.05
+        stake      = calcola_stake_kelly(mc_btts_no, q_target, cassa)
+        if stake > 0:
+            st.info(
+                f"BTTS No — Non Entrambe Segnano\n\n"
+                f"Prob. modello: **{mc_btts_no:.1%}** · Quota fair: **@{q_fair:.2f}** · "
+                f"Entra solo se trovi **> @{q_target:.2f}**"
+            )
+            st.write(f"Stake Kelly: **€ {stake:.2f}**")
+            segnali = True
+
+    # Avviso incoerenza Over + BTTS No
+    if delta_tot >= 0.25 and mc_o > soglia_ou and mc_btts < 0.35:
+        st.warning(
+            f"Attenzione: modello segnala Over {linea_target_ou} "
+            f"ma assegna solo {mc_btts:.0%} a BTTS. "
+            f"Over senza BTTS richiede gol multipli dalla stessa squadra — verifica le linee."
+        )
+
     if not segnali:
         msg = (
-            "⚖️ **NO BET** — Linee stabili, nessun movimento da sfruttare."
+            "NO BET — Linee stabili, nessun movimento di mercato."
             if delta_ah == 0 and delta_tot == 0 else
-            "⚖️ **NO BET** — Movimento di linea non confermato dal modello."
+            "NO BET — Movimento di linea non confermato dal modello con probabilita sufficiente."
         )
         st.error(msg)
 
-    # ── DEBUG ─────────────────────────────────────────────────────────────────
-    with st.expander("🔍 Dettaglio calcoli interni"):
-        c_left, c_right = st.columns(2)
-        with c_left:
-            st.markdown("**Probabilità modello**")
-            st.write(f"P(1) = {mc_1:.4f}")
-            st.write(f"P(X) = {mc_x:.4f}")
-            st.write(f"P(2) = {mc_2:.4f}")
-            st.write(f"P(U{linea_target_ou}) = {mc_u:.4f}")
-            st.write(f"P(O{linea_target_ou}) = {mc_o:.4f}")
-        with c_right:
-            st.markdown("**Soglie e parametri**")
-            st.write(f"Soglia 1X2 = {soglia_1x2:.3f}")
-            st.write(f"Soglia U/O = {soglia_ou:.3f}")
-            st.write(f"Δ AH  = {delta_ah:+.2f}")
-            st.write(f"Δ Tot = {delta_tot:+.2f}")
-            st.write(f"λ casa  (rim.) = {xg1_live:.4f}")
-            st.write(f"λ trasf (rim.) = {xg2_live:.4f}")
+    # DEBUG
+    st.divider()
+    with st.expander("Parametri interni del motore"):
+        col_l, col_r = st.columns(2)
+        with col_l:
+            st.markdown("**Probabilita modello**")
+            st.write(f"P(1)       = {mc_1:.4f}")
+            st.write(f"P(X)       = {mc_x:.4f}")
+            st.write(f"P(2)       = {mc_2:.4f}")
+            st.write(f"P(U{linea_target_ou})  = {mc_u:.4f}")
+            st.write(f"P(O{linea_target_ou})  = {mc_o:.4f}")
+            st.write(f"P(BTTS)    = {mc_btts:.4f}")
+        with col_r:
+            st.markdown("**Parametri motore**")
+            st.write(f"rho dinamico  = {rho_used:.4f}")
+            st.write(f"lambda casa   = {xg1_live:.4f}")
+            st.write(f"lambda trasf  = {xg2_live:.4f}")
+            st.write(f"Soglia 1X2   = {soglia_1x2:.3f}")
+            st.write(f"Soglia U/O   = {soglia_ou:.3f}")
+            st.write(f"Soglia BTTS  = {soglia_btts:.3f}")
+            st.write(f"Delta AH     = {delta_ah:+.2f}")
+            st.write(f"Delta Tot    = {delta_tot:+.2f}")
+            st.write(f"Momentum     = {momentum:.2f}/6.0")
