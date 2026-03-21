@@ -460,16 +460,8 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     has_movement = abs(delta_ah) >= 0.25 or abs(delta_tot) >= 0.25
     any_exc_quote = any(q > 1.0 for q in [q_exc_1, q_exc_x, q_exc_2, q_exc_u, q_exc_o, q_exc_btts])
 
-    if not has_movement and not any_exc_quote:
-        st.warning(
-            "Inserisci le quote che vedi sull'exchange (sezione sopra) oppure "
-            "aspetta un movimento di linea AH/Totale. "
-            "Senza almeno una delle due informazioni il motore non può calcolare edge."
-        )
-        with st.expander("Parametri interni"):
-            st.write(f"lambda casa = {xg1_live:.4f} · lambda trasf = {xg2_live:.4f} · rho = {rho_used:.4f}")
-            st.write(f"Delta AH = {delta_ah:+.2f} · Delta Tot = {delta_tot:+.2f}")
-        st.stop()
+    if not any_exc_quote:
+        st.caption("ℹ️ Nessuna quota exchange inserita — segnali calcolati sul fair value del modello.")
 
     frac_giocata = minuto_gioco / 90.0
     # Soglie minime di probabilità — il modello deve essere sufficientemente
