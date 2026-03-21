@@ -8,8 +8,6 @@ Verifica:
   - Matrice bivariata (normalizzazione, struttura)
 """
 
-import math
-import pytest
 
 from src.models.poisson import (
     build_bivariate_matrix,
@@ -17,7 +15,6 @@ from src.models.poisson import (
     poisson_pmf,
     rho_dinamico,
 )
-
 
 # ---------------------------------------------------------------------------
 # PMF di Poisson

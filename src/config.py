@@ -5,7 +5,7 @@ Tutti i magic numbers del motore sono qui documentati con fonte e motivazione.
 Modificare solo qui: nessuna costante hardcodata nei moduli.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

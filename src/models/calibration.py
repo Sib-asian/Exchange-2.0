@@ -19,7 +19,6 @@ import math
 from src.config import BAYES, POISSON, SHOTS
 from src.models.poisson import dixon_coles_tau, poisson_pmf
 
-
 # ---------------------------------------------------------------------------
 # AH EV helper
 # ---------------------------------------------------------------------------

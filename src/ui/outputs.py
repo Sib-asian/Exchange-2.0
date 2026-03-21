@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.config import MOMENTUM as MOMENTUM_CFG, SIGNALS, UI
+from src.config import MOMENTUM as MOMENTUM_CFG
+from src.config import SIGNALS, UI
 from src.engine import ProbabilitaModello
 from src.markets.asian_handicap import calcola_asian_handicap
 from src.signals import Signal

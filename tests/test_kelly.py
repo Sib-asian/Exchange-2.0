@@ -8,7 +8,6 @@ Verifica:
   - Calcolo edge netto
 """
 
-import pytest
 
 from src.models.kelly import (
     calcola_edge_back,
@@ -20,7 +19,6 @@ from src.models.kelly import (
     calcola_stake_lay,
     quota_netta,
 )
-
 
 # ---------------------------------------------------------------------------
 # quota_netta
