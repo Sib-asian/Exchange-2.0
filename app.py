@@ -5,13 +5,15 @@ import math
 # ⚙️ FUNZIONI DI SUPPORTO
 # ==========================================
 
-def rho_dinamico(tot_cur, minuto, shot_dom=0.0):
+def rho_dinamico(tot_cur, minuto, shot_dom=0.0, gol_totali=0):
     """
     Correlazione comune bivariata non più fissa a 0.12.
 
     Logica base:
     - tot_cur alto → partita aperta → le squadre segnano più indipendentemente → rho scende
     - Avanzare del minuto → i gol già osservati dominano l'informazione → rho scende
+    - gol_totali alti → la correlazione residua tra i gol futuri è minore: le squadre
+      hanno già "consumato" gran parte della struttura correlata → rho scende ulteriormente
 
     Correzione shot-dominance (shot_dom in [0,1]):
     - Quando una squadra domina nettamente i tiri la partita è essenzialmente
@@ -19,14 +21,16 @@ def rho_dinamico(tot_cur, minuto, shot_dom=0.0):
       Le due componenti diventano quasi indipendenti → rho scende fino al 25%.
     - shot_dom = |sot_h - sot_a| / (sot_h + sot_a)  (0 = equilibrio, 1 = dominio totale)
 
-    Range risultante: ~0.02 (dominio totale late) → ~0.14 (equilibrio inizio gara)
+    Range risultante: ~0.02 (dominio totale late, gol alti) → ~0.14 (equilibrio inizio gara)
     """
     base  = max(0.02, 0.14 - 0.018 * min(tot_cur, 4.5))
     decay = 1.0 - 0.40 * max(0.0, min(minuto / 90.0, 1.0))
-    rho_base = base * decay
+    # Gol già segnati: ogni gol riduce la correlazione residua del ~10%.
+    # Con 4+ gol la partita è già strutturalmente "decisa" per correlazione → floor 50%.
+    gol_decay = max(0.50, 1.0 - 0.10 * gol_totali)
+    rho_base = base * decay * gol_decay
     # Riduzione fino al 45% con dominio tiri totale: partita unidirezionale
     # → le due Poisson diventano quasi indipendenti → rho → 0.
-    # 25% era troppo conservativo: a shot_dom=1.0 lasciava ancora il 75% di rho.
     return max(0.02, rho_base * (1.0 - 0.45 * shot_dom))
 
 
@@ -232,8 +236,13 @@ def time_decay_dinamico(xg_casa, xg_trasf, minuto,
     # ~10-20% incremento xG in svantaggio; residuo dopo AH live ≈ 5-8%.
     diff = gol_casa - gol_trasf
     if diff != 0:
-        sat      = abs(diff) / (1.5 + abs(diff))
-        residual = min(0.07, 0.07 * sat)   # cap 7%, crescita più rapida del precedente 4%
+        sat = abs(diff) / (1.5 + abs(diff))
+        # Il residuo scala inversamente col minuto: early-game il mercato AH ha latency
+        # (poco aggiornato dopo il gol) → il residuo cattura più informazione non prezzata.
+        # Late-game l'AH ha già aggiornato su 60-70' di nuove info → residuo minore.
+        # Scale: 0' → 1.20 (boost max 8.4%), 45' → 0.65, 75' → 0.38, 85' → 0.30
+        minute_scale = max(0.30, 1.20 - 1.10 * (minuto / 90.0))
+        residual = min(0.08, 0.07 * sat) * minute_scale
         if diff < 0:                        # casa in svantaggio → preme di più
             xg_c *= (1.0 + residual)
             xg_t *= (1.0 - residual)
@@ -290,7 +299,7 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
     mu_c_rem = max(1e-9, float(mu_c_rem))
     mu_t_rem = max(1e-9, float(mu_t_rem))
 
-    rho     = rho_dinamico(tot_cur, minuto, shot_dom)
+    rho     = rho_dinamico(tot_cur, minuto, shot_dom, gol_casa + gol_trasf)
     # Media geometrica invece di min_mu (v45):
     # lambda0 = rho * min(mu_c, mu_t) sottostimava la correlazione quando una squadra
     # era nettamente più forte (es. mu_c=2.0, mu_a=0.3 → min=0.3, geom=0.775).
@@ -350,9 +359,20 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
     if s12x > 0:
         p1 /= s12x; px /= s12x; p2 /= s12x
 
-    # 4. Under / Over
-    S       = gol_casa + gol_trasf
-    p_under = sum(p for (a, b), p in full.items() if S + a + b < linea_ou)
+    # 4. Under / Over — gestione quarter lines (2.25, 2.75, 3.25, 3.75)
+    # Quarter line AH: metà stake su floor-half, metà su ceil-half.
+    # Under 2.75 = ½×Under 2.5 + ½×Under 3.0
+    # → se totale=3: mezzo win (U3.0 push) + mezza perdita (U2.5 lose) → P eff = P(≤2) + ½×P(=3)
+    S     = gol_casa + gol_trasf
+    line4 = round(linea_ou * 4)
+    if line4 % 2 != 0:    # quarter line: 2.25, 2.75, 3.25 …
+        h_low  = (line4 - 1) / 4.0    # es. 2.75 → 2.5
+        h_high = (line4 + 1) / 4.0    # es. 2.75 → 3.0
+        p_u_low  = sum(p for (a, b), p in full.items() if S + a + b < h_low)
+        p_u_high = sum(p for (a, b), p in full.items() if S + a + b < h_high)
+        p_under  = 0.5 * (p_u_low + p_u_high)
+    else:                              # half line (2.5, 3.5 …) o intera (2.0, 3.0 …)
+        p_under = sum(p for (a, b), p in full.items() if S + a + b < linea_ou)
     p_under = min(max(p_under, 0.0), 1.0)
     p_over  = 1.0 - p_under
 
@@ -386,7 +406,7 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
         tot = fc + ft
         gol_tot_dist[tot] = gol_tot_dist.get(tot, 0.0) + p
 
-    return p1, px, p2, p_under, p_over, p_btts, top_cs, rho, gol_tot_dist
+    return p1, px, p2, p_under, p_over, p_btts, top_cs, rho, gol_tot_dist, full
 
 
 # ==========================================
@@ -560,7 +580,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v53 · Completezza: PMF refactor, bisection convergenza, rossi asimmetria, validazione tiri, CS cumulativi, AH multipli")
+st.caption("v54 · Matematica: rho×gol, score-effect×minuto, quarter-lines O/U, AH bivariate+push+rimanenti, soglie O/U contestuali, BTTS/U1.5 check")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -591,8 +611,13 @@ with col_a2:
     ah_cur  = st.number_input("AH Corrente",     value=-0.75, step=0.25)
     tot_cur = st.number_input("Totale Corrente", value=2.75,  step=0.25)
 
+_linee_ou = [0.5, 1.5, 1.75, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.5, 5.5]
+# Default: seleziona la linea più vicina a tot_cur per coerenza col mercato
+_idx_ou_default = min(range(len(_linee_ou)), key=lambda i: abs(_linee_ou[i] - tot_cur))
 linea_target_ou = st.selectbox(
-    "Linea U/O da analizzare:", [0.5, 1.5, 2.5, 3.5, 4.5, 5.5], index=2
+    "Linea U/O da analizzare:", _linee_ou, index=_idx_ou_default,
+    help="Selezionata automaticamente in base al Totale Corrente. Le linee X.75/X.25 "
+         "sono Asian quarter lines (mezzo stake su ogni semi-linea)."
 )
 
 col_bk, col_cm = st.columns(2)
@@ -666,7 +691,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         )
 
         # 4. Probabilità complete (rho aggiustato per dominio tiri)
-        mc_1, mc_x, mc_2, mc_u, mc_o, mc_btts, top_cs, rho_used, gol_tot_dist = calcola_tutto(
+        mc_1, mc_x, mc_2, mc_u, mc_o, mc_btts, top_cs, rho_used, gol_tot_dist, full_matrix = calcola_tutto(
             xg1_live, xg2_live,
             gol_casa, gol_trasf,
             linea_target_ou, tot_cur, minuto_gioco,
@@ -711,27 +736,27 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         st.markdown("  \n".join(tot_rows))
 
     with st.expander("Asian Handicap — Probabilità a diversi livelli"):
-        st.caption("Probabilità che la CASA copra ogni handicap, dati gli xG correnti del modello.")
+        st.caption(
+            "Handicap sui **gol rimanenti** — coerente con la linea AH Corrente inserita sopra. "
+            "Usa la matrice bivariate completa (Dixon-Coles + correlazione)."
+        )
         ah_levels = [-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, +0.5, +1.0, +1.5, +2.0, +2.5]
         ah_rows = []
         for level in ah_levels:
-            # P(casa copre) = P(home_rem - away_rem + level > 0) per half-line (no push)
-            ev_half = 0.0
-            pmf_h = _poisson_pmf_norm(xg1_live)
-            pmf_a = _poisson_pmf_norm(xg2_live)
-            for i, pi in enumerate(pmf_h):
-                if pi < 1e-16: continue
-                for j, pj in enumerate(pmf_a):
-                    if pj < 1e-16: continue
-                    # Punteggio finale considerando gol già fatti
-                    diff = (gol_casa + i) - (gol_trasf + j) + level
-                    if   diff > 0: ev_half += pi * pj
-                    elif diff < 0: ev_half -= pi * pj
-            p_cover = (1.0 + ev_half) / 2.0
-            q_cover = calcola_quota_reale(p_cover)
-            sign = "+" if level >= 0 else ""
+            win = push = lose = 0.0
+            for (a, b), p in full_matrix.items():
+                # Gol RIMANENTI + handicap (coerente con calcola_xg_bayesiani che usa i-j+h)
+                diff = (a - b) + level
+                if   diff > 1e-9:  win  += p
+                elif diff < -1e-9: lose += p
+                else:              push += p
+            # P efficace Asian: push restituisce la stake → conta come 0.5 win
+            p_eff   = win + 0.5 * push
+            q_cover = calcola_quota_reale(p_eff) if p_eff > 1e-9 else 999.0
+            sign     = "+" if level >= 0 else ""
+            push_txt = f" · push {push:.1%}" if push > 0.005 else ""
             ah_rows.append(
-                f"AH {sign}{level:.1f} → Casa copre: **{p_cover:.1%}** · fair @{q_cover:.2f}"
+                f"AH {sign}{level:.1f} → Casa copre: **{p_eff:.1%}** · fair @{q_cover:.2f}{push_txt}"
             )
         st.markdown("  \n".join(ah_rows))
 
@@ -760,10 +785,15 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     # Floor 55%/58%: evitare segnali su eventi quasi-equi (p≈51%) a inizio partita.
     # La soglia cresce col tempo per compensare la riduzione di incertezza.
     soglia_min_1x2  = max(0.55, 0.50 + 0.10 * frac_giocata)
-    soglia_min_ou   = max(0.58, 0.55 + 0.10 * frac_giocata)
     soglia_min_btts = max(0.55, 0.50 + 0.10 * frac_giocata)
     gol_attuali     = gol_casa + gol_trasf
-    gol_mancanti    = linea_target_ou - gol_attuali
+    gol_mancanti    = max(0.0, linea_target_ou - gol_attuali)
+    # Soglia O/U contestuale ai gol mancanti: più gol servono → il modello deve essere
+    # più convinto per segnalare. 1 gol mancante: bonus 0%. 2 gol: +2%. 3+: +4-6%.
+    # Evita che P=60% per Over con 3 gol mancanti generi lo stesso segnale di
+    # P=60% con 1 gol mancante (quest'ultimo è molto più realizzabile).
+    _ou_gol_bonus  = min(0.06, max(0.0, (gol_mancanti - 1.0) * 0.02))
+    soglia_min_ou  = max(0.58, 0.55 + 0.10 * frac_giocata) + _ou_gol_bonus
 
     # Soglia minima con margine 6%: la quota sull'exchange deve battere fair * 1.06
     MARGINE_RAPIDO = 0.06
@@ -1049,6 +1079,15 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     else:
         _valuta("BTTS SÌ", mc_btts,       q_exc_btts,    soglia_min_btts)
         _valuta("BTTS NO", 1.0 - mc_btts, q_exc_btts_no, soglia_min_btts)
+
+    # Incoerenza BTTS Sì + Under bassa linea
+    # BTTS Sì richiede ≥2 gol totali → non può coesistere con Under 1.5 ad alta prob.
+    if mc_btts > 0.50 and mc_u > 0.55 and linea_target_ou <= 1.5 and not btts_yes_settled:
+        st.warning(
+            f"⚠️ Incoerenza interna: BTTS Sì ({mc_btts:.0%}) e Under {linea_target_ou} "
+            f"({mc_u:.0%}) sono incompatibili — BTTS Sì richiede ≥2 gol totali. "
+            "Verifica le linee inserite."
+        )
 
     # Incoerenza Over + BTTS No
     if mc_o > 0.50 and mc_btts < 0.35 and gol_attuali < linea_target_ou:
