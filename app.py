@@ -21,9 +21,9 @@ def rho_dinamico(tot_cur, minuto, shot_dom=0.0):
 
     Range risultante: ~0.02 (dominio totale late) → ~0.14 (equilibrio inizio gara)
     """
-    base  = 0.14 - 0.018 * min(tot_cur, 4.5)
-    decay = 1.0 - 0.40 * (minuto / 90.0)
-    rho_base = max(0.03, min(base * decay, 0.15))
+    base  = max(0.02, 0.14 - 0.018 * min(tot_cur, 4.5))
+    decay = 1.0 - 0.40 * max(0.0, min(minuto / 90.0, 1.0))
+    rho_base = base * decay
     return max(0.02, rho_base * (1.0 - 0.25 * shot_dom))
 
 
@@ -42,17 +42,21 @@ def dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=-0.13):
     rho_dc empiricamente negativo (-0.13): le due squadre tendono
     a non segnare simultaneamente.
     """
-    if   i == 0 and j == 0: return max(1e-6, 1.0 - mu_h * mu_a * rho_dc)
-    elif i == 1 and j == 0: return max(1e-6, 1.0 + mu_a * rho_dc)
-    elif i == 0 and j == 1: return max(1e-6, 1.0 + mu_h * rho_dc)
-    elif i == 1 and j == 1: return max(1e-6, 1.0 - rho_dc)
-    return 1.0
+    # Clamp [0.05, 3.0]: 1e-6 azzerava la probabilità invece di limitarla.
+    # 0.05 = floor minimo coerente; 3.0 = cap per evitare amplificazioni eccessive.
+    if   i == 0 and j == 0: tau = 1.0 - mu_h * mu_a * rho_dc
+    elif i == 1 and j == 0: tau = 1.0 + mu_a * rho_dc
+    elif i == 0 and j == 1: tau = 1.0 + mu_h * rho_dc
+    elif i == 1 and j == 1: tau = 1.0 - rho_dc
+    else:                   return 1.0
+    return max(0.05, min(tau, 3.0))
 
 
 def _poisson_pmf_norm(mu, tail_mass=1e-12):
     if mu <= 0:
         return [1.0]
-    max_k = min(int(max(20, mu * 12.0 + 60)), 500)
+    # mu + 6*sqrt(mu) copre la tail P(X > k) < 1e-9 per qualsiasi mu realistico
+    max_k = max(20, int(mu + 6.0 * math.sqrt(max(mu, 1.0)) + 10))
     p0 = math.exp(-mu)
     pmfs, cumsum, k, p = [p0], p0, 0, p0
     while cumsum < (1.0 - tail_mass) and k < max_k:
@@ -83,7 +87,9 @@ def calcola_momentum_mercato(delta_ah, delta_tot, minuto):
     """
     if minuto == 0:
         return 0.0
-    frac = max(0.10, minuto / 90.0)
+    # sqrt invece di lineare: evita overshoot early-game.
+    # A minuto 10 la frac lineare è 0.11 (amplifica ×9), sqrt è 0.33 (amplifica ×3).
+    frac = max(0.30, math.sqrt(minuto / 90.0))
     return min((abs(delta_ah) + abs(delta_tot) * 0.5) / frac, 6.0)
 
 
@@ -323,20 +329,21 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
     p_under = min(max(p_under, 0.0), 1.0)
     p_over  = 1.0 - p_under
 
-    # 5. BTTS
+    # 5. BTTS — usa la matrice full (include DC + correlazione bivariate)
+    # La matrice full contiene P(X_rem=a, Y_rem=b) per tutti (a,b).
+    # BTTS richiede che entrambe le squadre abbiano segnato nel totale partita.
     if gol_casa > 0 and gol_trasf > 0:
         p_btts = 1.0
     elif gol_casa > 0:
-        p_btts = max(0.0, 1.0 - math.exp(-mu_t_rem))
+        # Casa ha già segnato; BTTS iff trasf segna almeno 1 nel rimasto
+        p_btts = max(0.0, sum(p for (a, b), p in full.items() if b > 0))
     elif gol_trasf > 0:
-        p_btts = max(0.0, 1.0 - math.exp(-mu_c_rem))
+        # Trasf ha già segnato; BTTS iff casa segna almeno 1 nel rimasto
+        p_btts = max(0.0, sum(p for (a, b), p in full.items() if a > 0))
     else:
-        # P(BTTS) = 1 - P(X_rem=0) - P(Y_rem=0) + P(X_rem=0 AND Y_rem=0)
-        # Con bivariate Poisson: P(X=0,Y=0) = exp(-(mu_c_ind + mu_t_ind + lambda0))
-        p_x0   = math.exp(-mu_c_rem)
-        p_y0   = math.exp(-mu_t_rem)
-        p_xy0  = math.exp(-(mu_c_ind + mu_t_ind + lambda0))
-        p_btts = max(0.0, min(1.0, 1.0 - p_x0 - p_y0 + p_xy0))
+        # Nessuno ha ancora segnato; BTTS iff entrambi segnano nel rimasto
+        p_btts = max(0.0, sum(p for (a, b), p in full.items() if a > 0 and b > 0))
+    p_btts = min(1.0, p_btts)
 
     # 6. Correct Score (punteggio finale)
     cs_final = {}
@@ -368,10 +375,10 @@ def calcola_stake_kelly(prob_modello, quota_target, bankroll, frazione=0.5):
     La `frazione` è dinamica in v45: tipicamente 0.50, ridotta a 0.40 late-game
     o senza dati tiri, calcolata esternamente e passata qui.
     """
-    edge = prob_modello - (1.0 / quota_target)
-    if edge <= 0 or quota_target <= 1.0:
+    if quota_target <= 1.01 or prob_modello * quota_target <= 1.0:
         return 0.0
-    kelly_pct = min((prob_modello * quota_target - 1.0) / (quota_target - 1.0), 0.05)
+    kelly_pct = (prob_modello * quota_target - 1.0) / (quota_target - 1.0)
+    kelly_pct = max(0.0, min(kelly_pct, 0.05))   # [0, 5%] — max(0) era mancante
     return bankroll * kelly_pct * frazione
 
 
@@ -391,7 +398,7 @@ def calcola_stake_lay(prob_modello, quota_exc, bankroll, frazione=0.5):
 
     La `frazione` è la stessa Kelly fraction dinamica usata per il back.
     """
-    if quota_exc <= 1.01:
+    if quota_exc <= 1.30:   # lay non ha senso con quote molto basse
         return None
     f_liability = 1.0 - prob_modello * quota_exc
     if f_liability <= 0:
@@ -399,6 +406,9 @@ def calcola_stake_lay(prob_modello, quota_exc, bankroll, frazione=0.5):
     f_liability = min(f_liability, 0.05)
     liability   = bankroll * f_liability * frazione
     stake       = liability / (quota_exc - 1.0)
+    # Sanity: stake non può superare il bankroll (scenario quota quasi 1.0)
+    if stake > bankroll:
+        return None
     return stake, liability
 
 
@@ -503,7 +513,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v47 · Segnali rapidi senza quote · Quote exchange opzionali · Flat-lines boost · Triangolazione · EV€")
+st.caption("v48 · Audit matematico: DC tau, Poisson max_k, Kelly max(0), BTTS full-matrix, edge lay +comm, momentum sqrt")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -814,7 +824,12 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         q_net     = _q_netto(q_exc)          # quota netta per back
         prob_imp  = 1.0 / q_exc              # probabilità implicita del mercato
         edge_back = prob_mod - (1.0 / q_net) # edge netto commissione per back
-        edge_lay  = prob_imp - prob_mod       # edge lay (su commissione solo se vince)
+        # Edge lay con commissione corretta:
+        # Break-even lay: p_be = (1 - comm) / (Q - comm)
+        # edge_lay = p_be - prob_mod > 0 → lay ha valore
+        _denom    = q_exc - comm_rate
+        p_be_lay  = (1.0 - comm_rate) / _denom if _denom > 0 else 1.0
+        edge_lay  = p_be_lay - prob_mod
         segnalato = False
 
         # BACK (con edge netto)
@@ -852,10 +867,11 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                 if kelly_frac < 0.50:
                     riduzioni.append(f"Kelly ×{kelly_frac:.2f}")
                 rid_txt = f" _({', '.join(riduzioni)})_" if riduzioni else ""
+                ev_euro_lay = stake_lay * ((1.0 - prob_mod) * (1.0 - comm_rate) - prob_mod * (q_exc - 1.0))
                 st.warning(
                     f"**BANCA {etichetta}** — "
                     f"Modello {prob_mod:.1%} · Mercato @{q_exc:.2f} ({prob_imp:.1%}) · "
-                    f"Edge lay **+{edge_lay*100:.1f}%**"
+                    f"Edge lay netto **+{edge_lay*100:.1f}%** · EV **€{ev_euro_lay:+.2f}**"
                 )
                 st.write(f"Stake lay: **€{stake_lay:.2f}** · Liability: **€{liab_lay:.2f}**{rid_txt}")
                 segnali   = True
