@@ -8,10 +8,8 @@ Verifica:
 """
 
 import math
-import pytest
 
 from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
-
 
 # ---------------------------------------------------------------------------
 # calcola_xg_bayesiani

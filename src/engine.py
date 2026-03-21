@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 # ---------------------------------------------------------------------------
 # Dataclass di Input
 # ---------------------------------------------------------------------------
@@ -154,13 +153,13 @@ def analizza(
     Returns:
         ProbabilitaModello con tutte le probabilità e i parametri interni.
     """
+    from src.config import UI
+    from src.markets.btts import calcola_btts
+    from src.markets.over_under import calcola_over_under
+    from src.markets.result import calcola_1x2, calcola_correct_score
     from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
     from src.models.poisson import build_bivariate_matrix
     from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
-    from src.markets.result import calcola_1x2, calcola_correct_score
-    from src.markets.over_under import calcola_over_under
-    from src.markets.btts import calcola_btts
-    from src.config import UI
 
     # 1. xG da linee (prior bayesiano)
     xg_h_base, xg_a_base = calcola_xg_bayesiani(

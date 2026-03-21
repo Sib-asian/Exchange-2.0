@@ -9,11 +9,10 @@ Verifica:
 
 import pytest
 
-from src.models.poisson import build_bivariate_matrix
-from src.markets.over_under import calcola_over_under
 from src.markets.asian_handicap import calcola_asian_handicap
 from src.markets.btts import calcola_btts
-
+from src.markets.over_under import calcola_over_under
+from src.models.poisson import build_bivariate_matrix
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -82,7 +81,7 @@ class TestOverUnder:
     def test_monotone_increasing_over_with_line(self, full_matrix_eq):
         """P(Over X) deve diminuire all'aumentare di X."""
         lines = [1.5, 2.5, 3.5, 4.5]
-        overs = [calcola_over_under(full_matrix_eq, 0, l)[1] for l in lines]
+        overs = [calcola_over_under(full_matrix_eq, 0, line)[1] for line in lines]
         for i in range(len(overs) - 1):
             assert overs[i] >= overs[i+1], f"P(Over) non monotona: {overs}"
 

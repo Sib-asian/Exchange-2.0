@@ -181,12 +181,7 @@ def render_ou_selector(
     """
     linee = list(UI.LINEE_OU)
 
-    if fullgame_mode:
-        # tot_cur_raw è già una linea full-game (es. 2.5 = "Over 2.5 full game")
-        target = tot_cur_raw
-    else:
-        # tot_cur_raw è gol rimanenti → converti in full-game per il default
-        target = gol_attuali + tot_cur_raw
+    target = tot_cur_raw if fullgame_mode else gol_attuali + tot_cur_raw
 
     idx_default = min(range(len(linee)), key=lambda i: abs(linee[i] - target))
     return st.selectbox(
@@ -267,7 +262,7 @@ def render_shots(minuto: int) -> tuple[int, int, int, int]:
     return sot_h, soff_h, sot_a, soff_a
 
 
-def render_exchange_quotes(linea_ou: float) -> "ExchangeQuotes":
+def render_exchange_quotes(linea_ou: float) -> ExchangeQuotes:
     """
     Render del pannello quote exchange (opzionale, in expander).
 

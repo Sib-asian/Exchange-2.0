@@ -7,10 +7,8 @@ Verifica:
   - Momentum di mercato
 """
 
-import pytest
 
 from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
-
 
 # ---------------------------------------------------------------------------
 # time_decay_dinamico

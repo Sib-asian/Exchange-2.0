@@ -24,7 +24,6 @@ from src.models.kelly import (
     quota_netta,
 )
 
-
 # ---------------------------------------------------------------------------
 # Dataclass per un singolo segnale
 # ---------------------------------------------------------------------------
@@ -302,7 +301,7 @@ def genera_segnali_avanzati(
     prob_over: float,
     prob_under: float,
     prob_btts: float,
-    quotes: "ExchangeQuotes",  # noqa: F821
+    quotes: ExchangeQuotes,  # noqa: F821
     minuto: int,
     linea_ou: float,
     gol_attuali: int,
@@ -334,12 +333,6 @@ def genera_segnali_avanzati(
         SIGNALS.MOMENTUM_STAKE_FLOOR,
         1.0 - SIGNALS.MOMENTUM_STAKE_REDUCTION_RATE * max(0.0, momentum - SIGNALS.MOMENTUM_STAKE_THRESHOLD),
     )
-    frac_giocata = minuto / 90.0
-    soglia_qualitativa = max(
-        SIGNALS.SOGLIA_QUALITATIVA_MIN,
-        SIGNALS.SOGLIA_QUALITATIVA_BASE + SIGNALS.SOGLIA_QUALITATIVA_SLOPE * frac_giocata,
-    )
-
     segnali: list[Signal] = []
 
     def _valuta(etichetta: str, prob: float, q_exc: float, soglia: float, back_only: bool = False) -> None:
