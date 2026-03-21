@@ -406,9 +406,27 @@ def calcola_stake_lay(prob_modello, quota_exc, bankroll, frazione=0.5):
 # BLEND xG LINEE + TIRI
 # ==========================================
 
+def _rimuovi_margine(q1, qx, q2):
+    """
+    Estrae le probabilità 'vere' (senza overround) dalle quote 1X2 dell'exchange.
+
+    Metodo: normalizzazione additiva — divide ogni probabilità implicita per la somma.
+    Restituisce (p1, px, p2, overround_pct) oppure None se le quote non sono valide.
+    """
+    if any(q <= 1.0 for q in [q1, qx, q2]):
+        return None
+    raw = [1.0 / q1, 1.0 / qx, 1.0 / q2]
+    total = sum(raw)
+    if total <= 0:
+        return None
+    p1, px, p2 = [r / total for r in raw]
+    overround_pct = (total - 1.0) * 100.0
+    return p1, px, p2, overround_pct
+
+
 def blend_xg_shots(mu_h_line, mu_a_line,
                    sot_h, soff_h, sot_a, soff_a,
-                   gol_h, gol_a, minuto):
+                   gol_h, gol_a, minuto, flat_lines=False):
     """
     Integra le stime xG da linee di mercato con le evidenze empiriche dei tiri.
 
@@ -479,7 +497,10 @@ def blend_xg_shots(mu_h_line, mu_a_line,
     n_shots   = sot_h + soff_h + sot_a + soff_a
     shot_info = min(1.0, n_shots / 15.0)   # 15 tiri totali = campione sufficiente
     alpha_T   = min(0.25, shot_info * frac_giocata * 0.30)
-    alpha_D   = min(0.70, shot_info * math.sqrt(frac_giocata))
+    # Quando le linee sono stabili i tiri sono l'unica fonte di alpha indipendente:
+    # alziamo il peso differenziale fino a 0.75 (vs 0.70 normale) con boost 1.6x.
+    boost_D   = 1.6 if flat_lines else 1.0
+    alpha_D   = min(0.75, shot_info * math.sqrt(frac_giocata) * boost_D)
 
     # Blend in spazio T+D
     T_line  = mu_h_line  + mu_a_line
@@ -503,7 +524,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v45 · No double-decay · Score effect 4% · Geometric rho · Dynamic Kelly · Commission-aware")
+st.caption("v46 · Flat-lines alpha boost · Cross-market triangulation · EV€ · CLV signal · Overround auto")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -574,13 +595,18 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
         # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
         n_shots_tot = sot_h + soff_h + sot_a + soff_a
+        # flat_lines: linee immobili → tiri diventano l'unica fonte di alpha
+        _dah  = abs(ah_cur  - ah_op)
+        _dtot = abs(tot_cur - tot_op)
+        flat_lines = (_dah < 1e-6 and _dtot < 1e-6)
         if n_shots_tot > 0 and minuto_gioco > 0:
             xg1_blend, xg2_blend, \
             xg_h_accum, xg_a_accum, \
             alpha_T, alpha_D, shot_dom = blend_xg_shots(
                 xg1_base, xg2_base,
                 sot_h, soff_h, sot_a, soff_a,
-                gol_casa, gol_trasf, minuto_gioco
+                gol_casa, gol_trasf, minuto_gioco,
+                flat_lines=flat_lines
             )
         else:
             xg1_blend, xg2_blend = xg1_base, xg2_base
@@ -639,6 +665,22 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         mom_label = f"Movimento estremo — verifica eventi non registrati [{momentum:.2f}/6.0]"
     st.progress(min(momentum / 6.0, 1.0), text=mom_label)
 
+    # ── CLV — Closing Line Value signal ──────────────────────────────────────
+    if minuto_gioco > 0 and not flat_lines:
+        clv_parts = []
+        if delta_ah > 0.24:
+            clv_parts.append(f"AH si muove verso CASA ({delta_ah:+.2f}) — smart money su Casa")
+        elif delta_ah < -0.24:
+            clv_parts.append(f"AH si muove verso TRASF. ({delta_ah:+.2f}) — smart money su Trasferta")
+        if delta_tot > 0.24:
+            clv_parts.append(f"Total in salita ({delta_tot:+.2f}) — smart money su Over")
+        elif delta_tot < -0.24:
+            clv_parts.append(f"Total in discesa ({delta_tot:+.2f}) — smart money su Under")
+        if clv_parts:
+            st.info("📡 **CLV — Direzione mercato**: " + " · ".join(clv_parts))
+    elif flat_lines and minuto_gioco > 0:
+        st.caption("📌 Linee stabili — nessun segnale CLV. Edge solo da tiri o disallineamento quote.")
+
     # ── QUOTE EXCHANGE (input utente) ─────────────────────────────────────────
     st.divider()
     st.header("Quote Exchange Attuali")
@@ -660,6 +702,40 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     eqbn_col, _, _ = st.columns(3)
     q_exc_btts_no = eqbn_col.number_input("Quota BTTS No",          min_value=0.0, value=0.0, step=0.05, format="%.2f")
+
+    # ── TRIANGOLAZIONE CROSS-MERCATO ──────────────────────────────────────────
+    # Se l'utente ha inserito almeno due quote 1X2, mostra overround e divergenze
+    _marg = None
+    if q_exc_1 > 1.0 and q_exc_x > 1.0 and q_exc_2 > 1.0:
+        _marg = _rimuovi_margine(q_exc_1, q_exc_x, q_exc_2)
+    elif q_exc_1 > 1.0 and q_exc_2 > 1.0:
+        # Solo 1 e 2: overround parziale (pareggio escluso)
+        pass
+
+    if _marg is not None:
+        mp1, mpx, mp2, ov_pct = _marg
+        st.caption(
+            f"📊 Overround 1X2 exchange: **{ov_pct:.1f}%** · "
+            f"Prob depurate → 1: {mp1:.1%} · X: {mpx:.1%} · 2: {mp2:.1%}"
+        )
+        # Divergenze modello vs mercato depurato (triangolazione)
+        div1 = mc_1 - mp1
+        divx = mc_x - mpx
+        div2 = mc_2 - mp2
+        max_div = max(abs(div1), abs(divx), abs(div2))
+        if max_div >= 0.04:
+            labels = {"1 Casa": div1, "X Pareggio": divx, "2 Trasf.": div2}
+            sorted_divs = sorted(labels.items(), key=lambda x: abs(x[1]), reverse=True)
+            parts = []
+            for lbl, d in sorted_divs:
+                if abs(d) >= 0.03:
+                    arrow = "↑" if d > 0 else "↓"
+                    parts.append(f"{lbl} {arrow}{abs(d):.1%}")
+            st.info(
+                f"🔍 **Triangolazione**: modello vs mercato 1X2 (depurato) → "
+                + " · ".join(parts)
+                + " — verifica se c'è quota con edge non catturato"
+            )
 
     # ── SEGNALI ───────────────────────────────────────────────────────────────
     st.divider()
@@ -773,10 +849,11 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                 if kelly_frac < 0.50:
                     riduzioni.append(f"Kelly ×{kelly_frac:.2f}")
                 rid_txt = f" _({', '.join(riduzioni)})_" if riduzioni else ""
+                ev_euro = stake * (prob_mod * q_net - 1.0)
                 st.success(
                     f"**PUNTA {etichetta}** — "
                     f"Modello {prob_mod:.1%} · Mercato @{q_exc:.2f} ({prob_imp:.1%}) · "
-                    f"Edge netto **+{edge_back*100:.1f}%**"
+                    f"Edge netto **+{edge_back*100:.1f}%** · EV **€{ev_euro:+.2f}**"
                 )
                 st.write(f"Stake Kelly: **€{stake:.2f}**{rid_txt}")
                 segnali   = True
@@ -795,10 +872,11 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                 if kelly_frac < 0.50:
                     riduzioni.append(f"Kelly ×{kelly_frac:.2f}")
                 rid_txt = f" _({', '.join(riduzioni)})_" if riduzioni else ""
+                ev_euro_lay = stake_lay * ((1.0 - prob_mod) - prob_mod * (q_exc - 1.0))
                 st.warning(
                     f"**BANCA {etichetta}** — "
                     f"Modello {prob_mod:.1%} · Mercato @{q_exc:.2f} ({prob_imp:.1%}) · "
-                    f"Edge lay **+{edge_lay*100:.1f}%**"
+                    f"Edge lay **+{edge_lay*100:.1f}%** · EV **€{ev_euro_lay:+.2f}**"
                 )
                 st.write(f"Stake lay: **€{stake_lay:.2f}** · Liability: **€{liab_lay:.2f}**{rid_txt}")
                 segnali   = True
@@ -855,8 +933,49 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     if not segnali:
         if any_exc_quote:
             st.error("NO BET — Quote exchange allineate al modello, nessun edge sufficiente.")
+            # Soft signal: mostra dove il modello diverge di più, anche sotto soglia
+            cands = []
+            if q_exc_1 > 1.0:
+                q_n = _q_netto(q_exc_1)
+                eb = mc_1 - 1.0/q_n
+                cands.append(("1 Casa",      mc_1,      q_exc_1, eb))
+            if q_exc_x > 1.0:
+                q_n = _q_netto(q_exc_x)
+                eb = mc_x - 1.0/q_n
+                cands.append(("X Pareggio",  mc_x,      q_exc_x, eb))
+            if q_exc_2 > 1.0:
+                q_n = _q_netto(q_exc_2)
+                eb = mc_2 - 1.0/q_n
+                cands.append(("2 Trasf.",    mc_2,      q_exc_2, eb))
+            if q_exc_o > 1.0:
+                q_n = _q_netto(q_exc_o)
+                eb = mc_o - 1.0/q_n
+                cands.append((f"Over {linea_target_ou}", mc_o, q_exc_o, eb))
+            if q_exc_u > 1.0:
+                q_n = _q_netto(q_exc_u)
+                eb = mc_u - 1.0/q_n
+                cands.append((f"Under {linea_target_ou}", mc_u, q_exc_u, eb))
+            if cands:
+                best = max(cands, key=lambda x: x[3])
+                lbl, prob, q, eb = best
+                if eb > 0:
+                    st.caption(
+                        f"💡 Mercato più vicino alla soglia: **{lbl}** — "
+                        f"modello {prob:.1%} · @{q:.2f} · edge netto {eb*100:+.1f}% "
+                        f"(manca {(MIN_EDGE_BACK - eb)*100:.1f}% alla soglia {MIN_EDGE_BACK*100:.0f}%)"
+                    )
+                elif flat_lines and n_shots_tot == 0:
+                    st.caption(
+                        "💡 Linee stabili e nessun dato tiri — il modello non ha fonti di alpha indipendenti. "
+                        "Inserisci i tiri live per sbloccare l'analisi differenziale."
+                    )
         else:
             st.info("Nessuna indicazione forte. Il modello non vede probabilità dominanti al momento.")
+            if flat_lines and n_shots_tot == 0 and minuto_gioco > 0:
+                st.caption(
+                    "💡 Linee stabili senza dati tiri — inserisci i tiri live per dare al modello "
+                    "una fonte di alpha indipendente dalle linee di mercato."
+                )
 
     # DEBUG
     st.divider()
@@ -903,5 +1022,14 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
             st.divider()
             st.write(f"Delta AH     = {delta_ah:+.2f}")
             st.write(f"Delta Tot    = {delta_tot:+.2f}")
+            st.write(f"Flat lines   = {'Sì — boost α_D ×1.6' if flat_lines else 'No'}")
             st.write(f"Momentum     = {momentum:.2f}/6.0")
             st.write(f"Stake factor = ×{momentum_stake_factor:.2f}")
+            if _marg is not None:
+                st.divider()
+                st.markdown("**Triangolazione 1X2**")
+                mp1, mpx, mp2, ov_pct = _marg
+                st.write(f"Overround    = {ov_pct:.2f}%")
+                st.write(f"P1 depurata  = {mp1:.4f}  vs modello {mc_1:.4f}  Δ{mc_1-mp1:+.4f}")
+                st.write(f"PX depurata  = {mpx:.4f}  vs modello {mc_x:.4f}  Δ{mc_x-mpx:+.4f}")
+                st.write(f"P2 depurata  = {mp2:.4f}  vs modello {mc_2:.4f}  Δ{mc_2-mp2:+.4f}")
