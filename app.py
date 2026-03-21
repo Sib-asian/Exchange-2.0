@@ -24,7 +24,10 @@ def rho_dinamico(tot_cur, minuto, shot_dom=0.0):
     base  = max(0.02, 0.14 - 0.018 * min(tot_cur, 4.5))
     decay = 1.0 - 0.40 * max(0.0, min(minuto / 90.0, 1.0))
     rho_base = base * decay
-    return max(0.02, rho_base * (1.0 - 0.25 * shot_dom))
+    # Riduzione fino al 45% con dominio tiri totale: partita unidirezionale
+    # → le due Poisson diventano quasi indipendenti → rho → 0.
+    # 25% era troppo conservativo: a shot_dom=1.0 lasciava ancora il 75% di rho.
+    return max(0.02, rho_base * (1.0 - 0.45 * shot_dom))
 
 
 def dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=-0.13):
@@ -222,15 +225,20 @@ def time_decay_dinamico(xg_casa, xg_trasf, minuto,
     xg_c = float(xg_casa)
     xg_t = float(xg_trasf)
 
-    # 1. Score effect residuale (max 4% — il grosso è già nell'AH live)
+    # 1. Score effect residuale (max 7% — il grosso è già nell'AH live)
+    # La saturazione più rapida (1.5 invece di 2.0) cattura meglio il pressing
+    # disperato late-game: una squadra sotto di 2 gol al 75' preme molto più
+    # intensamente di quanto l'AH live riesca a prezzare in tempo reale.
+    # Letteratura (Brechot & Flepp 2020, Robberechts et al. 2021):
+    # ~10-20% incremento xG in svantaggio; residuo dopo AH live ≈ 5-8%.
     diff = gol_casa - gol_trasf
     if diff != 0:
-        sat      = abs(diff) / (2.0 + abs(diff))
-        residual = 0.04 * sat          # era 0.12, ridotto: ah_cur già prezza la maggior parte
-        if diff < 0:                   # casa in svantaggio → preme di più
+        sat      = abs(diff) / (1.5 + abs(diff))
+        residual = min(0.07, 0.07 * sat)   # cap 7%, crescita più rapida del precedente 4%
+        if diff < 0:                        # casa in svantaggio → preme di più
             xg_c *= (1.0 + residual)
             xg_t *= (1.0 - residual)
-        else:                          # casa in vantaggio → si abbassa
+        else:                               # casa in vantaggio → si abbassa
             xg_t *= (1.0 + residual)
             xg_c *= (1.0 - residual)
 
@@ -382,25 +390,29 @@ def calcola_stake_kelly(prob_modello, quota_target, bankroll, frazione=0.5):
     return bankroll * kelly_pct * frazione
 
 
-def calcola_stake_lay(prob_modello, quota_exc, bankroll, frazione=0.5):
+def calcola_stake_lay(prob_modello, quota_exc, bankroll, frazione=0.5, comm_rate=0.0):
     """
-    Kelly frazionato per LAY su exchange.
+    Kelly frazionato per LAY su exchange, con aggiustamento commissione.
 
-    Quando banci a quota Q:
-      - Vinci la stake se l'evento NON accade  (prob = 1 - prob_modello)
-      - Perdi la liability = stake * (Q - 1)   se l'evento accade
+    Quando banci a quota Q con commissione c:
+      - Vinci la stake*(1-c)  se l'evento NON accade  (prob = 1 - prob_modello)
+      - Perdi la liability = stake * (Q - 1)           se l'evento accade
 
-    f_liability* = 1 - prob_modello * Q
-    Si ha valore nel lay quando prob_modello * Q < 1.
+    Kelly fraction della liability (commission-adjusted):
+      f_liability* = 1 - prob_modello * (Q - c) / (1 - c)
+
+    Senza commissione (c=0) si riduce alla formula standard: 1 - p*Q.
+    Con commissione (es. 2.5%) overcalcolare di ~2.6% usando la formula non aggiustata.
 
     Restituisce (stake_visibile, liability) oppure None se non c'è valore.
     Cap al 5% del bankroll come liability.
-
-    La `frazione` è la stessa Kelly fraction dinamica usata per il back.
     """
     if quota_exc <= 1.30:   # lay non ha senso con quote molto basse
         return None
-    f_liability = 1.0 - prob_modello * quota_exc
+    if comm_rate >= 1.0:    # sanity: commissione impossibile
+        return None
+    # Commission-adjusted Kelly lay fraction
+    f_liability = 1.0 - prob_modello * (quota_exc - comm_rate) / (1.0 - comm_rate)
     if f_liability <= 0:
         return None
     f_liability = min(f_liability, 0.05)
@@ -460,12 +472,17 @@ def blend_xg_shots(mu_h_line, mu_a_line,
     XG_SOFF = 0.05
     MU_MAX  = 3.5   # cap realistico: ~4 gol/90' per squadra è già eccezionale
 
-    # Correzione game-state sulla qualità dei tiri in porta
+    # Correzione game-state sulla qualità dei tiri in porta — progressiva per margine.
+    # +7% per gol di vantaggio (max 15%): 1 gol → ±7%, 2+ gol → ±14-15%.
+    # La squadra in svantaggio pressa in modo sempre più disperato → qualità tiri
+    # cala (tiri da lontano/angolati); la squadra in vantaggio segna in contropiede
+    # su difese scoperte → qualità migliore.
     diff_score = gol_h - gol_a
+    gs_adj = min(0.15, abs(diff_score) * 0.07)
     if diff_score > 0:
-        k_h, k_a = 1.10, 0.90   # casa in vantaggio → contropiede casa, pressing trasf
+        k_h, k_a = 1.0 + gs_adj, 1.0 - gs_adj   # casa in vantaggio → contropiede
     elif diff_score < 0:
-        k_h, k_a = 0.90, 1.10   # trasf in vantaggio → contropiede trasf, pressing casa
+        k_h, k_a = 1.0 - gs_adj, 1.0 + gs_adj   # trasf in vantaggio → contropiede
     else:
         k_h, k_a = 1.00, 1.00
 
@@ -513,7 +530,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v48 · Audit matematico: DC tau, Poisson max_k, Kelly max(0), BTTS full-matrix, edge lay +comm, momentum sqrt")
+st.caption("v50 · Modello potenziato: Kelly lay comm-adj, rho shot-dom 45%, game-state progressivo, score effect 7%, EV€ back")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -846,10 +863,11 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                 if kelly_frac < 0.50:
                     riduzioni.append(f"Kelly ×{kelly_frac:.2f}")
                 rid_txt = f" _({', '.join(riduzioni)})_" if riduzioni else ""
+                ev_euro_back = stake * (prob_mod * q_net - 1.0)
                 st.success(
                     f"**PUNTA {etichetta}** — "
                     f"Modello {prob_mod:.1%} · Mercato @{q_exc:.2f} ({prob_imp:.1%}) · "
-                    f"Edge netto **+{edge_back*100:.1f}%**"
+                    f"Edge netto **+{edge_back*100:.1f}%** · EV **€{ev_euro_back:+.2f}**"
                 )
                 st.write(f"Stake Kelly: **€{stake:.2f}**{rid_txt}")
                 segnali   = True
@@ -857,7 +875,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
         # LAY — quota minima 1.30. Non valutato se back_only=True.
         if not segnalato and not back_only and edge_lay >= MIN_EDGE_LAY and q_exc >= 1.30:
-            result = calcola_stake_lay(prob_mod, q_exc, cassa, kelly_frac)
+            result = calcola_stake_lay(prob_mod, q_exc, cassa, kelly_frac, comm_rate)
             if result is not None:
                 stake_lay, liab_lay = result
                 stake_lay *= momentum_stake_factor
