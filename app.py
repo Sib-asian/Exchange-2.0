@@ -48,8 +48,9 @@ st.caption(f"v{UI.VERSION} · Modello bivariate Poisson + Dixon-Coles + Kelly fr
 match = render_match_state()
 st.divider()
 
-lines = render_asian_lines()
-linea_ou = render_ou_selector(lines["tot_cur"])
+lines = render_asian_lines(match["gol_casa"], match["gol_trasf"])
+gol_attuali = match["gol_casa"] + match["gol_trasf"]
+linea_ou = render_ou_selector(lines["tot_cur_raw"], gol_attuali, lines["fullgame_mode"])
 bankroll, comm_pct, comm_rate = render_bankroll()
 st.divider()
 
@@ -69,7 +70,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         risultati = analizza(state)
 
     n_shots_tot = sum(shots)
-    gol_attuali = state.gol_casa + state.gol_trasf
+    gol_attuali = state.gol_casa + state.gol_trasf  # recompute from validated state
 
     # ── Quote Fair ───────────────────────────────────────────────────────────
     render_quote_fair(risultati, state.minuto, state.gol_casa, state.gol_trasf, linea_ou)
