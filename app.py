@@ -503,7 +503,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v45 · No double-decay · Score effect 4% · Geometric rho · Dynamic Kelly · Commission-aware")
+st.caption("v47 · Segnali rapidi senza quote · Quote exchange opzionali · Flat-lines boost · Triangolazione · EV€")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -606,7 +606,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     # ── QUOTE FAIR (sempre visibili, sempre informative) ─────────────────────
     st.header(f"Quote Fair  —  {minuto_gioco}' | {gol_casa}–{gol_trasf}")
-    st.caption("Riferimento del modello. Confrontale con quello che vedi sull'exchange.")
+    st.caption("Confronta queste quote con quelle sull'exchange: se vedi di meglio, c'è valore.")
 
     c1, cx, c2 = st.columns(3)
     c1.metric("1 — Casa",     f"@{calcola_quota_reale(mc_1):.2f}",  f"{mc_1:.1%}")
@@ -639,45 +639,102 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         mom_label = f"Movimento estremo — verifica eventi non registrati [{momentum:.2f}/6.0]"
     st.progress(min(momentum / 6.0, 1.0), text=mom_label)
 
-    # ── QUOTE EXCHANGE (input utente) ─────────────────────────────────────────
+    # ── SEGNALI RAPIDI (senza quote exchange) ────────────────────────────────
     st.divider()
-    st.header("Quote Exchange Attuali")
-    st.caption(
-        "Inserisci le quote che vedi ora sull'exchange. "
-        "Il motore calcola l'edge rispetto alla sua stima e segnala solo dove c'è valore reale. "
-        "Lascia a 0 i mercati che non ti interessano."
-    )
-
-    eq1, eqx, eq2 = st.columns(3)
-    q_exc_1 = eq1.number_input("Quota 1 (Casa)",     min_value=0.0, value=0.0, step=0.05, format="%.2f")
-    q_exc_x = eqx.number_input("Quota X (Pareggio)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
-    q_exc_2 = eq2.number_input("Quota 2 (Trasf.)",   min_value=0.0, value=0.0, step=0.05, format="%.2f")
-
-    equ, eqo, eqb = st.columns(3)
-    q_exc_u    = equ.number_input(f"Quota Under {linea_target_ou}", min_value=0.0, value=0.0, step=0.05, format="%.2f")
-    q_exc_o    = eqo.number_input(f"Quota Over {linea_target_ou}",  min_value=0.0, value=0.0, step=0.05, format="%.2f")
-    q_exc_btts = eqb.number_input("Quota BTTS Sì",                  min_value=0.0, value=0.0, step=0.05, format="%.2f")
-
-    eqbn_col, _, _ = st.columns(3)
-    q_exc_btts_no = eqbn_col.number_input("Quota BTTS No",          min_value=0.0, value=0.0, step=0.05, format="%.2f")
-
-    # ── SEGNALI ───────────────────────────────────────────────────────────────
-    st.divider()
-    st.header("Segnali Exchange")
+    st.header("Segnali rapidi")
+    st.caption("Nessuna quota da inserire — confronta a occhio con l'exchange.")
 
     if minuto_gioco >= 85:
         st.error("Fine partita — spread enormi, non entrare.")
         st.stop()
 
     frac_giocata = minuto_gioco / 90.0
-    # Back: soglie probabilità minime. Crescono col tempo (più tardi = più certezza).
-    # Non servono per il lay (l'edge parla da solo).
-    soglia_min_1x2  = 0.50 + 0.10 * frac_giocata   # 50% → 60%
-    soglia_min_ou   = 0.55 + 0.10 * frac_giocata   # 55% → 65%
-    soglia_min_btts = 0.50 + 0.10 * frac_giocata   # 50% → 60%
+    soglia_min_1x2  = 0.50 + 0.10 * frac_giocata
+    soglia_min_ou   = 0.55 + 0.10 * frac_giocata
+    soglia_min_btts = 0.50 + 0.10 * frac_giocata
+    gol_attuali     = gol_casa + gol_trasf
+    gol_mancanti    = linea_target_ou - gol_attuali
 
-    gol_attuali  = gol_casa + gol_trasf
-    gol_mancanti = linea_target_ou - gol_attuali
+    # Soglia minima con margine 6%: la quota sull'exchange deve battere fair * 1.06
+    MARGINE_RAPIDO = 0.06
+
+    def _q_target_back(prob):
+        """Quota minima cercata sull'exchange per avere ~6% di edge lordo."""
+        fair = calcola_quota_reale(prob)
+        return fair * (1.0 + MARGINE_RAPIDO)
+
+    def _q_target_lay(prob):
+        """Quota massima cercata per il lay: fair / (1 + margine)."""
+        fair = calcola_quota_reale(prob)
+        return fair / (1.0 + MARGINE_RAPIDO)
+
+    quick_signals = False
+
+    def _segnale_rapido(etichetta, prob, soglia_back, tipo_ou=None):
+        """
+        Mostra il segnale rapido senza richiedere la quota exchange.
+        tipo_ou: 'over' | 'under' | None
+        """
+        global quick_signals
+        fair = calcola_quota_reale(prob)
+        if fair < 1.15:   # evento quasi certo, skip
+            return
+        q_min = _q_target_back(prob)
+        q_max = _q_target_lay(prob)
+
+        if prob >= soglia_back:
+            st.success(
+                f"**BACK candidato — {etichetta}** · Modello {prob:.1%} · Fair @{fair:.2f}\n\n"
+                f"✅ Cerca sull'exchange **almeno @{q_min:.2f}** per avere edge"
+            )
+            quick_signals = True
+        elif prob <= 0.35 and fair >= 1.30:
+            st.warning(
+                f"**LAY candidato — {etichetta}** · Modello {prob:.1%} · Fair @{fair:.2f}\n\n"
+                f"✅ Banca se la quota sull'exchange è **al massimo @{q_max:.2f}**"
+            )
+            quick_signals = True
+
+    _segnale_rapido("1 Casa",      mc_1, soglia_min_1x2)
+    _segnale_rapido("2 Trasf.",    mc_2, soglia_min_1x2)
+    if mc_x >= soglia_min_1x2:
+        _segnale_rapido("X Pareggio", mc_x, soglia_min_1x2)
+
+    if gol_attuali < linea_target_ou:
+        _segnale_rapido(f"Over {linea_target_ou}",  mc_o, soglia_min_ou,  tipo_ou="over")
+        _segnale_rapido(f"Under {linea_target_ou}", mc_u, soglia_min_ou,  tipo_ou="under")
+
+    btts_yes_settled = gol_casa > 0 and gol_trasf > 0
+    if not btts_yes_settled:
+        _segnale_rapido("BTTS Sì", mc_btts,       soglia_min_btts)
+        _segnale_rapido("BTTS No", 1.0 - mc_btts, soglia_min_btts)
+
+    if not quick_signals:
+        st.info("Nessun candidato forte al momento — il modello non vede probabilità dominanti.")
+        if flat_lines and n_shots_tot == 0 and minuto_gioco > 0:
+            st.caption("💡 Inserisci i tiri live per dare al modello una fonte di alpha indipendente.")
+
+    # ── ANALISI AVANZATA CON QUOTE EXCHANGE (opzionale) ──────────────────────
+    st.divider()
+    with st.expander("⚙️ Analisi avanzata con quote exchange (opzionale)"):
+        st.caption(
+            "Inserisci le quote che vedi sull'exchange per ottenere edge preciso, "
+            "stake Kelly in € e EV atteso. Lascia a 0 i mercati che non ti interessano."
+        )
+        eq1, eqx, eq2 = st.columns(3)
+        q_exc_1 = eq1.number_input("Quota 1 (Casa)",     min_value=0.0, value=0.0, step=0.05, format="%.2f")
+        q_exc_x = eqx.number_input("Quota X (Pareggio)", min_value=0.0, value=0.0, step=0.05, format="%.2f")
+        q_exc_2 = eq2.number_input("Quota 2 (Trasf.)",   min_value=0.0, value=0.0, step=0.05, format="%.2f")
+
+        equ, eqo, eqb = st.columns(3)
+        q_exc_u    = equ.number_input(f"Quota Under {linea_target_ou}", min_value=0.0, value=0.0, step=0.05, format="%.2f")
+        q_exc_o    = eqo.number_input(f"Quota Over {linea_target_ou}",  min_value=0.0, value=0.0, step=0.05, format="%.2f")
+        q_exc_btts = eqb.number_input("Quota BTTS Sì",                  min_value=0.0, value=0.0, step=0.05, format="%.2f")
+
+        eqbn_col, _, _ = st.columns(3)
+        q_exc_btts_no = eqbn_col.number_input("Quota BTTS No", min_value=0.0, value=0.0, step=0.05, format="%.2f")
+
+    # ── SEGNALI EXCHANGE (con quote) ──────────────────────────────────────────
     segnali      = False
 
     # Riduzione stake proporzionale al momentum (eventi non registrati)
