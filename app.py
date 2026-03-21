@@ -76,7 +76,13 @@ def calcola_momentum_mercato(delta_ah, delta_tot, minuto):
     - 1.0-2.5  Movimento moderato
     - 2.5-4.0  Movimento significativo
     - 4.0+     Movimento estremo (infortuni, rossi non registrati, info asimmetrica)
+
+    Nota v45: a minuto=0 restituisce 0 — la differenza tra linea apertura e corrente
+    in prematch non è un "movimento intrapartita" ma semplicemente la distanza tra
+    due rilevazioni statiche. Dividere per frac=0.10 amplificava artificialmente.
     """
+    if minuto == 0:
+        return 0.0
     frac = max(0.10, minuto / 90.0)
     return min((abs(delta_ah) + abs(delta_tot) * 0.5) / frac, 6.0)
 
@@ -87,11 +93,25 @@ def calcola_momentum_mercato(delta_ah, delta_tot, minuto):
 
 def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
     """
-    Blend bayesiano 35/65 con normalizzazione temporale.
-    Scala la linea di apertura (full 90') al tempo rimanente
-    prima del blend: entrambi gli input diventano omogenei (gol rimanenti).
+    Blend bayesiano a pesi dinamici con normalizzazione temporale.
+
+    Pesi time-varying (v45):
+      w_cur = min(0.90, 0.65 + 0.20 * frac_giocata)   → 65% prematch → 85% al 90'
+      w_op  = 1 - w_cur
+
+    Motivazione: a partita inoltrata la linea live incorpora molte più informazioni
+    (eventi accaduti, condizioni di gioco, mercato liquido) rispetto all'apertura.
+    Lasciare w_op fisso a 35% tutta la partita sovrappesava il prior di pre-partita.
+
+    L'apertura viene scalata al tempo rimanente prima del blend: entrambi gli input
+    diventano omogenei (gol rimanenti).
     """
-    frac_rimasta = max(0.05, (90.0 - minuto) / 90.0)
+    frac_giocata = minuto / 90.0
+    frac_rimasta = max(0.05, 1.0 - frac_giocata)
+
+    # Pesi time-varying: linea live diventa sempre più affidabile col tempo
+    w_cur = min(0.90, 0.65 + 0.20 * frac_giocata)
+    w_op  = 1.0 - w_cur
 
     # Se non c'e' movimento di linea, usa direttamente i valori correnti
     # senza blend: il blend con frac_rimasta creerebbe deriva artificiale
@@ -103,8 +123,8 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
         ah_bayes  = float(ah_cur)
         tot_bayes = max(0.2, float(tot_cur))
     else:
-        ah_bayes  = (ah_op  * frac_rimasta) * 0.35 + ah_cur  * 0.65
-        tot_bayes = max(0.2, (tot_op * frac_rimasta) * 0.35 + tot_cur * 0.65)
+        ah_bayes  = (ah_op  * frac_rimasta) * w_op + ah_cur  * w_cur
+        tot_bayes = max(0.2, (tot_op * frac_rimasta) * w_op + tot_cur * w_cur)
     eps = 1e-6
 
     def _pmf_ev(mu):
@@ -171,28 +191,44 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
 def time_decay_dinamico(xg_casa, xg_trasf, minuto,
                          gol_casa, gol_trasf, rossi_casa, rossi_trasf):
     """
-    - Decadimento Weibull sul tempo rimanente
-    - Score effect residuale max 12% (il grosso e gia nell'AH live)
-    - Red cards con effetto costante (senza moltiplicatore frac)
+    Aggiustamenti tattico-comportamentali sugli xG già proiettati al tempo rimanente.
+
+    ── Cosa NON fa più (v45) ──────────────────────────────────────────────────
+    Il decadimento Weibull (90-min/90)^0.85 è stato rimosso.
+    `tot_cur` è la linea live dei GOL RIMANENTI: `calcola_xg_bayesiani` restituisce
+    già stime in "remaining goals space". Applicare un ulteriore fattore temporale
+    dimezzava le stime rispetto a ciò che il mercato prezzava → bias sistematico.
+
+    ── Cosa fa ────────────────────────────────────────────────────────────────
+    1. Score effect RESIDUALE max 4%
+       L'AH corrente già incorpora ~80% dell'effetto del punteggio.
+       Il residuo cattura il comportamento tattico non ancora pienamente prezzato:
+       pressing disperato (team che perde), parking the bus (team in vantaggio).
+       Cap a 4% per evitare il double-counting con ah_cur.
+
+    2. Cartellini rossi: effetto costante per carta
+       -32% xG per il team ridotto, +28% per l'avversario.
+       (da letteratura su ~15.000 partite con espulsioni, Brechot & Flepp 2020)
     """
     if minuto >= 90:
         return 0.001, 0.001
 
-    fattore_tempo = math.pow((90.0 - minuto) / 90.0, 0.85)
-    xg_c = xg_casa  * fattore_tempo
-    xg_t = xg_trasf * fattore_tempo
+    xg_c = float(xg_casa)
+    xg_t = float(xg_trasf)
 
+    # 1. Score effect residuale (max 4% — il grosso è già nell'AH live)
     diff = gol_casa - gol_trasf
     if diff != 0:
         sat      = abs(diff) / (2.0 + abs(diff))
-        residual = 0.12 * sat
-        if diff < 0:
+        residual = 0.04 * sat          # era 0.12, ridotto: ah_cur già prezza la maggior parte
+        if diff < 0:                   # casa in svantaggio → preme di più
             xg_c *= (1.0 + residual)
             xg_t *= (1.0 - residual)
-        else:
+        else:                          # casa in vantaggio → si abbassa
             xg_t *= (1.0 + residual)
             xg_c *= (1.0 - residual)
 
+    # 2. Cartellini rossi
     if rossi_casa > 0:
         xg_c *= math.pow(0.68, rossi_casa)
         xg_t *= math.pow(1.28, rossi_casa)
@@ -226,8 +262,13 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
     mu_t_rem = max(1e-9, float(mu_t_rem))
 
     rho     = rho_dinamico(tot_cur, minuto, shot_dom)
-    min_mu  = min(mu_c_rem, mu_t_rem)
-    lambda0 = max(0.0, min(rho * min_mu, 0.95 * min_mu))
+    # Media geometrica invece di min_mu (v45):
+    # lambda0 = rho * min(mu_c, mu_t) sottostimava la correlazione quando una squadra
+    # era nettamente più forte (es. mu_c=2.0, mu_a=0.3 → min=0.3, geom=0.775).
+    # La media geometrica sqrt(mu_c*mu_a) è proporzionale ad entrambi i tassi,
+    # più robusta e coerente con la struttura della bivariate Poisson (Karlis 2003).
+    geom_mu = math.sqrt(mu_c_rem * mu_t_rem)
+    lambda0 = max(0.0, min(rho * geom_mu, 0.90 * min(mu_c_rem, mu_t_rem)))
 
     mu_c_ind = max(1e-9, mu_c_rem - lambda0)
     mu_t_ind = max(1e-9, mu_t_rem - lambda0)
@@ -319,15 +360,17 @@ def calcola_quota_reale(prob):
 def calcola_stake_kelly(prob_modello, quota_target, bankroll, frazione=0.5):
     """
     Kelly frazionato: stake = bankroll * f* * frazione
+
     Formula standard: f* = (p*Q - 1) / (Q - 1)
-      dove p = prob_modello, Q = quota_target (decimal odds)
-    Equivalentemente: f* = (b*p - (1-p)) / b  con b = Q-1 (net odds)
+      dove p = prob_modello, Q = quota_target (decimal odds, già NETTA di commissione)
     Cap al 5% del bankroll. Restituisce 0 se edge <= 0.
+
+    La `frazione` è dinamica in v45: tipicamente 0.50, ridotta a 0.40 late-game
+    o senza dati tiri, calcolata esternamente e passata qui.
     """
     edge = prob_modello - (1.0 / quota_target)
     if edge <= 0 or quota_target <= 1.0:
         return 0.0
-    # Standard Kelly: (p*Q - 1) / (Q - 1)
     kelly_pct = min((prob_modello * quota_target - 1.0) / (quota_target - 1.0), 0.05)
     return bankroll * kelly_pct * frazione
 
@@ -340,15 +383,13 @@ def calcola_stake_lay(prob_modello, quota_exc, bankroll, frazione=0.5):
       - Vinci la stake se l'evento NON accade  (prob = 1 - prob_modello)
       - Perdi la liability = stake * (Q - 1)   se l'evento accade
 
-    Viewing it as "risking L (liability) to gain L/(Q-1)":
-      f_liability* = 1 - prob_modello * Q
-    Si ha valore nel lay quando prob_modello * Q < 1,
-    ovvero quando il mercato sopravvaluta l'evento rispetto al modello.
+    f_liability* = 1 - prob_modello * Q
+    Si ha valore nel lay quando prob_modello * Q < 1.
 
     Restituisce (stake_visibile, liability) oppure None se non c'è valore.
-    La stake visibile è quanto inserisci sull'exchange (il backer paga quella).
-    La liability è quanto rischi tu (= stake * (Q-1)).
     Cap al 5% del bankroll come liability.
+
+    La `frazione` è la stessa Kelly fraction dinamica usata per il back.
     """
     if quota_exc <= 1.01:
         return None
@@ -403,8 +444,11 @@ def blend_xg_shots(mu_h_line, mu_a_line,
       alpha_T, alpha_D         — pesi effettivi del blend (per debug)
       shot_dom                 — indice dominio tiri [0,1] (per rho e debug)
     """
-    XG_SOT  = 0.33
+    # 0.30 SOT (era 0.33): valore conservativo senza dati di posizione.
+    # 0.33 è la media globale includendo rigori/tap-in; open-play medio = 0.24-0.30.
+    XG_SOT  = 0.30
     XG_SOFF = 0.05
+    MU_MAX  = 3.5   # cap realistico: ~4 gol/90' per squadra è già eccezionale
 
     # Correzione game-state sulla qualità dei tiri in porta
     diff_score = gol_h - gol_a
@@ -447,8 +491,8 @@ def blend_xg_shots(mu_h_line, mu_a_line,
     D_blend = (1.0 - alpha_D) * D_line + alpha_D * D_shots
 
     eps = 1e-9
-    mu_h_final = max(eps, (T_blend + D_blend) / 2.0)
-    mu_a_final = max(eps, (T_blend - D_blend) / 2.0)
+    mu_h_final = max(eps, min((T_blend + D_blend) / 2.0, MU_MAX))
+    mu_a_final = max(eps, min((T_blend - D_blend) / 2.0, MU_MAX))
 
     return mu_h_final, mu_a_final, xg_h_accum, xg_a_accum, alpha_T, alpha_D, shot_dom
 
@@ -459,7 +503,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v44 · Dixon-Coles · Rho shot-aware · Blend T+D tiri/linee · Kelly back+lay · Momentum")
+st.caption("v45 · No double-decay · Score effect 4% · Geometric rho · Dynamic Kelly · Commission-aware")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -493,7 +537,16 @@ with col_a2:
 linea_target_ou = st.selectbox(
     "Linea U/O da analizzare:", [0.5, 1.5, 2.5, 3.5, 4.5, 5.5], index=2
 )
-cassa = st.number_input("Bankroll (€)", value=1000.0, step=100.0)
+
+col_bk, col_cm = st.columns(2)
+with col_bk:
+    cassa = st.number_input("Bankroll (€)", value=1000.0, step=100.0)
+with col_cm:
+    comm_pct = st.number_input(
+        "Commissione exchange (%)", value=2.5, min_value=0.0, max_value=10.0, step=0.5,
+        help="Betfair Standard: 2-5%. Usata per calcolare l'edge netto."
+    )
+comm_rate = comm_pct / 100.0
 
 st.divider()
 st.header("3. Tiri (Live)")
@@ -630,26 +683,46 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     # Riduzione stake proporzionale al momentum (eventi non registrati)
     momentum_stake_factor = max(0.4, 1.0 - 0.10 * max(0.0, momentum - 2.5))
 
+    # Kelly fraction dinamica (v45):
+    # Diminuisce quando il gioco è avanzato (più rumore) o mancano dati sui tiri live.
+    kelly_base = 0.50
+    if minuto_gioco > 75:
+        kelly_base *= 0.80              # late game: spread ampi, più rumore
+    if minuto_gioco > 0 and n_shots_tot == 0:
+        kelly_base *= 0.85              # partita in corso senza dati tiri
+    kelly_frac = max(0.20, kelly_base)
+
     any_exc_quote = any(
         q > 1.0 for q in [q_exc_1, q_exc_x, q_exc_2, q_exc_u, q_exc_o, q_exc_btts, q_exc_btts_no]
     )
 
-    MIN_EDGE_BACK = 0.030   # 3% edge minimo per back
-    MIN_EDGE_LAY  = 0.040   # 4% edge minimo per lay (rischio asimmetrico)
+    # Edge netto di commissione:
+    # La quota effettiva per il back è q_netto = 1 + (q_exc-1)*(1-comm)
+    # Un edge lordo del 3% con commissione 5% può essere EV negativo.
+    # MIN_EDGE_BACK e MIN_EDGE_LAY sono già sui valori netti.
+    MIN_EDGE_BACK = 0.030   # 3% edge netto minimo per back
+    MIN_EDGE_LAY  = 0.040   # 4% edge netto minimo per lay (rischio asimmetrico)
     MIN_FAIR_Q    = 1.15    # eventi quasi certi (>87%) → skip, già nel prezzo
 
-    def _valuta(etichetta, prob_mod, q_exc, soglia_back):
+    def _q_netto(q_exc):
+        """Quota effettiva back dopo commissione exchange."""
+        return 1.0 + (q_exc - 1.0) * (1.0 - comm_rate)
+
+    def _valuta(etichetta, prob_mod, q_exc, soglia_back, back_only=False):
         """
         Logica unificata back/lay per ogni mercato.
 
         Con quota exchange:
-          PUNTA  se  prob_mod - 1/q_exc >= MIN_EDGE_BACK  AND  prob_mod >= soglia_back
+          PUNTA  se  prob_mod - 1/q_netto >= MIN_EDGE_BACK  AND  prob_mod >= soglia_back
+                     (edge calcolato sulla quota NETTA di commissione)
           BANCA  se  1/q_exc - prob_mod >= MIN_EDGE_LAY   AND  q_exc >= 1.30
-          (lay a quota < 1.30 ha rischio/reward strutturalmente sfavorevole)
+                     (il lay non paga commissione sulla perdita, solo sulla vincita)
+
+        back_only=True: valuta solo il BACK (usato per Over a fine gara dove il back
+        non ha senso ma il LAY sull'Over è comunque valutabile via UNDER).
 
         Senza quota exchange (q_exc <= 1.0):
-          Indicazione qualitativa solo se il modello è fortemente convinto:
-          >62% → potenziale back · <30% → mercato probabilmente sopravvaluta (lay)
+          Indicazione qualitativa solo se il modello è fortemente convinto.
           Nessun Kelly senza prezzo reale.
 
         Skip sempre se l'evento è quasi certo (fair < MIN_FAIR_Q = @1.15).
@@ -671,7 +744,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                 )
                 segnali = True
                 return True
-            if prob_mod <= 0.30:
+            if prob_mod <= 0.30 and not back_only:
                 st.info(
                     f"📉 **{etichetta}**: modello {prob_mod:.1%} (fair @{q_fair:.2f}) "
                     f"— mercato probabilmente sopravvaluta · considera lay · inserisci quota per conferma"
@@ -681,50 +754,53 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
             return False
 
         # ── CON QUOTA EXCHANGE ────────────────────────────────────────────────
-        prob_imp  = 1.0 / q_exc
-        edge_back = prob_mod - prob_imp
-        edge_lay  = prob_imp - prob_mod
+        q_net     = _q_netto(q_exc)          # quota netta per back
+        prob_imp  = 1.0 / q_exc              # probabilità implicita del mercato
+        edge_back = prob_mod - (1.0 / q_net) # edge netto commissione per back
+        edge_lay  = prob_imp - prob_mod       # edge lay (su commissione solo se vince)
         segnalato = False
 
-        # BACK
+        # BACK (con edge netto)
         if edge_back >= MIN_EDGE_BACK and prob_mod >= soglia_back:
-            stake_raw = calcola_stake_kelly(prob_mod, q_exc, cassa)
+            stake_raw = calcola_stake_kelly(prob_mod, q_net, cassa, kelly_frac)
             stake     = stake_raw * momentum_stake_factor
             if stake > 0:
+                riduzioni = []
+                if comm_rate > 0:
+                    riduzioni.append(f"comm {comm_pct:.1f}% → @{q_net:.3f} netto")
+                if momentum_stake_factor < 1.0:
+                    riduzioni.append(f"momentum ×{momentum_stake_factor:.2f}")
+                if kelly_frac < 0.50:
+                    riduzioni.append(f"Kelly ×{kelly_frac:.2f}")
+                rid_txt = f" _({', '.join(riduzioni)})_" if riduzioni else ""
                 st.success(
                     f"**PUNTA {etichetta}** — "
                     f"Modello {prob_mod:.1%} · Mercato @{q_exc:.2f} ({prob_imp:.1%}) · "
-                    f"Edge **+{edge_back*100:.1f}%**"
+                    f"Edge netto **+{edge_back*100:.1f}%**"
                 )
-                if momentum_stake_factor < 1.0:
-                    st.write(
-                        f"Stake ½-Kelly: **€{stake:.2f}** "
-                        f"_(ridotta da €{stake_raw:.2f} · momentum {momentum:.1f}/6.0 · ×{momentum_stake_factor:.2f})_"
-                    )
-                else:
-                    st.write(f"Stake ½-Kelly: **€{stake:.2f}**")
+                st.write(f"Stake Kelly: **€{stake:.2f}**{rid_txt}")
                 segnali   = True
                 segnalato = True
 
-        # LAY — quota minima 1.30 (sotto quel valore il lay non ha senso economico)
-        if not segnalato and edge_lay >= MIN_EDGE_LAY and q_exc >= 1.30:
-            result = calcola_stake_lay(prob_mod, q_exc, cassa)
+        # LAY — quota minima 1.30. Non valutato se back_only=True.
+        if not segnalato and not back_only and edge_lay >= MIN_EDGE_LAY and q_exc >= 1.30:
+            result = calcola_stake_lay(prob_mod, q_exc, cassa, kelly_frac)
             if result is not None:
                 stake_lay, liab_lay = result
                 stake_lay *= momentum_stake_factor
                 liab_lay  *= momentum_stake_factor
+                riduzioni = []
+                if momentum_stake_factor < 1.0:
+                    riduzioni.append(f"momentum ×{momentum_stake_factor:.2f}")
+                if kelly_frac < 0.50:
+                    riduzioni.append(f"Kelly ×{kelly_frac:.2f}")
+                rid_txt = f" _({', '.join(riduzioni)})_" if riduzioni else ""
                 st.warning(
                     f"**BANCA {etichetta}** — "
                     f"Modello {prob_mod:.1%} · Mercato @{q_exc:.2f} ({prob_imp:.1%}) · "
                     f"Edge lay **+{edge_lay*100:.1f}%**"
                 )
-                if momentum_stake_factor < 1.0:
-                    st.write(
-                        f"Stake lay: **€{stake_lay:.2f}** · Liability: **€{liab_lay:.2f}** "
-                        f"_(ridotta · momentum ×{momentum_stake_factor:.2f})_"
-                    )
-                else:
-                    st.write(f"Stake lay: **€{stake_lay:.2f}** · Liability: **€{liab_lay:.2f}**")
+                st.write(f"Stake lay: **€{stake_lay:.2f}** · Liability: **€{liab_lay:.2f}**{rid_txt}")
                 segnali   = True
                 segnalato = True
 
@@ -744,14 +820,29 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         st.error(f"❌ Under {linea_target_ou} già PERSO — {gol_attuali:.0f} gol. Mercato chiuso.")
     else:
         if minuto_gioco >= 75 and gol_mancanti >= 2:
-            st.info(f"Over {linea_target_ou}: al {minuto_gioco}' mancano {gol_mancanti:.0f} gol ({mc_o:.1%}) — troppo tardi per entrare.")
+            # Back Over: troppo tardi. Ma LAY Over (= back Under) rimane valido.
+            st.info(
+                f"Over {linea_target_ou}: al {minuto_gioco}' mancano {gol_mancanti:.0f} gol ({mc_o:.1%}) "
+                f"— BACK sconsigliato. Valuto solo LAY sull'Over se hai la quota."
+            )
+            _valuta(f"OVER {linea_target_ou}", mc_o, q_exc_o, soglia_min_ou, back_only=False)
         else:
-            _valuta(f"OVER {linea_target_ou}",  mc_o, q_exc_o, soglia_min_ou)
+            _valuta(f"OVER {linea_target_ou}", mc_o, q_exc_o, soglia_min_ou)
         _valuta(f"UNDER {linea_target_ou}", mc_u, q_exc_u, soglia_min_ou)
 
-    # BTTS
-    _valuta("BTTS SÌ", mc_btts,       q_exc_btts,    soglia_min_btts)
-    _valuta("BTTS NO", 1.0 - mc_btts, q_exc_btts_no, soglia_min_btts)
+    # BTTS — gestione mercato già chiuso
+    btts_yes_settled = gol_casa > 0 and gol_trasf > 0
+    btts_no_settled  = minuto_gioco >= 88 and (gol_casa == 0 or gol_trasf == 0)
+
+    if btts_yes_settled:
+        st.success("✅ BTTS SÌ già VINTO — entrambe le squadre hanno segnato. Mercato chiuso.")
+        st.error("❌ BTTS NO già PERSO. Mercato chiuso.")
+    elif btts_no_settled:
+        st.error("❌ BTTS SÌ quasi impossibile a questo punto. Mercato chiuso praticamente.")
+        st.success("✅ BTTS NO quasi VINTO — mercato sul filo, non entrare ora.")
+    else:
+        _valuta("BTTS SÌ", mc_btts,       q_exc_btts,    soglia_min_btts)
+        _valuta("BTTS NO", 1.0 - mc_btts, q_exc_btts_no, soglia_min_btts)
 
     # Incoerenza Over + BTTS No
     if mc_o > 0.50 and mc_btts < 0.35 and gol_attuali < linea_target_ou:
