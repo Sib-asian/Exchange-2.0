@@ -1,0 +1,248 @@
+"""
+poisson.py — Distribuzioni di Poisson e matrice bivariata per il calcio.
+
+Implementa:
+  - PMF di Poisson normalizzata con gestione della coda
+  - Correzione Dixon-Coles per punteggi bassi (tau-correction)
+  - Correlazione dinamica rho per il modello bivariato
+  - Costruzione della matrice bivariata completa con convoluzione Z
+
+Riferimenti:
+  Dixon & Coles (1997), "Modelling Association Football Scores"
+  Karlis & Ntzoufras (2003), "Analysis of sports data by using bivariate Poisson models"
+  Brechot & Flepp (2020), "Dealing With Randomness in Soccer"
+"""
+
+from __future__ import annotations
+
+import math
+from typing import TYPE_CHECKING
+
+from src.config import DC, POISSON, RHO
+
+if TYPE_CHECKING:
+    pass
+
+
+# ---------------------------------------------------------------------------
+# PMF di Poisson
+# ---------------------------------------------------------------------------
+
+def poisson_pmf(mu: float, tail_mass: float = POISSON.TAIL_MASS) -> list[float]:
+    """
+    Calcola la PMF di Poisson con troncatura adattiva e normalizzazione.
+
+    La coda viene troncata quando P(X > k) < tail_mass.
+    max_k = mu + 6*sqrt(mu) garantisce la copertura per qualsiasi mu realistico.
+
+    Args:
+        mu: Tasso atteso (lambda). Se <= 0 restituisce [1.0].
+        tail_mass: Soglia di coda sotto cui fermare l'accumulo.
+
+    Returns:
+        Lista normalizzata di probabilità [P(X=0), P(X=1), ...].
+    """
+    if mu <= 0:
+        return [1.0]
+
+    max_k = max(20, int(mu + 6.0 * math.sqrt(max(mu, 1.0)) + 10))
+    p0 = math.exp(-mu)
+    pmf: list[float] = [p0]
+    cumsum = p0
+    p = p0
+
+    for k in range(1, max_k + 1):
+        p = p * mu / k
+        pmf.append(p)
+        cumsum += p
+        if cumsum >= (1.0 - tail_mass):
+            break
+
+    # Normalizzazione: garantisce che la somma sia esattamente 1.0
+    if cumsum > 0:
+        return [x / cumsum for x in pmf]
+    return pmf
+
+
+# ---------------------------------------------------------------------------
+# Correzione Dixon-Coles
+# ---------------------------------------------------------------------------
+
+def dixon_coles_tau(
+    i: int,
+    j: int,
+    mu_h: float,
+    mu_a: float,
+    rho_dc: float = DC.RHO_DC,
+) -> float:
+    """
+    Fattore correttivo Dixon-Coles per i 4 punteggi bassi (i+j <= 1).
+
+    Poisson indipendente sovrastima P(0-0) e sottostima P(1-0)/P(0-1)/P(1-1).
+    La correzione si applica SOLO a i,j in {0,1} con i+j <= 2:
+
+        tau(0,0) = 1 - mu_h * mu_a * rho_dc
+        tau(1,0) = 1 + mu_a * rho_dc
+        tau(0,1) = 1 + mu_h * rho_dc
+        tau(1,1) = 1 - rho_dc
+        tau(i,j) = 1  per tutti gli altri (i+j > 2 o i>1 o j>1)
+
+    rho_dc < 0 (tipicamente -0.13): le squadre tendono a NON segnare
+    simultaneamente (effetto difensivo).
+
+    Il clamp [TAU_MIN, TAU_MAX] previene l'azzeramento (rho troppo estremo)
+    o l'amplificazione eccessiva.
+
+    Args:
+        i: Gol casa (punteggio considerato).
+        j: Gol trasferta.
+        mu_h: Lambda casa per la distribuzione indipendente.
+        mu_a: Lambda trasferta.
+        rho_dc: Coefficiente Dixon-Coles (negativo = correlazione negativa).
+
+    Returns:
+        Fattore tau in [TAU_MIN, TAU_MAX].
+    """
+    if i == 0 and j == 0:
+        tau = 1.0 - mu_h * mu_a * rho_dc
+    elif i == 1 and j == 0:
+        tau = 1.0 + mu_a * rho_dc
+    elif i == 0 and j == 1:
+        tau = 1.0 + mu_h * rho_dc
+    elif i == 1 and j == 1:
+        tau = 1.0 - rho_dc
+    else:
+        return 1.0
+
+    return max(DC.TAU_MIN, min(tau, DC.TAU_MAX))
+
+
+# ---------------------------------------------------------------------------
+# Correlazione dinamica rho
+# ---------------------------------------------------------------------------
+
+def rho_dinamico(
+    tot_cur: float,
+    minuto: int,
+    shot_dom: float = 0.0,
+    gol_totali: int = 0,
+) -> float:
+    """
+    Coefficiente di correlazione bivariate Poisson, dinamico in base al contesto.
+
+    Logica:
+    - tot_cur alto → partita aperta → squadre segnano più indipendentemente → rho ↓
+    - Avanzare del minuto → gol già osservati dominano → rho ↓
+    - gol_totali alti → correlazione residua tra gol futuri minore → rho ↓
+    - shot_dom alto → partita unidirezionale → quasi indipendenza → rho ↓
+
+    Range risultante: ~0.02 (dominio totale, gara avanzata) → ~0.14 (equilibrio, inizio)
+
+    Args:
+        tot_cur: Linea Total corrente (gol rimanenti attesi dal mercato).
+        minuto: Minuto attuale [0, 90].
+        shot_dom: Indice dominio tiri [0, 1] = |sot_h - sot_a| / (sot_h + sot_a).
+        gol_totali: Numero di gol già segnati in partita.
+
+    Returns:
+        Coefficiente rho in [RHO_MIN, ~0.14].
+    """
+    base = max(RHO.RHO_MIN, RHO.BASE_MAX - RHO.BASE_DECAY_RATE * min(tot_cur, RHO.BASE_TOT_CAP))
+    time_factor = 1.0 - RHO.TIME_DECAY_FACTOR * max(0.0, min(minuto / 90.0, 1.0))
+    goal_decay = max(RHO.GOAL_DECAY_FLOOR, 1.0 - RHO.GOAL_DECAY_RATE * gol_totali)
+    rho_base = base * time_factor * goal_decay
+    shot_factor = 1.0 - RHO.SHOT_DOM_REDUCTION * shot_dom
+
+    return max(RHO.RHO_MIN, rho_base * shot_factor)
+
+
+# ---------------------------------------------------------------------------
+# Matrice bivariata
+# ---------------------------------------------------------------------------
+
+def build_bivariate_matrix(
+    mu_h: float,
+    mu_a: float,
+    minuto: int,
+    tot_cur: float,
+    shot_dom: float = 0.0,
+    gol_totali: int = 0,
+) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], float], float]:
+    """
+    Costruisce la matrice di probabilità bivariata completa.
+
+    Modello bivariate Poisson (Karlis 2003):
+        X_rem = X_ind + Z    (gol rimanenti casa)
+        Y_rem = Y_ind + Z    (gol rimanenti trasferta)
+        X_ind ~ Poisson(mu_h - lambda0)
+        Y_ind ~ Poisson(mu_a - lambda0)
+        Z     ~ Poisson(lambda0)
+
+    dove lambda0 = rho * sqrt(mu_h * mu_a), cappato a 75% del min(mu_h, mu_a).
+
+    La matrice indipendente viene corretta con Dixon-Coles prima della
+    convoluzione con Z.
+
+    Args:
+        mu_h: Lambda atteso casa (gol rimanenti).
+        mu_a: Lambda atteso trasferta.
+        minuto: Minuto attuale [0, 90].
+        tot_cur: Linea Total corrente (per il calcolo di rho).
+        shot_dom: Indice dominio tiri [0, 1].
+        gol_totali: Gol già segnati (per il calcolo di rho).
+
+    Returns:
+        Tupla (joint_ind, full, rho_used):
+          - joint_ind: Matrice indipendente con DC, normalizzata.
+          - full: Matrice bivariata completa (con Z), normalizzata.
+          - rho_used: Valore di rho effettivamente usato.
+    """
+    mu_h = max(POISSON.EPS, float(mu_h))
+    mu_a = max(POISSON.EPS, float(mu_a))
+
+    rho = rho_dinamico(tot_cur, minuto, shot_dom, gol_totali)
+
+    # lambda0: media geometrica più robusta di min() per partite sbilanciate
+    geom_mu = math.sqrt(mu_h * mu_a)
+    lambda0 = max(0.0, min(rho * geom_mu, POISSON.LAMBDA0_CAP_RATIO * min(mu_h, mu_a)))
+
+    mu_h_ind = max(POISSON.EPS, mu_h - lambda0)
+    mu_a_ind = max(POISSON.EPS, mu_a - lambda0)
+
+    pmf_h = poisson_pmf(mu_h_ind)
+    pmf_a = poisson_pmf(mu_a_ind)
+    pmf_z = poisson_pmf(lambda0)
+
+    # Matrice indipendente con correzione Dixon-Coles
+    joint_ind: dict[tuple[int, int], float] = {}
+    dc_sum = 0.0
+
+    for i, pi in enumerate(pmf_h):
+        if pi < POISSON.PROB_SKIP_THRESHOLD:
+            continue
+        for j, pj in enumerate(pmf_a):
+            if pj < POISSON.PROB_SKIP_THRESHOLD:
+                continue
+            tau = dixon_coles_tau(i, j, mu_h_ind, mu_a_ind)
+            val = pi * pj * tau
+            joint_ind[(i, j)] = val
+            dc_sum += val
+
+    if dc_sum > 0:
+        joint_ind = {k: v / dc_sum for k, v in joint_ind.items()}
+
+    # Matrice full: convoluzione con Z
+    # P(X_rem=a, Y_rem=b) = sum_z P(X_ind=a-z, Y_ind=b-z) * P(Z=z)
+    full: dict[tuple[int, int], float] = {}
+    for (i, j), pij in joint_ind.items():
+        for z, pz in enumerate(pmf_z):
+            if pz < POISSON.PROB_SKIP_THRESHOLD:
+                continue
+            a, b = i + z, j + z
+            full[(a, b)] = full.get((a, b), 0.0) + pij * pz
+
+    fj_sum = sum(full.values())
+    if fj_sum > 0:
+        full = {k: v / fj_sum for k, v in full.items()}
+
+    return joint_ind, full, rho

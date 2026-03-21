@@ -1,0 +1,320 @@
+"""
+config.py — Costanti e parametri centralizzati del motore Radar Pro Live.
+
+Tutti i magic numbers del motore sono qui documentati con fonte e motivazione.
+Modificare solo qui: nessuna costante hardcodata nei moduli.
+"""
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class PoissonConfig:
+    """Parametri per la distribuzione di Poisson e la matrice bivariata."""
+
+    # Coda troncata: P(X > k) < tail_mass prima di fermarsi
+    TAIL_MASS: float = 1e-12
+
+    # Soglia di probabilità sotto cui saltare i termini nel prodotto
+    PROB_SKIP_THRESHOLD: float = 1e-16
+
+    # Iterazioni bisection per trovare delta* (2^52 ≈ 4e15: convergenza float garantita)
+    BISECTION_ITERS: int = 52
+
+    # Tolleranza convergenza bisection (EV residuo)
+    BISECTION_TOL: float = 1e-9
+
+    # Cap su lambda0 / min(mu_c, mu_t): 75% (Karlis & Ntzoufras 2003)
+    LAMBDA0_CAP_RATIO: float = 0.75
+
+    # Cap assoluto per lambda_h/lambda_a: prevenire valori insensati
+    LAMBDA_MAX: float = 8.0
+
+    # Soglia minima per xG (evita divisioni per zero)
+    EPS: float = 1e-9
+
+
+@dataclass(frozen=True)
+class DixonColesConfig:
+    """Parametri correzione Dixon-Coles per punteggi bassi."""
+
+    # Rho DC empirico negativo: le squadre tendono a non segnare simultaneamente.
+    # Valore calibrato su top-5 leagues (Dixon & Coles 1997, Karlis & Ntzoufras 2003).
+    RHO_DC: float = -0.13
+
+    # Clamp tau: [0.05, 3.0] — 0.05 evita l'azzeramento, 3.0 evita amplificazioni eccessive
+    TAU_MIN: float = 0.05
+    TAU_MAX: float = 3.0
+
+
+@dataclass(frozen=True)
+class RhoConfig:
+    """Parametri per il coefficiente di correlazione dinamico rho."""
+
+    # Correlazione base (equilibrio, inizio partita)
+    BASE_MAX: float = 0.14
+
+    # Riduzione per gol attesi alti: 0.018 per unità di tot_cur
+    BASE_DECAY_RATE: float = 0.018
+
+    # Limite inferiore di tot_cur applicato al calcolo base
+    BASE_TOT_CAP: float = 4.5
+
+    # Decadimento temporale: -40% a fine partita
+    TIME_DECAY_FACTOR: float = 0.40
+
+    # Decadimento per gol segnati: -10% per gol, floor 50%
+    GOAL_DECAY_RATE: float = 0.10
+    GOAL_DECAY_FLOOR: float = 0.50
+
+    # Riduzione per dominanza tiri: -45% con dominio totale
+    SHOT_DOM_REDUCTION: float = 0.45
+
+    # Floor assoluto di rho
+    RHO_MIN: float = 0.02
+
+
+@dataclass(frozen=True)
+class ShotConfig:
+    """Parametri per la stima xG dai tiri."""
+
+    # xG per tiro in porta senza dati posizionali (top-5 leagues, open play)
+    # Letteratura: 0.10-0.35 a seconda del contesto; 0.30 è stima conservativa
+    # per tiri in porta in assenza di heatmap (Caley 2015, Statsbomb open data)
+    XG_SOT: float = 0.30
+
+    # xG per tiro fuori porta (molto basso, include parabole e tiri bloccati)
+    XG_SOFF: float = 0.05
+
+    # Numero di tiri totali per considerare il campione "sufficiente"
+    SHOT_INFO_THRESHOLD: int = 15
+
+    # Peso massimo dei tiri sul Totale (il Total-line è molto efficiente)
+    ALPHA_T_MAX: float = 0.25
+
+    # Peso massimo dei tiri sul Differenziale (più informativo del mercato)
+    ALPHA_D_MAX: float = 0.70
+
+    # Correzione game-state sulla qualità: +7% per gol di vantaggio, cap 15%
+    GAME_STATE_RATE: float = 0.07
+    GAME_STATE_CAP: float = 0.15
+
+
+@dataclass(frozen=True)
+class TimeDecayConfig:
+    """Parametri per l'effetto temporale e score effect."""
+
+    # Score effect residuale: cap assoluto (AH live già copre ~80% dell'effetto)
+    SCORE_EFFECT_MAX: float = 0.08
+    SCORE_EFFECT_BASE: float = 0.07
+
+    # Saturazione score effect: 1.5 (più rapida di 2.0 per pressing tardivo)
+    SCORE_SATURATION: float = 1.5
+
+    # Scale temporale per lo score effect:
+    # 0' → 1.20 (max boost ~8.4%), 45' → 0.65, 75' → 0.38, 85' → 0.30
+    SCORE_MINUTE_SCALE_A: float = 1.20
+    SCORE_MINUTE_SCALE_B: float = 1.10
+
+    # Floor scale temporale (fine partita)
+    SCORE_MINUTE_SCALE_FLOOR: float = 0.30
+
+    # Cartellini rossi — effetto marginale decrescente (Brechot & Flepp 2020)
+    # Tabella precalcolata: indice = numero di rossi (0-4)
+    RED_DECAY: tuple = (1.000, 0.680, 0.578, 0.532, 0.500)
+    RED_BOOST: tuple = (1.000, 1.280, 1.434, 1.520, 1.566)
+
+    # Asimmetria home/away per cartellini rossi (~5% più grave in trasferta)
+    RED_AWAY_PENALTY: float = 0.95   # moltiplicatore decay extra per la trasferta
+    RED_HOME_BOOST: float = 1.04     # boost aggiuntivo per la casa
+
+    # Floor per xG dopo tutti gli aggiustamenti
+    XG_FLOOR: float = 0.001
+
+
+@dataclass(frozen=True)
+class BayesianConfig:
+    """Parametri per il blend bayesiano linee apertura/corrente."""
+
+    # Peso minimo della linea corrente (inizio partita)
+    W_CUR_MIN: float = 0.65
+
+    # Peso massimo della linea corrente (fine partita)
+    W_CUR_MAX: float = 0.90
+
+    # Velocità di crescita del peso corrente con la frazione giocata
+    W_CUR_SLOPE: float = 0.20
+
+    # Floor della frazione rimanente (evita "ghost goals" in zona recupero)
+    FRAC_RIMASTA_FLOOR: float = 0.005
+
+    # Totale minimo bayesiano (evita tot_bayes troppo basso)
+    TOT_BAYES_MIN: float = 0.20
+
+    # Soglia delta per considerare le linee "flat" (non applicare il blend)
+    FLAT_LINE_THRESHOLD: float = 1e-6
+
+
+@dataclass(frozen=True)
+class MomentumConfig:
+    """Parametri per il calcolo del momentum di mercato."""
+
+    # Sqrt invece di lineare: evita overshoot early-game
+    # A minuto 10: sqrt=0.33 (amplif. ×3) vs lineare=0.11 (amplif. ×9)
+    FRAC_FLOOR: float = 0.15
+
+    # Peso del Total nel calcolo del momentum (meno informativo dell'AH)
+    TOT_WEIGHT: float = 0.5
+
+    # Cap del momentum
+    MOMENTUM_CAP: float = 6.0
+
+    # Soglie interpretative
+    STABLE_THRESHOLD: float = 1.0
+    MODERATE_THRESHOLD: float = 2.5
+    SIGNIFICANT_THRESHOLD: float = 4.0
+
+
+@dataclass(frozen=True)
+class KellyConfig:
+    """Parametri per il Kelly criterion e il dimensionamento delle stake."""
+
+    # Frazione Kelly base (50% = half-Kelly)
+    KELLY_BASE_FRACTION: float = 0.50
+
+    # Riduzione late-game (>75')
+    KELLY_LATE_GAME_REDUCTION: float = 0.10
+
+    # Riduzione senza dati tiri live
+    KELLY_NO_SHOTS_REDUCTION: float = 0.05
+
+    # Floor assoluto della frazione Kelly
+    KELLY_MIN_FRACTION: float = 0.20
+
+    # Cap Kelly: max 5% del bankroll in un singolo bet
+    KELLY_MAX_PCT: float = 0.05
+
+    # Cap adattivo per edge piccolo: edge < 5% → cap 2.5% * fraction
+    KELLY_SMALL_EDGE_THRESHOLD: float = 0.05
+    KELLY_SMALL_EDGE_CAP_PCT: float = 0.025
+
+    # Cap adattivo per edge medio: edge < 10% → cap 4% * fraction
+    KELLY_MEDIUM_EDGE_THRESHOLD: float = 0.10
+    KELLY_MEDIUM_EDGE_CAP_PCT: float = 0.040
+
+    # Quota minima per il LAY (sotto questa quota non ha senso)
+    LAY_MIN_ODDS: float = 1.30
+
+
+@dataclass(frozen=True)
+class SignalConfig:
+    """Parametri per la generazione dei segnali di betting."""
+
+    # Edge netto minimo per BACK (dopo commissione)
+    MIN_EDGE_BACK: float = 0.030
+
+    # Edge netto minimo per LAY (rischio asimmetrico)
+    MIN_EDGE_LAY: float = 0.040
+
+    # Quota fair minima: eventi >80% → skip (già nel prezzo)
+    MIN_FAIR_Q: float = 1.25
+
+    # Margine lordo minimo per i segnali rapidi (senza quota exchange)
+    MARGINE_RAPIDO: float = 0.06
+
+    # Soglia prob minima per segnali rapidi BACK (cresce col tempo)
+    SOGLIA_BACK_MIN: float = 0.55
+    SOGLIA_BACK_BASE: float = 0.50
+    SOGLIA_BACK_SLOPE: float = 0.10
+
+    # Soglia prob massima per segnali rapidi LAY
+    SOGLIA_LAY_MAX: float = 0.35
+    LAY_MIN_FAIR_Q: float = 1.30
+
+    # Soglia per BTTS No (strutturalmente più probabile di Sì)
+    SOGLIA_BTTS_NO_BASE: float = 0.45
+    SOGLIA_BTTS_NO_MIN: float = 0.50
+
+    # Quota fair minima per mostrare un segnale rapido (evento quasi certo: skip)
+    QUICK_SIGNAL_MIN_FAIR_Q: float = 1.15
+
+    # Soglia qualitativa senza quota exchange
+    SOGLIA_QUALITATIVA_BASE: float = 0.60
+    SOGLIA_QUALITATIVA_SLOPE: float = 0.10
+    SOGLIA_QUALITATIVA_MIN: float = 0.62
+
+    # Over bonus per gol mancanti (cap 6%)
+    OVER_GOL_BONUS_RATE: float = 0.02
+    OVER_GOL_BONUS_CAP: float = 0.06
+    OVER_BASE_THRESHOLD: float = 0.58
+    OVER_BASE_MIN: float = 0.55
+
+    # Riduzione stake per momentum anomalo
+    MOMENTUM_STAKE_REDUCTION_RATE: float = 0.10
+    MOMENTUM_STAKE_THRESHOLD: float = 2.5
+    MOMENTUM_STAKE_FLOOR: float = 0.40
+
+    # Soglia fine partita: nessun segnale oltre questo minuto
+    GAME_END_THRESHOLD: int = 85
+
+    # BTTS No settled: partita a 88'+, mc_btts < 10%, almeno una squadra a 0 gol
+    BTTS_NO_SETTLED_MINUTE: int = 88
+    BTTS_NO_SETTLED_PROB_THRESHOLD: float = 0.10
+
+    # Incoerenza BTTS Sì + Under bassa linea: soglie
+    BTTS_UNDER_INCOHERENCE_BTTS: float = 0.50
+    BTTS_UNDER_INCOHERENCE_UNDER: float = 0.55
+    BTTS_UNDER_MAX_LINE: float = 1.5
+
+    # Incoerenza Over + BTTS No: soglie
+    OVER_BTTS_INCOHERENCE_OVER: float = 0.50
+    OVER_BTTS_INCOHERENCE_BTTS: float = 0.35
+
+
+@dataclass(frozen=True)
+class UIConfig:
+    """Parametri di configurazione dell'interfaccia Streamlit."""
+
+    PAGE_TITLE: str = "Radar Pro Live"
+    PAGE_ICON: str = "⚡"
+    VERSION: str = "2.0.0"
+    LAYOUT: str = "centered"
+
+    # Linee U/O disponibili nel selectbox
+    LINEE_OU: tuple = (0.5, 1.5, 1.75, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.5, 5.5)
+
+    # Tiri attesi per minuto (entrambe le squadre) — soglia warning input
+    TIRI_PER_MINUTO: float = 0.65
+    TIRI_WARNING_BUFFER: int = 4
+    TIRI_MIN_BASE: int = 6
+
+    # Numero massimo di correct score da mostrare
+    TOP_CS_COUNT: int = 5
+
+    # Massimo gol totali nella distribuzione
+    MAX_GOL_DIST: int = 10
+
+    # Livelli AH da mostrare nell'expander
+    AH_LEVELS: tuple = (-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, +0.5, +1.0, +1.5, +2.0, +2.5)
+
+    # Bankroll default e step
+    BANKROLL_DEFAULT: float = 1000.0
+    BANKROLL_STEP: float = 100.0
+
+    # Commissione default
+    COMM_DEFAULT: float = 2.5
+    COMM_MAX: float = 10.0
+    COMM_STEP: float = 0.5
+
+
+# Istanze globali immutabili — importare da qui
+POISSON   = PoissonConfig()
+DC        = DixonColesConfig()
+RHO       = RhoConfig()
+SHOTS     = ShotConfig()
+DECAY     = TimeDecayConfig()
+BAYES     = BayesianConfig()
+MOMENTUM  = MomentumConfig()
+KELLY     = KellyConfig()
+SIGNALS   = SignalConfig()
+UI        = UIConfig()
