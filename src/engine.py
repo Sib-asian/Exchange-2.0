@@ -166,6 +166,8 @@ def analizza(
         state.ah_op, state.tot_op,
         state.ah_cur, state.tot_cur,
         state.minuto,
+        gol_diff=state.gol_casa - state.gol_trasf,
+        gol_tot=state.gol_casa + state.gol_trasf,
     )
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
@@ -208,8 +210,16 @@ def analizza(
     top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
 
     # 6. Momentum mercato
-    delta_ah = state.ah_cur - state.ah_op
-    delta_tot = state.tot_cur - state.tot_op
+    # ah_cur è in "gol rimanenti" (conversione full-game già applicata in inputs.py):
+    #   ah_cur = ah_cur_full + (gol_casa - gol_trasf)
+    # Per il momentum vogliamo il movimento PURO del mercato, eliminando l'effetto
+    # meccanico del punteggio. Riconvertiamo entrambe le quantità in full-game:
+    gol_diff = state.gol_casa - state.gol_trasf
+    gol_tot_scored = state.gol_casa + state.gol_trasf
+    ah_cur_full = state.ah_cur - gol_diff          # rimuove l'offset del punteggio
+    tot_cur_full = state.tot_cur + gol_tot_scored   # ripristina il totale full-game
+    delta_ah = ah_cur_full - state.ah_op            # variazione pura del mercato AH
+    delta_tot = tot_cur_full - state.tot_op         # variazione pura del mercato Total
     momentum = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto)
     flat_lines = abs(delta_ah) < 1e-6 and abs(delta_tot) < 1e-6
 

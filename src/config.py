@@ -92,6 +92,10 @@ class ShotConfig:
     # Peso massimo dei tiri sul Totale (il Total-line è molto efficiente)
     ALPHA_T_MAX: float = 0.25
 
+    # Tasso di crescita del peso T con la frazione giocata (calibrato su top-5 leagues)
+    # Crescita lenta: il Total-line è molto efficiente e i tiri lo correggono poco
+    ALPHA_T_RATE: float = 0.30
+
     # Peso massimo dei tiri sul Differenziale (più informativo del mercato)
     ALPHA_D_MAX: float = 0.70
 
