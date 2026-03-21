@@ -89,7 +89,7 @@ def calcola_momentum_mercato(delta_ah, delta_tot, minuto):
         return 0.0
     # sqrt invece di lineare: evita overshoot early-game.
     # A minuto 10 la frac lineare è 0.11 (amplifica ×9), sqrt è 0.33 (amplifica ×3).
-    frac = max(0.30, math.sqrt(minuto / 90.0))
+    frac = max(0.15, math.sqrt(minuto / 90.0))
     return min((abs(delta_ah) + abs(delta_tot) * 0.5) / frac, 6.0)
 
 
@@ -613,6 +613,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         delta_ah  = ah_cur  - ah_op
         delta_tot = tot_cur - tot_op
         momentum  = calcola_momentum_mercato(delta_ah, delta_tot, minuto_gioco)
+        flat_lines = abs(ah_cur - ah_op) < 1e-6 and abs(tot_cur - tot_op) < 1e-6
 
     # ── QUOTE FAIR (sempre visibili, sempre informative) ─────────────────────
     st.header(f"Quote Fair  —  {minuto_gioco}' | {gol_casa}–{gol_trasf}")
@@ -633,7 +634,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         for idx, ((fc, ft), prob) in enumerate(top_cs):
             cs_cols[idx].metric(
                 label=f"{fc}–{ft}",
-                value=f"@{calcola_quota_reale(prob):.1f}",
+                value=f"@{calcola_quota_reale(prob):.2f}",
                 delta=f"{prob:.1%}"
             )
 
@@ -754,9 +755,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     # Diminuisce quando il gioco è avanzato (più rumore) o mancano dati sui tiri live.
     kelly_base = 0.50
     if minuto_gioco > 75:
-        kelly_base *= 0.80              # late game: spread ampi, più rumore
+        kelly_base -= 0.10              # late game: spread ampi, più rumore
     if minuto_gioco > 0 and n_shots_tot == 0:
-        kelly_base *= 0.85              # partita in corso senza dati tiri
+        kelly_base -= 0.05              # partita in corso senza dati tiri
     kelly_frac = max(0.20, kelly_base)
 
     any_exc_quote = any(
@@ -905,7 +906,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     # BTTS — gestione mercato già chiuso
     btts_yes_settled = gol_casa > 0 and gol_trasf > 0
-    btts_no_settled  = minuto_gioco >= 88 and (gol_casa == 0 or gol_trasf == 0)
+    btts_no_settled  = minuto_gioco >= 88 and (gol_casa == 0 or gol_trasf == 0) and mc_btts < 0.10
 
     if btts_yes_settled:
         st.success("✅ BTTS SÌ già VINTO — entrambe le squadre hanno segnato. Mercato chiuso.")
