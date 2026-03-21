@@ -100,6 +100,8 @@ def calcola_xg_bayesiani(
     ah_cur: float,
     tot_cur: float,
     minuto: int,
+    gol_diff: int = 0,
+    gol_tot: int = 0,
 ) -> tuple[float, float]:
     """
     Estrae gli xG impliciti dal blend Bayesiano delle linee di mercato.
@@ -127,6 +129,8 @@ def calcola_xg_bayesiani(
         ah_cur: AH corrente (gol rimanenti).
         tot_cur: Total corrente (gol rimanenti).
         minuto: Minuto attuale [0, 90].
+        gol_diff: gol_casa - gol_trasf (per eliminare l'offset del punteggio dal delta AH).
+        gol_tot: gol_casa + gol_trasf (per eliminare l'offset del punteggio dal delta Total).
 
     Returns:
         (xg_h, xg_a): xG rimanenti attesi per casa e trasferta.
@@ -139,9 +143,15 @@ def calcola_xg_bayesiani(
     w_cur = min(BAYES.W_CUR_MAX, BAYES.W_CUR_MIN + BAYES.W_CUR_SLOPE * frac_giocata)
     w_op = 1.0 - w_cur
 
-    # Rilevamento linee flat (nessun movimento intrapartita)
-    delta_ah_inner = abs(ah_cur - ah_op)
-    delta_tot_inner = abs(tot_cur - tot_op)
+    # Rilevamento linee flat: confronto in full-game space per non confondere il
+    # movimento del mercato con l'effetto meccanico del punteggio.
+    # Se il mercato non si è mosso e il punteggio è gol_diff/gol_tot:
+    #   ah_cur  = ah_op  + gol_diff   (puro effetto punteggio)
+    #   tot_cur = tot_op - gol_tot    (puro effetto punteggio)
+    expected_ah_cur = ah_op + gol_diff
+    expected_tot_cur = tot_op - gol_tot
+    delta_ah_inner = abs(ah_cur - expected_ah_cur)
+    delta_tot_inner = abs(tot_cur - expected_tot_cur)
     flat = delta_ah_inner < BAYES.FLAT_LINE_THRESHOLD and delta_tot_inner < BAYES.FLAT_LINE_THRESHOLD
 
     if flat:
@@ -285,7 +295,7 @@ def blend_xg_shots(
     # Pesi blend dinamici
     n_shots = sot_h + soff_h + sot_a + soff_a
     shot_info = min(1.0, n_shots / SHOTS.SHOT_INFO_THRESHOLD)
-    alpha_t = min(SHOTS.ALPHA_T_MAX, shot_info * frac_giocata * 0.30)
+    alpha_t = min(SHOTS.ALPHA_T_MAX, shot_info * frac_giocata * SHOTS.ALPHA_T_RATE)
     alpha_d = min(SHOTS.ALPHA_D_MAX, shot_info * math.sqrt(frac_giocata))
 
     # Blend in spazio T+D

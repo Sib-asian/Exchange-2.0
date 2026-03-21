@@ -178,6 +178,7 @@ def valuta_mercato(
     kelly_frac: float,
     momentum_factor: float,
     back_only: bool = False,
+    minuto: int = 0,
 ) -> Signal | None:
     """
     Valuta un singolo mercato con quota exchange.
@@ -205,9 +206,9 @@ def valuta_mercato(
     if q_fair < SIGNALS.MIN_FAIR_Q:
         return None
 
-    # Senza quota exchange: indicazione qualitativa
+    # Senza quota exchange: indicazione qualitativa con soglia adattiva al tempo
     if q_exc <= 1.0:
-        frac_giocata = 0.0  # placeholder; la soglia qualitativa è calcolata nel chiamante
+        frac_giocata = minuto / 90.0
         soglia_q = max(SIGNALS.SOGLIA_QUALITATIVA_MIN,
                        SIGNALS.SOGLIA_QUALITATIVA_BASE + SIGNALS.SOGLIA_QUALITATIVA_SLOPE * frac_giocata)
         if prob_mod >= soglia_q:
@@ -339,6 +340,7 @@ def genera_segnali_avanzati(
         s = valuta_mercato(
             etichetta, prob, q_exc, soglia,
             bankroll, comm_rate, kelly_frac, momentum_factor, back_only,
+            minuto=minuto,
         )
         if s is not None:
             segnali.append(s)

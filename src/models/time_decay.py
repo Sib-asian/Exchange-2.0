@@ -112,7 +112,7 @@ def time_decay_dinamico(
             DECAY.SCORE_MINUTE_SCALE_FLOOR,
             DECAY.SCORE_MINUTE_SCALE_A - DECAY.SCORE_MINUTE_SCALE_B * (minuto / 90.0),
         )
-        residual = min(DECAY.SCORE_EFFECT_MAX, DECAY.SCORE_EFFECT_BASE * sat) * minute_scale
+        residual = min(DECAY.SCORE_EFFECT_MAX, DECAY.SCORE_EFFECT_BASE * sat * minute_scale)
         if diff < 0:  # casa in svantaggio → preme di più
             xg_c *= (1.0 + residual)
             xg_t *= (1.0 - residual)
