@@ -143,18 +143,26 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
         tot_bayes = max(0.2, (tot_op * frac_rimasta) * w_op + tot_cur * w_cur)
     eps = 1e-6
 
-    # _pmf_ev rimossa (v53): usare direttamente _poisson_pmf_norm (globale).
-    # Era una copia identica con max_k diverso ma stessa logica — ridondante.
+    # _ah_ev_half con correzione Dixon-Coles (v55):
+    # Prima usava Poisson indipendente → le xG estratte dalla bisection non erano
+    # coerenti col modello finale (bivariate Poisson + DC). DC ridistribuisce ~2-5%
+    # di probabilità tra i punteggi bassi (0-0, 1-0, 0-1, 1-1), che influenza
+    # l'EV dell'AH in modo non trascurabile. Z si cancella nella differenza (i-j)
+    # quindi basta aggiungere DC. Pass unico accumula ev e dc_norm insieme.
     def _ah_ev_half(mh, ma, h):
-        ev = 0.0
-        for i, pi in enumerate(_poisson_pmf_norm(mh)):
+        ev = dc_norm = 0.0
+        pmf_h = _poisson_pmf_norm(mh)
+        pmf_a = _poisson_pmf_norm(ma)
+        for i, pi in enumerate(pmf_h):
             if pi < 1e-18: continue
-            for j, pj in enumerate(_poisson_pmf_norm(ma)):
+            for j, pj in enumerate(pmf_a):
                 if pj < 1e-18: continue
+                w = pi * pj * dixon_coles_tau(i, j, mh, ma)
+                dc_norm += w
                 s = (i - j) + h
-                if s > 0: ev += pi * pj
-                elif s < 0: ev -= pi * pj
-        return ev
+                if   s > 0: ev += w
+                elif s < 0: ev -= w
+        return ev / dc_norm if dc_norm > 0 else 0.0
 
     def _ah_ev(mh, ma, ah):
         ah2 = float(ah) * 2.0
@@ -580,7 +588,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v54 · Matematica: rho×gol, score-effect×minuto, quarter-lines O/U, AH bivariate+push+rimanenti, soglie O/U contestuali, BTTS/U1.5 check")
+st.caption("v55 · Core fix: _ah_ev_half con Dixon-Coles → xG bayesiane coerenti col modello finale")
 
 # INPUT
 st.header("1. Stato Partita")
