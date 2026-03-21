@@ -588,7 +588,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v55 · Core fix: _ah_ev_half con Dixon-Coles → xG bayesiane coerenti col modello finale")
+st.caption("v56 · Soglie Over/Under separate: bonus gol_mancanti solo sull'Over, Under invariato")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -796,12 +796,19 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     soglia_min_btts = max(0.55, 0.50 + 0.10 * frac_giocata)
     gol_attuali     = gol_casa + gol_trasf
     gol_mancanti    = max(0.0, linea_target_ou - gol_attuali)
-    # Soglia O/U contestuale ai gol mancanti: più gol servono → il modello deve essere
-    # più convinto per segnalare. 1 gol mancante: bonus 0%. 2 gol: +2%. 3+: +4-6%.
-    # Evita che P=60% per Over con 3 gol mancanti generi lo stesso segnale di
-    # P=60% con 1 gol mancante (quest'ultimo è molto più realizzabile).
-    _ou_gol_bonus  = min(0.06, max(0.0, (gol_mancanti - 1.0) * 0.02))
-    soglia_min_ou  = max(0.58, 0.55 + 0.10 * frac_giocata) + _ou_gol_bonus
+    _base_ou = max(0.58, 0.55 + 0.10 * frac_giocata)
+    # Soglia Over: cresce con i gol mancanti — più gol servono, più alto deve essere
+    # il conviction del modello. 1 gol: +0%, 2 gol: +2%, 3+: +4-6% (cap 6%).
+    # mc_o già scende all'aumentare dei gol mancanti, ma la soglia contestuale evita
+    # che un P=60% con 3 gol mancanti sembri lo stesso segnale di P=60% con 1 gol.
+    _ou_gol_bonus   = min(0.06, max(0.0, (gol_mancanti - 1.0) * 0.02))
+    soglia_min_ou_over  = _base_ou + _ou_gol_bonus
+    # Soglia Under: nessun bonus gol_mancanti — per Under la "difficoltà" cresce con
+    # i gol già segnati (più gol ci sono, più è difficile che rimanga Under). Questo
+    # è già catturato direttamente da mc_u che scende al crescere di gol_attuali.
+    # Alzare la soglia Under in base a gol_mancanti la penalizzerebbe due volte.
+    soglia_min_ou_under = _base_ou
+    soglia_min_ou       = soglia_min_ou_over  # alias legacy per compatibilità interna
 
     # Soglia minima con margine 6%: la quota sull'exchange deve battere fair * 1.06
     MARGINE_RAPIDO = 0.06
@@ -852,8 +859,8 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         st.success(f"✅ Over {linea_target_ou} già **VINTO** — {gol_attuali:.0f} gol totali. Mercato chiuso.")
         st.error(f"❌ Under {linea_target_ou} già **PERSO**. Mercato chiuso.")
     else:
-        _segnale_rapido(f"Over {linea_target_ou}",  mc_o, soglia_min_ou,  tipo_ou="over")
-        _segnale_rapido(f"Under {linea_target_ou}", mc_u, soglia_min_ou,  tipo_ou="under")
+        _segnale_rapido(f"Over {linea_target_ou}",  mc_o, soglia_min_ou_over)
+        _segnale_rapido(f"Under {linea_target_ou}", mc_u, soglia_min_ou_under)
 
     btts_yes_settled = gol_casa > 0 and gol_trasf > 0
     if not btts_yes_settled:
@@ -1069,10 +1076,10 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                 f"Over {linea_target_ou}: al {minuto_gioco}' mancano {gol_mancanti:.0f} gol ({mc_o:.1%}) "
                 f"— BACK sconsigliato. Valuto solo LAY sull'Over se hai la quota."
             )
-            _valuta(f"OVER {linea_target_ou}", mc_o, q_exc_o, soglia_min_ou, back_only=False)
+            _valuta(f"OVER {linea_target_ou}", mc_o, q_exc_o, soglia_min_ou_over, back_only=False)
         else:
-            _valuta(f"OVER {linea_target_ou}", mc_o, q_exc_o, soglia_min_ou)
-        _valuta(f"UNDER {linea_target_ou}", mc_u, q_exc_u, soglia_min_ou)
+            _valuta(f"OVER {linea_target_ou}", mc_o, q_exc_o, soglia_min_ou_over)
+        _valuta(f"UNDER {linea_target_ou}", mc_u, q_exc_u, soglia_min_ou_under)
 
     # BTTS — gestione mercato già chiuso
     btts_yes_settled = gol_casa > 0 and gol_trasf > 0
@@ -1150,9 +1157,10 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                 st.write(f"α_D (Diff)     = {alpha_D:.3f}")
                 st.write(f"Shot dominance = {shot_dom:.3f}")
                 st.divider()
-            st.write(f"Soglia 1X2   = {soglia_min_1x2:.3f}")
-            st.write(f"Soglia U/O   = {soglia_min_ou:.3f}")
-            st.write(f"Soglia BTTS  = {soglia_min_btts:.3f}")
+            st.write(f"Soglia 1X2     = {soglia_min_1x2:.3f}")
+            st.write(f"Soglia Over    = {soglia_min_ou_over:.3f}  (+{_ou_gol_bonus:.2f} gol-bonus)")
+            st.write(f"Soglia Under   = {soglia_min_ou_under:.3f}")
+            st.write(f"Soglia BTTS    = {soglia_min_btts:.3f}")
             st.divider()
             st.write(f"Delta AH     = {delta_ah:+.2f}")
             st.write(f"Delta Tot    = {delta_tot:+.2f}")
