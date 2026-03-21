@@ -116,7 +116,10 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
     diventano omogenei (gol rimanenti).
     """
     frac_giocata = minuto / 90.0
-    frac_rimasta = max(0.05, 1.0 - frac_giocata)
+    # Floor 0.005 (non 0.05): a 90' vogliamo ~zero tempo rimanente.
+    # Il vecchio floor 5% gonfiava artificialmente le xG in zona recupero,
+    # producendo "ghost goals" che distorcevano le probabilità da 85' in poi.
+    frac_rimasta = max(0.005, 1.0 - frac_giocata)
 
     # Pesi time-varying: linea live diventa sempre più affidabile col tempo
     w_cur = min(0.90, 0.65 + 0.20 * frac_giocata)
@@ -295,7 +298,11 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
     # La media geometrica sqrt(mu_c*mu_a) è proporzionale ad entrambi i tassi,
     # più robusta e coerente con la struttura della bivariate Poisson (Karlis 2003).
     geom_mu = math.sqrt(mu_c_rem * mu_t_rem)
-    lambda0 = max(0.0, min(rho * geom_mu, 0.90 * min(mu_c_rem, mu_t_rem)))
+    # Cap abbassato da 0.90 a 0.75: in partite sbilanciate (es. mu_c=2.5, mu_a=0.3)
+    # lambda0 al 90% della squadra più debole (0.27) sopravvalutava la correlazione
+    # e gonfiava le probabilità di pareggio in blowout. 75% è più conservativo
+    # e allineato con la letteratura (Karlis & Ntzoufras 2003).
+    lambda0 = max(0.0, min(rho * geom_mu, 0.75 * min(mu_c_rem, mu_t_rem)))
 
     mu_c_ind = max(1e-9, mu_c_rem - lambda0)
     mu_t_ind = max(1e-9, mu_t_rem - lambda0)
@@ -483,7 +490,12 @@ def blend_xg_shots(mu_h_line, mu_a_line,
     # 0.33 è la media globale includendo rigori/tap-in; open-play medio = 0.24-0.30.
     XG_SOT  = 0.30
     XG_SOFF = 0.05
-    MU_MAX  = 3.5   # cap realistico: ~4 gol/90' per squadra è già eccezionale
+    # MU_MAX dinamico: in gare già ad alto punteggio il cap fisso 3.5 sottostimava
+    # la proiezione residua (es. 5-0 al 45' → ritmo reale ≈ 10 gol/90', cap a 3.5
+    # produce previsioni di soli ~1.75 gol nel 2° tempo, chiaramente troppo basse).
+    # Nuovo: max(3.5, gol_totali * 1.2) — si adatta alle gare eccezionali.
+    gol_totali_now = float(gol_h + gol_a)
+    MU_MAX  = max(3.5, gol_totali_now * 1.2)
 
     # Correzione game-state sulla qualità dei tiri in porta — progressiva per margine.
     # +7% per gol di vantaggio (max 15%): 1 gol → ±7%, 2+ gol → ±14-15%.
@@ -543,7 +555,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v51 · Affidabilità: floor soglie 55/58%, warning dati, rossi diminishing, Kelly cap adattivo, soglia dinamica, O/U won")
+st.caption("v52 · Accuratezza: frac_rimasta floor 0.005, MIN_FAIR_Q 1.25, BTTS-No soglia indip., MU_MAX dinamico, lambda0 cap 0.75")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -752,8 +764,13 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     btts_yes_settled = gol_casa > 0 and gol_trasf > 0
     if not btts_yes_settled:
-        _segnale_rapido("BTTS Sì", mc_btts,       soglia_min_btts)
-        _segnale_rapido("BTTS No", 1.0 - mc_btts, soglia_min_btts)
+        _segnale_rapido("BTTS Sì", mc_btts, soglia_min_btts)
+        # BTTS No ha una soglia più bassa: "No" si realizza se ALMENO UNA squadra
+        # non segna — evento strutturalmente più probabile di "Sì" in molte gare.
+        # Usare la stessa soglia 55% sovrasopprimeva segnali legittimi su squadre
+        # difensive. Soglia separata: max 50% a inizio → cresce col tempo.
+        soglia_min_btts_no = max(0.50, 0.45 + 0.10 * frac_giocata)
+        _segnale_rapido("BTTS No", 1.0 - mc_btts, soglia_min_btts_no)
 
     if not quick_signals:
         st.info("Nessun candidato forte al momento — il modello non vede probabilità dominanti.")
@@ -815,7 +832,10 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     # MIN_EDGE_BACK e MIN_EDGE_LAY sono già sui valori netti.
     MIN_EDGE_BACK = 0.030   # 3% edge netto minimo per back
     MIN_EDGE_LAY  = 0.040   # 4% edge netto minimo per lay (rischio asimmetrico)
-    MIN_FAIR_Q    = 1.15    # eventi quasi certi (>87%) → skip, già nel prezzo
+    # Alzato da 1.15 (>87%) a 1.25 (>80%): 87% non è una certezza, può contenere
+    # edge reale se il modello vede 92%+. Con 1.25 tagliamo solo eventi dove la
+    # quota exchange è così bassa da non offrire mai leva sufficiente.
+    MIN_FAIR_Q    = 1.25    # eventi quasi certi (>80%) → skip, già nel prezzo
 
     def _q_netto(q_exc):
         """Quota effettiva back dopo commissione exchange."""
