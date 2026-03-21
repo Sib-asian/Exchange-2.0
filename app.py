@@ -329,6 +329,35 @@ def calcola_stake_kelly(prob_modello, quota_target, bankroll, frazione=0.5):
     return bankroll * kelly_pct * frazione
 
 
+def calcola_stake_lay(prob_modello, quota_exc, bankroll, frazione=0.5):
+    """
+    Kelly frazionato per LAY su exchange.
+
+    Quando banci a quota Q:
+      - Vinci la stake se l'evento NON accade  (prob = 1 - prob_modello)
+      - Perdi la liability = stake * (Q - 1)   se l'evento accade
+
+    Viewing it as "risking L (liability) to gain L/(Q-1)":
+      f_liability* = 1 - prob_modello * Q
+    Si ha valore nel lay quando prob_modello * Q < 1,
+    ovvero quando il mercato sopravvaluta l'evento rispetto al modello.
+
+    Restituisce (stake_visibile, liability) oppure None se non c'è valore.
+    La stake visibile è quanto inserisci sull'exchange (il backer paga quella).
+    La liability è quanto rischi tu (= stake * (Q-1)).
+    Cap al 5% del bankroll come liability.
+    """
+    if quota_exc <= 1.01:
+        return None
+    f_liability = 1.0 - prob_modello * quota_exc
+    if f_liability <= 0:
+        return None
+    f_liability = min(f_liability, 0.05)
+    liability   = bankroll * f_liability * frazione
+    stake       = liability / (quota_exc - 1.0)
+    return stake, liability
+
+
 # ==========================================
 # UI STREAMLIT
 # ==========================================
@@ -457,159 +486,156 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         st.error("Fine partita — spread enormi, non entrare.")
         st.stop()
 
-    has_movement = abs(delta_ah) >= 0.25 or abs(delta_tot) >= 0.25
-    any_exc_quote = any(q > 1.0 for q in [q_exc_1, q_exc_x, q_exc_2, q_exc_u, q_exc_o, q_exc_btts])
-
-    if not any_exc_quote:
-        st.caption("ℹ️ Nessuna quota exchange inserita — segnali calcolati sul fair value del modello.")
-
     frac_giocata = minuto_gioco / 90.0
-    # Soglie minime di probabilità — il modello deve essere sufficientemente
-    # sicuro prima di segnalare. Crescono col minuto (più tardi = più certezza richiesta).
-    soglia_min_1x2  = 0.40 + 0.15 * frac_giocata
-    soglia_min_ou   = 0.45 + 0.15 * frac_giocata
-    soglia_min_btts = 0.45 + 0.10 * frac_giocata
+    # Back: soglie probabilità minime. Crescono col tempo (più tardi = più certezza).
+    # Non servono per il lay (l'edge parla da solo).
+    soglia_min_1x2  = 0.50 + 0.10 * frac_giocata   # 50% → 60%
+    soglia_min_ou   = 0.55 + 0.10 * frac_giocata   # 55% → 65%
+    soglia_min_btts = 0.50 + 0.10 * frac_giocata   # 50% → 60%
 
     gol_attuali  = gol_casa + gol_trasf
     gol_mancanti = linea_target_ou - gol_attuali
     segnali      = False
 
-    # Fattore di riduzione stake in base al momentum:
-    # momentum > 4.0 = mercato estremo → possibili eventi non registrati → stake ridotta
-    # Scala lineare da 1.0 (momentum=0) a 0.4 (momentum=6.0)
+    # Riduzione stake proporzionale al momentum (eventi non registrati)
     momentum_stake_factor = max(0.4, 1.0 - 0.10 * max(0.0, momentum - 2.5))
 
-    def _segnala(etichetta, prob_mod, q_fair, q_exc, soglia_min, tipo="success"):
+    any_exc_quote = any(
+        q > 1.0 for q in [q_exc_1, q_exc_x, q_exc_2, q_exc_u, q_exc_o, q_exc_btts, q_exc_btts_no]
+    )
+
+    MIN_EDGE_BACK = 0.030   # 3% edge minimo per back
+    MIN_EDGE_LAY  = 0.040   # 4% edge minimo per lay (rischio asimmetrico)
+    MIN_FAIR_Q    = 1.15    # eventi quasi certi (>87%) → skip, già nel prezzo
+
+    def _valuta(etichetta, prob_mod, q_exc, soglia_back):
         """
-        Logica unificata per ogni mercato.
+        Logica unificata back/lay per ogni mercato.
 
-        Fonti di segnale (OR logico — basta una):
-          A) Quote exchange inserita → edge diretto = prob_mod - 1/q_exc
-          B) Movimento di linea (delta) → confronto con fair value + margine 5%
+        Con quota exchange:
+          PUNTA  se  prob_mod - 1/q_exc >= MIN_EDGE_BACK  AND  prob_mod >= soglia_back
+          BANCA  se  1/q_exc - prob_mod >= MIN_EDGE_LAY   AND  q_exc >= 1.30
+          (lay a quota < 1.30 ha rischio/reward strutturalmente sfavorevole)
 
-        Il segnale si attiva solo se:
-          1. prob_mod > soglia_min  (modello sufficientemente convinto)
-          2. edge > 0              (c'è valore reale)
-          3. stake Kelly > 0       (bankroll management conferma)
+        Senza quota exchange (q_exc <= 1.0):
+          Indicazione qualitativa solo se il modello è fortemente convinto:
+          >62% → potenziale back · <30% → mercato probabilmente sopravvaluta (lay)
+          Nessun Kelly senza prezzo reale.
 
-        Momentum adjustment: momentum > 2.5 riduce la stake proporzionalmente
-        per riflettere l'incertezza su eventi non ancora registrati.
+        Skip sempre se l'evento è quasi certo (fair < MIN_FAIR_Q = @1.15).
         """
         global segnali
 
-        if prob_mod < soglia_min:
+        q_fair = calcola_quota_reale(prob_mod)
+
+        # Evento quasi certo: già nel prezzo, nessun edge reale
+        if q_fair < MIN_FAIR_Q:
             return False
 
-        # Determina quota target e fonte del segnale
-        if q_exc > 1.0:
-            # Fonte A: quota exchange reale inserita dall'utente
-            edge     = prob_mod - (1.0 / q_exc)
-            q_target = q_exc
-            fonte    = f"Exchange: @{q_exc:.2f}"
-        else:
-            # Fonte B: nessuna quota exchange — usa fair value + margine minimo 5%
-            edge     = prob_mod - (1.0 / (q_fair * 1.05))
-            q_target = q_fair * 1.05
-            fonte    = f"Fair + 5%: @{q_target:.2f}"
-
-        if edge <= 0:
+        # ── SENZA QUOTA EXCHANGE ──────────────────────────────────────────────
+        if q_exc <= 1.0:
+            if prob_mod >= 0.62:
+                st.info(
+                    f"📈 **{etichetta}**: modello {prob_mod:.1%} (fair @{q_fair:.2f}) "
+                    f"— potenziale back · inserisci quota per edge preciso"
+                )
+                segnali = True
+                return True
+            if prob_mod <= 0.30:
+                st.info(
+                    f"📉 **{etichetta}**: modello {prob_mod:.1%} (fair @{q_fair:.2f}) "
+                    f"— mercato probabilmente sopravvaluta · considera lay · inserisci quota per conferma"
+                )
+                segnali = True
+                return True
             return False
 
-        stake_raw = calcola_stake_kelly(prob_mod, q_target, cassa)
-        if stake_raw <= 0:
-            return False
+        # ── CON QUOTA EXCHANGE ────────────────────────────────────────────────
+        prob_imp  = 1.0 / q_exc
+        edge_back = prob_mod - prob_imp
+        edge_lay  = prob_imp - prob_mod
+        segnalato = False
 
-        # Applica fattore momentum alla stake
-        stake = stake_raw * momentum_stake_factor
+        # BACK
+        if edge_back >= MIN_EDGE_BACK and prob_mod >= soglia_back:
+            stake_raw = calcola_stake_kelly(prob_mod, q_exc, cassa)
+            stake     = stake_raw * momentum_stake_factor
+            if stake > 0:
+                st.success(
+                    f"**PUNTA {etichetta}** — "
+                    f"Modello {prob_mod:.1%} · Mercato @{q_exc:.2f} ({prob_imp:.1%}) · "
+                    f"Edge **+{edge_back*100:.1f}%**"
+                )
+                if momentum_stake_factor < 1.0:
+                    st.write(
+                        f"Stake ½-Kelly: **€{stake:.2f}** "
+                        f"_(ridotta da €{stake_raw:.2f} · momentum {momentum:.1f}/6.0 · ×{momentum_stake_factor:.2f})_"
+                    )
+                else:
+                    st.write(f"Stake ½-Kelly: **€{stake:.2f}**")
+                segnali   = True
+                segnalato = True
 
-        edge_pct = edge * 100
-        msg = (
-            f"**{etichetta}**\n\n"
-            f"Prob. modello: **{prob_mod:.1%}** · "
-            f"Quota fair: **@{q_fair:.2f}** · "
-            f"Quota target: **@{q_target:.2f}** · "
-            f"Edge: **+{edge_pct:.1f}%** · "
-            f"Fonte: {fonte}"
-        )
+        # LAY — quota minima 1.30 (sotto quel valore il lay non ha senso economico)
+        if not segnalato and edge_lay >= MIN_EDGE_LAY and q_exc >= 1.30:
+            result = calcola_stake_lay(prob_mod, q_exc, cassa)
+            if result is not None:
+                stake_lay, liab_lay = result
+                stake_lay *= momentum_stake_factor
+                liab_lay  *= momentum_stake_factor
+                st.warning(
+                    f"**BANCA {etichetta}** — "
+                    f"Modello {prob_mod:.1%} · Mercato @{q_exc:.2f} ({prob_imp:.1%}) · "
+                    f"Edge lay **+{edge_lay*100:.1f}%**"
+                )
+                if momentum_stake_factor < 1.0:
+                    st.write(
+                        f"Stake lay: **€{stake_lay:.2f}** · Liability: **€{liab_lay:.2f}** "
+                        f"_(ridotta · momentum ×{momentum_stake_factor:.2f})_"
+                    )
+                else:
+                    st.write(f"Stake lay: **€{stake_lay:.2f}** · Liability: **€{liab_lay:.2f}**")
+                segnali   = True
+                segnalato = True
 
-        if tipo == "success":
-            st.success(msg)
-        elif tipo == "warning":
-            st.warning(msg)
-        else:
-            st.info(msg)
+        return segnalato
 
-        if momentum_stake_factor < 1.0:
-            st.write(
-                f"Stake ½-Kelly: **€ {stake:.2f}** "
-                f"_(ridotta da € {stake_raw:.2f} · momentum {momentum:.1f}/6.0 · ×{momentum_stake_factor:.2f})_"
-            )
-        else:
-            st.write(f"Stake ½-Kelly: **€ {stake:.2f}**")
-        segnali = True
-        return True
+    # ── VALUTAZIONE MERCATI ───────────────────────────────────────────────────
 
-    # 1 — Casa
-    if mc_1 >= soglia_min_1x2:
-        trovato = _segnala("PUNTA 1 — CASA", mc_1, calcola_quota_reale(mc_1), q_exc_1, soglia_min_1x2, "success")
-        if not trovato and q_exc_1 > 1.0:
-            st.info(f"Casa: modello {mc_1:.1%} vs exchange @{q_exc_1:.2f} — edge insufficiente.")
+    # 1X2
+    _valuta("1 CASA",      mc_1, q_exc_1, soglia_min_1x2)
+    _valuta("2 TRASFERTA", mc_2, q_exc_2, soglia_min_1x2)
+    if q_exc_x > 1.0:  # pareggio: troppo incerto senza quota di mercato
+        _valuta("X PAREGGIO", mc_x, q_exc_x, soglia_min_1x2)
 
-    # 2 — Trasferta
-    if mc_2 >= soglia_min_1x2:
-        trovato = _segnala("PUNTA 2 — TRASFERTA", mc_2, calcola_quota_reale(mc_2), q_exc_2, soglia_min_1x2, "success")
-        if not trovato and q_exc_2 > 1.0:
-            st.info(f"Trasf.: modello {mc_2:.1%} vs exchange @{q_exc_2:.2f} — edge insufficiente.")
-
-    # X — Pareggio (solo se quota inserita, troppo incerto senza)
-    if q_exc_x > 1.0 and mc_x >= soglia_min_1x2:
-        _segnala("PUNTA X — PAREGGIO", mc_x, calcola_quota_reale(mc_x), q_exc_x, soglia_min_1x2, "success")
-
-    # Over
+    # Over/Under
     if gol_attuali >= linea_target_ou:
-        st.success(f"Over {linea_target_ou} già VINTO — {gol_attuali:.0f} gol segnati. Mercato chiuso.")
-    elif minuto_gioco >= 75 and gol_mancanti >= 2:
-        st.info(f"Over {linea_target_ou}: al {minuto_gioco}' mancano ancora {gol_mancanti:.0f} gol ({mc_o:.1%}). Troppo tardi.")
-    elif mc_o >= soglia_min_ou:
-        trovato = _segnala(f"OVER {linea_target_ou}", mc_o, calcola_quota_reale(mc_o), q_exc_o, soglia_min_ou, "warning")
-        if not trovato and q_exc_o > 1.0:
-            st.info(f"Over: modello {mc_o:.1%} vs exchange @{q_exc_o:.2f} — edge insufficiente.")
+        st.success(f"✅ Over {linea_target_ou} già VINTO — {gol_attuali:.0f} gol. Mercato chiuso.")
+        st.error(f"❌ Under {linea_target_ou} già PERSO — {gol_attuali:.0f} gol. Mercato chiuso.")
+    else:
+        if minuto_gioco >= 75 and gol_mancanti >= 2:
+            st.info(f"Over {linea_target_ou}: al {minuto_gioco}' mancano {gol_mancanti:.0f} gol ({mc_o:.1%}) — troppo tardi per entrare.")
+        else:
+            _valuta(f"OVER {linea_target_ou}",  mc_o, q_exc_o, soglia_min_ou)
+        _valuta(f"UNDER {linea_target_ou}", mc_u, q_exc_u, soglia_min_ou)
 
-    # Under
-    if gol_attuali >= linea_target_ou:
-        st.error(f"Under {linea_target_ou} già PERSO — {gol_attuali:.0f} gol segnati. Mercato chiuso.")
-    elif mc_u >= soglia_min_ou:
-        trovato = _segnala(f"UNDER {linea_target_ou}", mc_u, calcola_quota_reale(mc_u), q_exc_u, soglia_min_ou, "info")
-        if not trovato and q_exc_u > 1.0:
-            st.info(f"Under: modello {mc_u:.1%} vs exchange @{q_exc_u:.2f} — edge insufficiente.")
+    # BTTS
+    _valuta("BTTS SÌ", mc_btts,       q_exc_btts,    soglia_min_btts)
+    _valuta("BTTS NO", 1.0 - mc_btts, q_exc_btts_no, soglia_min_btts)
 
-    # BTTS Sì
-    if mc_btts >= soglia_min_btts:
-        trovato = _segnala("BTTS — Entrambe Segnano", mc_btts, calcola_quota_reale(mc_btts), q_exc_btts, soglia_min_btts, "warning")
-        if not trovato and q_exc_btts > 1.0:
-            st.info(f"BTTS: modello {mc_btts:.1%} vs exchange @{q_exc_btts:.2f} — edge insufficiente.")
-
-    # BTTS No (usa il campo dedicato q_exc_btts_no se inserito)
-    mc_btts_no = 1.0 - mc_btts
-    if mc_btts_no >= soglia_min_btts:
-        q_fair_btts_no = calcola_quota_reale(mc_btts_no)
-        trovato = _segnala("BTTS No", mc_btts_no, q_fair_btts_no, q_exc_btts_no, soglia_min_btts, "info")
-        if not trovato and q_exc_btts_no > 1.0:
-            st.info(f"BTTS No: modello {mc_btts_no:.1%} vs exchange @{q_exc_btts_no:.2f} — edge insufficiente.")
-
-    # Avviso incoerenza Over + BTTS No
+    # Incoerenza Over + BTTS No
     if mc_o > 0.50 and mc_btts < 0.35 and gol_attuali < linea_target_ou:
         st.warning(
-            f"Incoerenza: modello vede Over {linea_target_ou} probabile ({mc_o:.0%}) "
+            f"⚠️ Incoerenza: Over {linea_target_ou} probabile ({mc_o:.0%}) "
             f"ma BTTS solo {mc_btts:.0%}. "
             f"Over senza BTTS richiede gol multipli dalla stessa squadra."
         )
 
     if not segnali:
-        st.error(
-            "NO BET — Nessun mercato presenta edge sufficiente con i dati inseriti. "
-            "Prova ad aggiornare le quote exchange o attendi un movimento di linea."
-        )
+        if any_exc_quote:
+            st.error("NO BET — Quote exchange allineate al modello, nessun edge sufficiente.")
+        else:
+            st.info("Nessuna indicazione forte. Il modello non vede probabilità dominanti al momento.")
 
     # DEBUG
     st.divider()
