@@ -163,16 +163,18 @@ class TestKellyLay:
         assert result is None
 
     def test_commission_adjusted_break_even(self):
-        """Con commissione, il break-even lay è più alto → edge minore → stake minore."""
-        # Usiamo prob e quota che NON colpiscano il cap Kelly (0.05)
-        # f_liability senza comm = 1/Q - prob = 0.40 - 0.30 = 0.10 → cap 0.05 attivo
-        # Per evitare il cap usiamo un'edge molto piccola
-        # f_senza_comm = 1/3.0 - 0.30 = 0.333 - 0.30 = 0.033 < 0.05 (no cap)
-        prob = 0.30
-        q = 3.0
-        # p_BE senza comm = 1/3.0 = 0.333, edge = 0.033
+        """Con commissione, il break-even lay è più alto → edge minore → stake minore.
+
+        Formula corretta: f_L = 1 - p*(Q-c)/(1-c)
+
+        Parametri scelti per non colpire il cap KELLY_MAX_PCT (0.05) in nessuno dei due casi:
+          p=0.37, Q=2.6:
+            f_no_comm  = 1 - 0.37*2.6      = 0.038 < 0.05  (no cap)
+            f_with_comm = 1 - 0.37*2.55/0.95 ≈ 0.007 < 0.05 (no cap)
+        """
+        prob = 0.37
+        q = 2.6
         result_no_comm = calcola_stake_lay(prob, q, 1000.0, 0.5, 0.0)
-        # p_BE con comm 5%: (1-0.05)/(3.0-0.05) = 0.95/2.95 = 0.322, edge = 0.022
         result_with_comm = calcola_stake_lay(prob, q, 1000.0, 0.5, 0.05)
         assert result_no_comm is not None
         assert result_with_comm is not None

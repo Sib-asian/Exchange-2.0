@@ -352,11 +352,15 @@ def genera_segnali_avanzati(
         _valuta("X PAREGGIO", prob_x, quotes.q_x, soglie["1x2"])
 
     # Over/Under
+    # LAY Over = scommettere che non arriveranno abbastanza gol = equivalente a BACK Under.
+    # Per evitare segnali doppi (LAY Over + BACK Under per lo stesso scenario), il LAY
+    # Over è disabilitato in condizioni normali. Eccezione: late game (>75') con ≥2 gol
+    # mancanti, dove la liquidità del mercato Over è superiore e il LAY è più efficiente.
     gol_mancanti = soglie["gol_mancanti"]
     if minuto >= 75 and gol_mancanti >= 2:
         _valuta(f"OVER {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"], back_only=False)
     else:
-        _valuta(f"OVER {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"])
+        _valuta(f"OVER {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"], back_only=True)
     _valuta(f"UNDER {linea_ou}", prob_under, quotes.q_under, soglie["ou_under"])
 
     # BTTS
