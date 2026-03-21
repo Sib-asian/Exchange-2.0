@@ -116,7 +116,10 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
     diventano omogenei (gol rimanenti).
     """
     frac_giocata = minuto / 90.0
-    frac_rimasta = max(0.05, 1.0 - frac_giocata)
+    # Floor 0.005 (non 0.05): a 90' vogliamo ~zero tempo rimanente.
+    # Il vecchio floor 5% gonfiava artificialmente le xG in zona recupero,
+    # producendo "ghost goals" che distorcevano le probabilità da 85' in poi.
+    frac_rimasta = max(0.005, 1.0 - frac_giocata)
 
     # Pesi time-varying: linea live diventa sempre più affidabile col tempo
     w_cur = min(0.90, 0.65 + 0.20 * frac_giocata)
@@ -136,19 +139,13 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
         tot_bayes = max(0.2, (tot_op * frac_rimasta) * w_op + tot_cur * w_cur)
     eps = 1e-6
 
-    def _pmf_ev(mu):
-        if mu <= 0: return [1.0]
-        max_k = min(int(max(20, mu * 8 + 40)), 300)
-        p = math.exp(-mu); pmfs = [p]; cum = p; k = 0
-        while cum < 1 - 1e-12 and k < max_k:
-            k += 1; p = p * mu / k; pmfs.append(p); cum += p
-        return [x / cum for x in pmfs]
-
+    # _pmf_ev rimossa (v53): usare direttamente _poisson_pmf_norm (globale).
+    # Era una copia identica con max_k diverso ma stessa logica — ridondante.
     def _ah_ev_half(mh, ma, h):
         ev = 0.0
-        for i, pi in enumerate(_pmf_ev(mh)):
+        for i, pi in enumerate(_poisson_pmf_norm(mh)):
             if pi < 1e-18: continue
-            for j, pj in enumerate(_pmf_ev(ma)):
+            for j, pj in enumerate(_poisson_pmf_norm(ma)):
                 if pj < 1e-18: continue
                 s = (i - j) + h
                 if s > 0: ev += pi * pj
@@ -179,9 +176,11 @@ def calcola_xg_bayesiani(ah_op, tot_op, ah_cur, tot_cur, minuto):
     else:
         inc = ev_hi > ev_lo
         dl, dr = lo, hi
-        for _ in range(18):
+        for _ in range(52):   # 2^52 ≈ 4e15: convergenza numerica garantita
             m  = 0.5 * (dl + dr)
             em = _ev(m)
+            if abs(em) < 1e-9 or (dr - dl) < 1e-12:
+                break          # converged: EV≈0 o intervallo sotto float resolution
             if inc:
                 if em > 0: dr = m
                 else:      dl = m
@@ -260,8 +259,11 @@ def time_decay_dinamico(xg_casa, xg_trasf, minuto,
         xg_t *= _RED_BOOST[idx]
     if rossi_trasf > 0:
         idx = min(rossi_trasf, 4)
-        xg_t *= _RED_DECAY[idx]
-        xg_c *= _RED_BOOST[idx]
+        # Asimmetria home advantage: la trasferta perde il supporto del pubblico
+        # e la familiarità col campo → il rosso alla trasferta è ~5% più grave
+        # rispetto al rosso in casa (modesto ma consistente in letteratura).
+        xg_t *= _RED_DECAY[idx] * 0.95
+        xg_c *= _RED_BOOST[idx] * 1.04
 
     return max(0.001, xg_c), max(0.001, xg_t)
 
@@ -295,7 +297,11 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
     # La media geometrica sqrt(mu_c*mu_a) è proporzionale ad entrambi i tassi,
     # più robusta e coerente con la struttura della bivariate Poisson (Karlis 2003).
     geom_mu = math.sqrt(mu_c_rem * mu_t_rem)
-    lambda0 = max(0.0, min(rho * geom_mu, 0.90 * min(mu_c_rem, mu_t_rem)))
+    # Cap abbassato da 0.90 a 0.75: in partite sbilanciate (es. mu_c=2.5, mu_a=0.3)
+    # lambda0 al 90% della squadra più debole (0.27) sopravvalutava la correlazione
+    # e gonfiava le probabilità di pareggio in blowout. 75% è più conservativo
+    # e allineato con la letteratura (Karlis & Ntzoufras 2003).
+    lambda0 = max(0.0, min(rho * geom_mu, 0.75 * min(mu_c_rem, mu_t_rem)))
 
     mu_c_ind = max(1e-9, mu_c_rem - lambda0)
     mu_t_ind = max(1e-9, mu_t_rem - lambda0)
@@ -374,7 +380,13 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
 
     top_cs = sorted(cs_final.items(), key=lambda x: x[1], reverse=True)[:5]
 
-    return p1, px, p2, p_under, p_over, p_btts, top_cs, rho
+    # Distribuzione gol totali finali (usata per CS cumulativi nel UI)
+    gol_tot_dist: dict[int, float] = {}
+    for (fc, ft), p in cs_final.items():
+        tot = fc + ft
+        gol_tot_dist[tot] = gol_tot_dist.get(tot, 0.0) + p
+
+    return p1, px, p2, p_under, p_over, p_btts, top_cs, rho, gol_tot_dist
 
 
 # ==========================================
@@ -483,7 +495,12 @@ def blend_xg_shots(mu_h_line, mu_a_line,
     # 0.33 è la media globale includendo rigori/tap-in; open-play medio = 0.24-0.30.
     XG_SOT  = 0.30
     XG_SOFF = 0.05
-    MU_MAX  = 3.5   # cap realistico: ~4 gol/90' per squadra è già eccezionale
+    # MU_MAX dinamico: in gare già ad alto punteggio il cap fisso 3.5 sottostimava
+    # la proiezione residua (es. 5-0 al 45' → ritmo reale ≈ 10 gol/90', cap a 3.5
+    # produce previsioni di soli ~1.75 gol nel 2° tempo, chiaramente troppo basse).
+    # Nuovo: max(3.5, gol_totali * 1.2) — si adatta alle gare eccezionali.
+    gol_totali_now = float(gol_h + gol_a)
+    MU_MAX  = max(3.5, gol_totali_now * 1.2)
 
     # Correzione game-state sulla qualità dei tiri in porta — progressiva per margine.
     # +7% per gol di vantaggio (max 15%): 1 gol → ±7%, 2+ gol → ±14-15%.
@@ -543,7 +560,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v51 · Affidabilità: floor soglie 55/58%, warning dati, rossi diminishing, Kelly cap adattivo, soglia dinamica, O/U won")
+st.caption("v53 · Completezza: PMF refactor, bisection convergenza, rossi asimmetria, validazione tiri, CS cumulativi, AH multipli")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -602,6 +619,21 @@ with col_t3:
 with col_t4:
     soff_a = st.number_input("Fuori TRASF.",    min_value=0, value=0, step=1)
 
+# Validazione coerenza tiri / minuto
+_n_tiri_totali = sot_h + soff_h + sot_a + soff_a
+if _n_tiri_totali > 0 and minuto_gioco == 0:
+    st.warning("⚠️ Tiri inseriti ma minuto = 0: per analisi prematch lascia tutti i tiri a 0, "
+               "altrimenti il modello proietta il rate su 90' interi.")
+elif _n_tiri_totali > 0 and minuto_gioco > 0:
+    # Ceiling generoso: ~0.65 tiri totali/minuto in media europea (entrambe le squadre)
+    _tiri_max_attesi = max(6, int(minuto_gioco * 0.65) + 4)
+    if _n_tiri_totali > _tiri_max_attesi:
+        st.warning(
+            f"⚠️ {_n_tiri_totali} tiri totali al {minuto_gioco}' sembra elevato "
+            f"(atteso ≤ ~{_tiri_max_attesi}) — verifica che siano tiri totali da inizio gara, "
+            "non dell'ultimo periodo."
+        )
+
 st.divider()
 
 if st.button("ANALIZZA", use_container_width=True, type="primary"):
@@ -634,7 +666,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         )
 
         # 4. Probabilità complete (rho aggiustato per dominio tiri)
-        mc_1, mc_x, mc_2, mc_u, mc_o, mc_btts, top_cs, rho_used = calcola_tutto(
+        mc_1, mc_x, mc_2, mc_u, mc_o, mc_btts, top_cs, rho_used, gol_tot_dist = calcola_tutto(
             xg1_live, xg2_live,
             gol_casa, gol_trasf,
             linea_target_ou, tot_cur, minuto_gioco,
@@ -659,14 +691,49 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     co.metric(f"Over  {linea_target_ou}", f"@{calcola_quota_reale(mc_o):.2f}", f"{mc_o:.1%}")
     cb.metric("BTTS — Si",               f"@{calcola_quota_reale(mc_btts):.2f}", f"{mc_btts:.1%}")
 
-    with st.expander("Correct Score — Top 5"):
+    with st.expander("Correct Score — Top 5 + Totali"):
         cs_cols = st.columns(5)
         for idx, ((fc, ft), prob) in enumerate(top_cs):
             cs_cols[idx].metric(
                 label=f"{fc}–{ft}",
                 value=f"@{calcola_quota_reale(prob):.2f}",
-                delta=f"{prob:.1%}"
+                delta=f"{prob:.2%}"
             )
+        # Distribuzione gol totali cumulativi
+        st.caption("**Distribuzione gol totali partita**")
+        max_tot = max(gol_tot_dist.keys()) if gol_tot_dist else 6
+        tot_rows = []
+        cum = 0.0
+        for t in range(min(max_tot + 1, 10)):
+            p = gol_tot_dist.get(t, 0.0)
+            cum += p
+            tot_rows.append(f"**{t} gol**: {p:.1%} · cumul. ≤{t}: {cum:.1%}")
+        st.markdown("  \n".join(tot_rows))
+
+    with st.expander("Asian Handicap — Probabilità a diversi livelli"):
+        st.caption("Probabilità che la CASA copra ogni handicap, dati gli xG correnti del modello.")
+        ah_levels = [-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, +0.5, +1.0, +1.5, +2.0, +2.5]
+        ah_rows = []
+        for level in ah_levels:
+            # P(casa copre) = P(home_rem - away_rem + level > 0) per half-line (no push)
+            ev_half = 0.0
+            pmf_h = _poisson_pmf_norm(xg1_live)
+            pmf_a = _poisson_pmf_norm(xg2_live)
+            for i, pi in enumerate(pmf_h):
+                if pi < 1e-16: continue
+                for j, pj in enumerate(pmf_a):
+                    if pj < 1e-16: continue
+                    # Punteggio finale considerando gol già fatti
+                    diff = (gol_casa + i) - (gol_trasf + j) + level
+                    if   diff > 0: ev_half += pi * pj
+                    elif diff < 0: ev_half -= pi * pj
+            p_cover = (1.0 + ev_half) / 2.0
+            q_cover = calcola_quota_reale(p_cover)
+            sign = "+" if level >= 0 else ""
+            ah_rows.append(
+                f"AH {sign}{level:.1f} → Casa copre: **{p_cover:.1%}** · fair @{q_cover:.2f}"
+            )
+        st.markdown("  \n".join(ah_rows))
 
     # ── MOMENTUM ─────────────────────────────────────────────────────────────
     st.divider()
@@ -752,8 +819,13 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     btts_yes_settled = gol_casa > 0 and gol_trasf > 0
     if not btts_yes_settled:
-        _segnale_rapido("BTTS Sì", mc_btts,       soglia_min_btts)
-        _segnale_rapido("BTTS No", 1.0 - mc_btts, soglia_min_btts)
+        _segnale_rapido("BTTS Sì", mc_btts, soglia_min_btts)
+        # BTTS No ha una soglia più bassa: "No" si realizza se ALMENO UNA squadra
+        # non segna — evento strutturalmente più probabile di "Sì" in molte gare.
+        # Usare la stessa soglia 55% sovrasopprimeva segnali legittimi su squadre
+        # difensive. Soglia separata: max 50% a inizio → cresce col tempo.
+        soglia_min_btts_no = max(0.50, 0.45 + 0.10 * frac_giocata)
+        _segnale_rapido("BTTS No", 1.0 - mc_btts, soglia_min_btts_no)
 
     if not quick_signals:
         st.info("Nessun candidato forte al momento — il modello non vede probabilità dominanti.")
@@ -815,7 +887,10 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     # MIN_EDGE_BACK e MIN_EDGE_LAY sono già sui valori netti.
     MIN_EDGE_BACK = 0.030   # 3% edge netto minimo per back
     MIN_EDGE_LAY  = 0.040   # 4% edge netto minimo per lay (rischio asimmetrico)
-    MIN_FAIR_Q    = 1.15    # eventi quasi certi (>87%) → skip, già nel prezzo
+    # Alzato da 1.15 (>87%) a 1.25 (>80%): 87% non è una certezza, può contenere
+    # edge reale se il modello vede 92%+. Con 1.25 tagliamo solo eventi dove la
+    # quota exchange è così bassa da non offrire mai leva sufficiente.
+    MIN_FAIR_Q    = 1.25    # eventi quasi certi (>80%) → skip, già nel prezzo
 
     def _q_netto(q_exc):
         """Quota effettiva back dopo commissione exchange."""
