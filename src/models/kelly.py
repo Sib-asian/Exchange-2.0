@@ -137,9 +137,19 @@ def calcola_stake_lay(
     if denom <= 0:
         return None
 
-    # Break-even probability per il layer (commission-adjusted)
-    p_be = (1.0 - comm_rate) / denom
-    f_liability = p_be - prob_modello
+    # Kelly fraction della liability (derivazione corretta).
+    #
+    # Il layer vince (1-c) per unità di stake se l'evento NON accade (prob 1-p),
+    # e perde (Q-1) per unità di stake se l'evento accade (prob p).
+    #
+    # Massimizzando E[log(W)] rispetto alla liability L = stake*(Q-1):
+    #   f_L = (1-p) - p*(Q-1)/(1-c)
+    #       = 1 - p*(Q-c)/(1-c)
+    #       = 1 - p * denom / (1-comm_rate)
+    #
+    # NOTA: la formula p_BE - p = (1-c)/(Q-c) - p NON è equivalente:
+    # differisce di un fattore Q/(Q-1) nel regime non cappato.
+    f_liability = 1.0 - prob_modello * denom / (1.0 - comm_rate)
 
     if f_liability <= 0:
         return None

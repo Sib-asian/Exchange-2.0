@@ -149,7 +149,7 @@ def calcola_xg_bayesiani(
     #   ah_cur  = ah_op  + gol_diff   (puro effetto punteggio)
     #   tot_cur = tot_op - gol_tot    (puro effetto punteggio)
     expected_ah_cur = ah_op + gol_diff
-    expected_tot_cur = tot_op - gol_tot
+    expected_tot_cur = max(0.0, tot_op - gol_tot)  # i gol rimanenti non possono essere negativi
     delta_ah_inner = abs(ah_cur - expected_ah_cur)
     delta_tot_inner = abs(tot_cur - expected_tot_cur)
     flat = delta_ah_inner < BAYES.FLAT_LINE_THRESHOLD and delta_tot_inner < BAYES.FLAT_LINE_THRESHOLD
