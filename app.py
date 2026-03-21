@@ -242,13 +242,26 @@ def time_decay_dinamico(xg_casa, xg_trasf, minuto,
             xg_t *= (1.0 + residual)
             xg_c *= (1.0 - residual)
 
-    # 2. Cartellini rossi
+    # 2. Cartellini rossi — effetto marginale decrescente.
+    # Modello precedente: pow(0.68, n) → 2 rossi = -54%, 3 rossi = -68% (esagerato).
+    # Letteratura (Brechot & Flepp 2020): il 2° rosso porta beneficio aggiuntivo
+    # minore perché la squadra è già in difficoltà strutturale (linea difensiva
+    # abbassata, pressing ridotto comunque). Tabella precalcolata:
+    #   n=0: ×1.000  |  boost avversario ×1.000
+    #   n=1: ×0.680  |  boost avversario ×1.280  (−32% / +28%)
+    #   n=2: ×0.578  |  boost avversario ×1.434  (−42% / +43%)
+    #   n=3: ×0.532  |  boost avversario ×1.520  (−47% / +52%)
+    #   n=4: ×0.500  |  boost avversario ×1.566  (−50% / +57%)
+    _RED_DECAY = [1.000, 0.680, 0.578, 0.532, 0.500]
+    _RED_BOOST = [1.000, 1.280, 1.434, 1.520, 1.566]
     if rossi_casa > 0:
-        xg_c *= math.pow(0.68, rossi_casa)
-        xg_t *= math.pow(1.28, rossi_casa)
+        idx = min(rossi_casa, 4)
+        xg_c *= _RED_DECAY[idx]
+        xg_t *= _RED_BOOST[idx]
     if rossi_trasf > 0:
-        xg_t *= math.pow(0.68, rossi_trasf)
-        xg_c *= math.pow(1.28, rossi_trasf)
+        idx = min(rossi_trasf, 4)
+        xg_t *= _RED_DECAY[idx]
+        xg_c *= _RED_BOOST[idx]
 
     return max(0.001, xg_c), max(0.001, xg_t)
 
@@ -530,7 +543,7 @@ def blend_xg_shots(mu_h_line, mu_a_line,
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v50 · Modello potenziato: Kelly lay comm-adj, rho shot-dom 45%, game-state progressivo, score effect 7%, EV€ back")
+st.caption("v51 · Affidabilità: floor soglie 55/58%, warning dati, rossi diminishing, Kelly cap adattivo, soglia dinamica, O/U won")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -677,9 +690,11 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         st.stop()
 
     frac_giocata = minuto_gioco / 90.0
-    soglia_min_1x2  = 0.50 + 0.10 * frac_giocata
-    soglia_min_ou   = 0.55 + 0.10 * frac_giocata
-    soglia_min_btts = 0.50 + 0.10 * frac_giocata
+    # Floor 55%/58%: evitare segnali su eventi quasi-equi (p≈51%) a inizio partita.
+    # La soglia cresce col tempo per compensare la riduzione di incertezza.
+    soglia_min_1x2  = max(0.55, 0.50 + 0.10 * frac_giocata)
+    soglia_min_ou   = max(0.58, 0.55 + 0.10 * frac_giocata)
+    soglia_min_btts = max(0.55, 0.50 + 0.10 * frac_giocata)
     gol_attuali     = gol_casa + gol_trasf
     gol_mancanti    = linea_target_ou - gol_attuali
 
@@ -728,7 +743,10 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     if mc_x >= soglia_min_1x2:
         _segnale_rapido("X Pareggio", mc_x, soglia_min_1x2)
 
-    if gol_attuali < linea_target_ou:
+    if gol_attuali >= linea_target_ou:
+        st.success(f"✅ Over {linea_target_ou} già **VINTO** — {gol_attuali:.0f} gol totali. Mercato chiuso.")
+        st.error(f"❌ Under {linea_target_ou} già **PERSO**. Mercato chiuso.")
+    else:
         _segnale_rapido(f"Over {linea_target_ou}",  mc_o, soglia_min_ou,  tipo_ou="over")
         _segnale_rapido(f"Under {linea_target_ou}", mc_u, soglia_min_ou,  tipo_ou="under")
 
@@ -739,8 +757,18 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     if not quick_signals:
         st.info("Nessun candidato forte al momento — il modello non vede probabilità dominanti.")
-        if flat_lines and n_shots_tot == 0 and minuto_gioco > 0:
-            st.caption("💡 Inserisci i tiri live per dare al modello una fonte di alpha indipendente.")
+
+    # ── WARNING AFFIDABILITÀ ─────────────────────────────────────────────────
+    if flat_lines and n_shots_tot == 0 and minuto_gioco >= 30:
+        st.warning(
+            "⚠️ **Affidabilità ridotta**: linee di mercato invariate e nessun tiro live. "
+            "Il modello opera su prior di prematch — inserisci i tiri per aumentare la precisione."
+        )
+    elif n_shots_tot == 0 and minuto_gioco >= 45:
+        st.warning(
+            "⚠️ **Nessun dato tiri live**: oltre il 45' senza tiri, "
+            "il modello ha affidabilità ridotta. Inserisci i tiri per sbloccare l'alpha."
+        )
 
     # ── ANALISI AVANZATA CON QUOTE EXCHANGE (opzionale) ──────────────────────
     st.divider()
@@ -822,7 +850,10 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
         # ── SENZA QUOTA EXCHANGE ──────────────────────────────────────────────
         if q_exc <= 1.0:
-            if prob_mod >= 0.62:
+            # Soglia qualitativa cresce col tempo: a partita inoltrata il modello
+            # deve essere più convinto per giustificare un'indicazione senza prezzo.
+            soglia_qualitativa = max(0.62, 0.60 + 0.10 * frac_giocata)
+            if prob_mod >= soglia_qualitativa:
                 st.info(
                     f"📈 **{etichetta}**: modello {prob_mod:.1%} (fair @{q_fair:.2f}) "
                     f"— potenziale back · inserisci quota per edge preciso"
@@ -853,7 +884,15 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         # BACK (con edge netto)
         if edge_back >= MIN_EDGE_BACK and prob_mod >= soglia_back:
             stake_raw = calcola_stake_kelly(prob_mod, q_net, cassa, kelly_frac)
-            stake     = stake_raw * momentum_stake_factor
+            # Cap adattivo per edge: edge piccolo → stake massima più conservativa.
+            # Kelly formula già riduce naturalmente con edge bassi, ma il cap fisso
+            # al 5% si attivava uguale per edge 3% e edge 10%.
+            if edge_back < 0.05:
+                stake_raw = min(stake_raw, cassa * 0.025 * kelly_frac)
+            elif edge_back < 0.10:
+                stake_raw = min(stake_raw, cassa * 0.040 * kelly_frac)
+            # edge >= 10%: cap 5% già applicato da calcola_stake_kelly
+            stake = stake_raw * momentum_stake_factor
             if stake > 0:
                 riduzioni = []
                 if comm_rate > 0:
