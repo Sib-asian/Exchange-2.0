@@ -5,21 +5,26 @@ import math
 # ⚙️ FUNZIONI DI SUPPORTO
 # ==========================================
 
-def rho_dinamico(tot_cur, minuto):
+def rho_dinamico(tot_cur, minuto, shot_dom=0.0):
     """
     Correlazione comune bivariata non più fissa a 0.12.
 
-    Logica:
+    Logica base:
     - tot_cur alto → partita aperta → le squadre segnano più indipendentemente → rho scende
     - Avanzare del minuto → i gol già osservati dominano l'informazione → rho scende
-      (il modello dipende meno dalla struttura latente comune)
 
-    Range risultante: ~0.03 (partita open late) → ~0.14 (partita chiusa inizio gara)
-    Nota: base = 0.14 - 0.018*tot_cur → massimo teorico 0.14 (a tot_cur=0, minuto=0).
+    Correzione shot-dominance (shot_dom in [0,1]):
+    - Quando una squadra domina nettamente i tiri la partita è essenzialmente
+      unidirezionale: una Poisson preme, l'altra difende/contropiede.
+      Le due componenti diventano quasi indipendenti → rho scende fino al 25%.
+    - shot_dom = |sot_h - sot_a| / (sot_h + sot_a)  (0 = equilibrio, 1 = dominio totale)
+
+    Range risultante: ~0.02 (dominio totale late) → ~0.14 (equilibrio inizio gara)
     """
     base  = 0.14 - 0.018 * min(tot_cur, 4.5)
     decay = 1.0 - 0.40 * (minuto / 90.0)
-    return max(0.03, min(base * decay, 0.15))
+    rho_base = max(0.03, min(base * decay, 0.15))
+    return max(0.02, rho_base * (1.0 - 0.25 * shot_dom))
 
 
 def dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=-0.13):
@@ -202,7 +207,8 @@ def time_decay_dinamico(xg_casa, xg_trasf, minuto,
 # CALCOLO PROBABILITA — UN UNICO PASSAGGIO
 # ==========================================
 
-def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, minuto):
+def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, minuto,
+                  shot_dom=0.0):
     """
     Costruisce la matrice bivariata completa una volta sola e ne ricava
     in un unico passaggio: 1X2, U/O, BTTS, Correct Score top-5.
@@ -214,15 +220,12 @@ def calcola_tutto(mu_c_rem, mu_t_rem, gol_casa, gol_trasf, linea_ou, tot_cur, mi
       Y_ind ~ Poisson(mu_t_ind)
       Z     ~ Poisson(lambda0)   con lambda0 = rho_dinamico * min(mu_c, mu_t)
 
-    Novita v42:
-      - rho dinamico (non piu fisso 0.12)
-      - correzione Dixon-Coles sulle componenti indipendenti per i punteggi
-        bassi (0-0, 1-0, 0-1, 1-1): maggiore precisione a bassa intensita di gol
+    shot_dom: indice di dominio tiri [0,1] — riduce rho quando il gioco è unidirezionale.
     """
     mu_c_rem = max(1e-9, float(mu_c_rem))
     mu_t_rem = max(1e-9, float(mu_t_rem))
 
-    rho     = rho_dinamico(tot_cur, minuto)
+    rho     = rho_dinamico(tot_cur, minuto, shot_dom)
     min_mu  = min(mu_c_rem, mu_t_rem)
     lambda0 = max(0.0, min(rho * min_mu, 0.95 * min_mu))
 
@@ -359,12 +362,104 @@ def calcola_stake_lay(prob_modello, quota_exc, bankroll, frazione=0.5):
 
 
 # ==========================================
+# BLEND xG LINEE + TIRI
+# ==========================================
+
+def blend_xg_shots(mu_h_line, mu_a_line,
+                   sot_h, soff_h, sot_a, soff_a,
+                   gol_h, gol_a, minuto):
+    """
+    Integra le stime xG da linee di mercato con le evidenze empiriche dei tiri.
+
+    ── xG PER TIRO (valori calibrati su top-5 leagues) ─────────────────────────
+      XG_SOT  = 0.33  (tiro in porta medio)
+      XG_SOFF = 0.05  (tiro fuori porta)
+
+      Correzione game-state ±10%:
+        Chi è in svantaggio pressa in modo disperato → qualità tiri inferiore (×0.90)
+        Chi è in vantaggio segna spesso in contropiede → qualità superiore (×1.10)
+
+    ── PROIEZIONE AL TEMPO RIMANENTE ────────────────────────────────────────────
+      rate_h  = xg_h_accum / frac_giocata   (xG per 90' implicato dai tiri)
+      mu_h_shots = rate_h × frac_rimasta
+
+    ── BLEND IN SPAZIO T+D ──────────────────────────────────────────────────────
+      Separare Totale e Differenziale permette pesi diversi:
+        α_T  (Totale):      max 0.25  — il Total line è molto efficiente, muoviti poco
+        α_D  (Differenziale): max 0.70 — i tiri rivelano chi domina meglio del mercato
+
+      Entrambi i pesi crescono con:
+        • shot_info = min(1, n_shots/15)  — campione sufficiente (15 tiri totali)
+        • frac_giocata (o sua radice) — i dati live sono più affidabili col tempo
+
+      T_blend = (1−α_T)·T_line + α_T·T_shots
+      D_blend = (1−α_D)·D_line + α_D·D_shots
+      mu_h = max(ε, (T_blend + D_blend) / 2)
+      mu_a = max(ε, (T_blend − D_blend) / 2)
+
+    Restituisce:
+      mu_h_final, mu_a_final  — xG rimanenti blendati
+      xg_h_accum, xg_a_accum  — xG accumulato dai tiri (per debug)
+      alpha_T, alpha_D         — pesi effettivi del blend (per debug)
+      shot_dom                 — indice dominio tiri [0,1] (per rho e debug)
+    """
+    XG_SOT  = 0.33
+    XG_SOFF = 0.05
+
+    # Correzione game-state sulla qualità dei tiri in porta
+    diff_score = gol_h - gol_a
+    if diff_score > 0:
+        k_h, k_a = 1.10, 0.90   # casa in vantaggio → contropiede casa, pressing trasf
+    elif diff_score < 0:
+        k_h, k_a = 0.90, 1.10   # trasf in vantaggio → contropiede trasf, pressing casa
+    else:
+        k_h, k_a = 1.00, 1.00
+
+    xg_h_accum = sot_h * XG_SOT * k_h + soff_h * XG_SOFF
+    xg_a_accum = sot_a * XG_SOT * k_a + soff_a * XG_SOFF
+
+    frac_giocata = max(minuto, 1) / 90.0
+    frac_rimasta = max(0.0, (90.0 - minuto) / 90.0)
+
+    # Proiezione rate → mu rimanenti (shots-based)
+    rate_h     = xg_h_accum / frac_giocata
+    rate_a     = xg_a_accum / frac_giocata
+    mu_h_shots = rate_h * frac_rimasta
+    mu_a_shots = rate_a * frac_rimasta
+
+    # Indice di dominio (solo tiri in porta, più informativi)
+    sot_tot = sot_h + sot_a
+    shot_dom = abs(sot_h - sot_a) / sot_tot if sot_tot > 0 else 0.0
+
+    # Pesi blend dinamici
+    n_shots   = sot_h + soff_h + sot_a + soff_a
+    shot_info = min(1.0, n_shots / 15.0)   # 15 tiri totali = campione sufficiente
+    alpha_T   = min(0.25, shot_info * frac_giocata * 0.30)
+    alpha_D   = min(0.70, shot_info * math.sqrt(frac_giocata))
+
+    # Blend in spazio T+D
+    T_line  = mu_h_line  + mu_a_line
+    D_line  = mu_h_line  - mu_a_line
+    T_shots = mu_h_shots + mu_a_shots
+    D_shots = mu_h_shots - mu_a_shots
+
+    T_blend = (1.0 - alpha_T) * T_line + alpha_T * T_shots
+    D_blend = (1.0 - alpha_D) * D_line + alpha_D * D_shots
+
+    eps = 1e-9
+    mu_h_final = max(eps, (T_blend + D_blend) / 2.0)
+    mu_a_final = max(eps, (T_blend - D_blend) / 2.0)
+
+    return mu_h_final, mu_a_final, xg_h_accum, xg_a_accum, alpha_T, alpha_D, shot_dom
+
+
+# ==========================================
 # UI STREAMLIT
 # ==========================================
 
 st.set_page_config(page_title="Radar Pro Live", page_icon="⚡", layout="centered")
 st.title("⚡ Radar Pro Live")
-st.caption("v43 · Dixon-Coles · Rho dinamico · Momentum stake · Kelly fix · Settled markets · BTTS No")
+st.caption("v44 · Dixon-Coles · Rho shot-aware · Blend T+D tiri/linee · Kelly back+lay · Momentum")
 
 # INPUT
 st.header("1. Stato Partita")
@@ -401,21 +496,56 @@ linea_target_ou = st.selectbox(
 cassa = st.number_input("Bankroll (€)", value=1000.0, step=100.0)
 
 st.divider()
+st.header("3. Tiri (Live)")
+st.caption("Lascia a 0 per analisi prematch. Live: inserisci i tiri totali da inizio gara.")
+
+col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+with col_t1:
+    sot_h  = st.number_input("In porta CASA",   min_value=0, value=0, step=1)
+with col_t2:
+    soff_h = st.number_input("Fuori CASA",      min_value=0, value=0, step=1)
+with col_t3:
+    sot_a  = st.number_input("In porta TRASF.", min_value=0, value=0, step=1)
+with col_t4:
+    soff_a = st.number_input("Fuori TRASF.",    min_value=0, value=0, step=1)
+
+st.divider()
 
 if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     with st.spinner("Calcolo matrice bivariata..."):
+        # 1. xG da linee (prior bayesiano)
         xg1_base, xg2_base = calcola_xg_bayesiani(
             ah_op, tot_op, ah_cur, tot_cur, minuto_gioco
         )
+
+        # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
+        n_shots_tot = sot_h + soff_h + sot_a + soff_a
+        if n_shots_tot > 0 and minuto_gioco > 0:
+            xg1_blend, xg2_blend, \
+            xg_h_accum, xg_a_accum, \
+            alpha_T, alpha_D, shot_dom = blend_xg_shots(
+                xg1_base, xg2_base,
+                sot_h, soff_h, sot_a, soff_a,
+                gol_casa, gol_trasf, minuto_gioco
+            )
+        else:
+            xg1_blend, xg2_blend = xg1_base, xg2_base
+            xg_h_accum = xg_a_accum = 0.0
+            alpha_T = alpha_D = shot_dom = 0.0
+
+        # 3. Time decay + score effect + rossi (opera sullo xG blendato)
         xg1_live, xg2_live = time_decay_dinamico(
-            xg1_base, xg2_base, minuto_gioco,
+            xg1_blend, xg2_blend, minuto_gioco,
             gol_casa, gol_trasf, rossi_casa, rossi_trasf
         )
+
+        # 4. Probabilità complete (rho aggiustato per dominio tiri)
         mc_1, mc_x, mc_2, mc_u, mc_o, mc_btts, top_cs, rho_used = calcola_tutto(
             xg1_live, xg2_live,
             gol_casa, gol_trasf,
-            linea_target_ou, tot_cur, minuto_gioco
+            linea_target_ou, tot_cur, minuto_gioco,
+            shot_dom=shot_dom
         )
         delta_ah  = ah_cur  - ah_op
         delta_tot = tot_cur - tot_op
@@ -666,6 +796,16 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
             st.write(f"xG base casa  = {xg1_base:.4f}")
             st.write(f"xG base trasf = {xg2_base:.4f}")
             st.divider()
+            if n_shots_tot > 0:
+                st.markdown("**Tiri & blend**")
+                st.write(f"xG accum casa  = {xg_h_accum:.3f}")
+                st.write(f"xG accum trasf = {xg_a_accum:.3f}")
+                st.write(f"xG blend casa  = {xg1_blend:.4f}")
+                st.write(f"xG blend trasf = {xg2_blend:.4f}")
+                st.write(f"α_T (Total)    = {alpha_T:.3f}")
+                st.write(f"α_D (Diff)     = {alpha_D:.3f}")
+                st.write(f"Shot dominance = {shot_dom:.3f}")
+                st.divider()
             st.write(f"Soglia 1X2   = {soglia_min_1x2:.3f}")
             st.write(f"Soglia U/O   = {soglia_min_ou:.3f}")
             st.write(f"Soglia BTTS  = {soglia_min_btts:.3f}")
