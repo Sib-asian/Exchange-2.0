@@ -15,17 +15,16 @@ import math
 import pytest
 
 from src.config import BAYES, POISSON
+from src.markets.btts import calcola_btts
+from src.markets.over_under import calcola_over_under
+from src.markets.result import calcola_1x2
 from src.models.calibration import (
     _ah_ev,
     _ah_ev_half,
-    calcola_xg_bayesiani,
     blend_xg_shots,
+    calcola_xg_bayesiani,
 )
-from src.models.poisson import build_bivariate_matrix, poisson_pmf
-from src.markets.result import calcola_1x2
-from src.markets.over_under import calcola_over_under
-from src.markets.btts import calcola_btts
-
+from src.models.poisson import build_bivariate_matrix
 
 # ===========================================================================
 # Sezione 1: AH EV — interpolazione continua
@@ -166,10 +165,6 @@ class TestXGBayesianiSimulation:
         xg_h_1, xg_a_1 = calcola_xg_bayesiani(
             ah_op, tot_op, 0.25, 1.5, 45, gol_diff=1, gol_tot=1
         )
-        # La casa con vantaggio e AH spostato → rapporto xg_h/xg_a più basso
-        # (il mercato ha già prezzato il gol)
-        ratio_0 = xg_h_0 / xg_a_0
-        ratio_1 = xg_h_1 / xg_a_1
         # Con AH positivo (trasferta favorita sui rimanenti) la trasferta ha più xG
         assert xg_a_1 > xg_h_1, "Con AH +0.25 la trasferta dovrebbe avere più xG rimanenti"
 
@@ -223,7 +218,6 @@ class TestMarketConsistency:
         """P(BTTS Sì) + P(BTTS No) ≈ 1."""
         full, _, _ = self._build(mu_h, mu_a)
         p_btts_si = calcola_btts(full, 0, 0)
-        p_btts_no = 1.0 - p_btts_si
         assert 0.0 <= p_btts_si <= 1.0, f"BTTS Sì fuori [0,1]: {p_btts_si:.4f}"
 
     def test_1x2_home_favorite(self):
