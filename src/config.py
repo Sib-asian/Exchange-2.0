@@ -38,13 +38,24 @@ class PoissonConfig:
 class DixonColesConfig:
     """Parametri correzione Dixon-Coles per punteggi bassi."""
 
-    # Rho DC empirico negativo: le squadre tendono a non segnare simultaneamente.
-    # Valore calibrato su top-5 leagues (Dixon & Coles 1997, Karlis & Ntzoufras 2003).
+    # Rho DC statico (fallback / default per test)
     RHO_DC: float = -0.13
 
     # Clamp tau: [0.05, 3.0] — 0.05 evita l'azzeramento, 3.0 evita amplificazioni eccessive
     TAU_MIN: float = 0.05
     TAU_MAX: float = 3.0
+
+    # rho_DC dinamico: dipende da total, tempo, gol segnati.
+    # Partite difensive (basso total) → più negativo (struttura difensiva).
+    # Late game con punteggio chiuso → più negativo (parking the bus).
+    # Partite aperte (alto gol) → meno negativo (difese aperte).
+    RHO_DC_BASE: float = -0.08        # base per partite aperte
+    RHO_DC_TOT_SCALE: float = -0.04   # effetto total basso → più negativo
+    RHO_DC_TOT_REF: float = 3.0       # total di riferimento (sopra = meno negativo)
+    RHO_DC_TIME_SCALE: float = -0.04  # effetto tempo → più negativo a fine partita
+    RHO_DC_GOAL_DAMPEN: float = 0.15  # riduzione per gol segnati (partita aperta)
+    RHO_DC_MIN: float = -0.25         # floor (max correlazione negativa)
+    RHO_DC_MAX: float = -0.03         # ceiling (quasi indipendenza)
 
 
 @dataclass(frozen=True)
@@ -380,6 +391,74 @@ class UIConfig:
     COMM_STEP: float = 0.5
 
 
+@dataclass(frozen=True)
+class CMPConfig:
+    """Parametri per Conway-Maxwell-Poisson."""
+
+    # Parametro di dispersione: ν < 1 = overdispersion.
+    # 0.92 calibrato su Premier League + La Liga (varianza/media ≈ 1.08-1.12)
+    NU: float = 0.92
+
+
+@dataclass(frozen=True)
+class CopulaConfig:
+    """Parametri per la copula Frank."""
+
+    # θ base: dipendenza positiva leggera (gol di una squadra → più probabili dell'altra)
+    THETA_BASE: float = 1.2
+    # Riduzione θ per total alto (partite aperte → meno correlazione)
+    THETA_TOT_SCALE: float = -0.25
+    THETA_TOT_REF: float = 2.5
+    # Riduzione θ per tempo avanzato
+    THETA_TIME_SCALE: float = -0.20
+
+
+@dataclass(frozen=True)
+class HawkesConfig:
+    """Parametri per il processo di Hawkes (self-exciting goals)."""
+
+    # Boost rate per gol sopra atteso: max 3%, 1% per unità di eccesso
+    # Valori conservativi per evitare che il Hawkes sovrasti lo score effect
+    ALPHA: float = 0.01
+    MAX_BOOST: float = 0.03
+    # Tasso gol di riferimento (top-5 leagues: ~2.7/90')
+    RATE_REF_PER_90: float = 2.7
+
+
+@dataclass(frozen=True)
+class SubstitutionConfig:
+    """Parametri per l'effetto sostituzione."""
+
+    # Finestra sostituzione: 55'-70' = crescita, 70'-90' = plateau + decadimento
+    BOOST_START: int = 55
+    BOOST_PEAK: int = 70
+    # Boost massimo: +6% sul rate di gol (Brechot & Flepp 2020)
+    BOOST_MAX: float = 0.06
+
+
+@dataclass(frozen=True)
+class ConsensusConfig:
+    """Parametri per il consenso multi-modello."""
+
+    # Pesi dei 3 modelli nel consensus
+    W_BIVARIATE: float = 0.50   # bivariate Poisson + DC (modello principale)
+    W_COPULA: float = 0.30      # CMP + Frank copula (overdispersion)
+    W_MARKOV: float = 0.20      # Markov chain (score-dependent rates)
+
+    # Calibrazione isotonica
+    DRAW_SHRINKAGE: float = 0.97  # riduzione draw (-3%)
+
+
+@dataclass(frozen=True)
+class StaleLineConfig:
+    """Parametri per la rilevazione linee stantie."""
+
+    # Minuti di inattività per considerare la linea stale
+    THRESHOLD_MINUTES: int = 15
+    # Degradazione del peso della linea corrente quando stale
+    WEIGHT_DEGRADATION: float = 0.15
+
+
 # Istanze globali immutabili — importare da qui
 POISSON   = PoissonConfig()
 DC        = DixonColesConfig()
@@ -391,3 +470,9 @@ MOMENTUM  = MomentumConfig()
 KELLY     = KellyConfig()
 SIGNALS   = SignalConfig()
 UI        = UIConfig()
+CMP       = CMPConfig()
+COPULA    = CopulaConfig()
+HAWKES    = HawkesConfig()
+SUBST     = SubstitutionConfig()
+CONSENSUS = ConsensusConfig()
+STALE     = StaleLineConfig()

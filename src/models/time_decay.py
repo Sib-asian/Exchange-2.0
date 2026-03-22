@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 
-from src.config import DECAY, MOMENTUM
+from src.config import DECAY, HAWKES, MOMENTUM, SUBST
 
 
 def calcola_momentum_mercato(
@@ -152,7 +152,30 @@ def time_decay_dinamico(
         xg_t *= decay_eff * DECAY.RED_AWAY_PENALTY
         xg_c *= boost_eff * DECAY.RED_HOME_BOOST
 
-    # 3. Smorzamento xG per momentum estremo
+    # 3. Effetto sostituzione: dopo il 55' le squadre inseriscono attaccanti freschi
+    # contro difese stanche → spike del tasso gol (+6% al picco).
+    # L'effetto cresce da 55' a 70' (fase sostituzioni) e decade gradualmente fino a 90'.
+    if minuto >= SUBST.BOOST_START:
+        if minuto <= SUBST.BOOST_PEAK:
+            subst_frac = (minuto - SUBST.BOOST_START) / max(1, SUBST.BOOST_PEAK - SUBST.BOOST_START)
+        else:
+            subst_frac = max(0.0, 1.0 - (minuto - SUBST.BOOST_PEAK) / max(1, 90 - SUBST.BOOST_PEAK))
+        subst_boost = 1.0 + SUBST.BOOST_MAX * subst_frac
+        xg_c *= subst_boost
+        xg_t *= subst_boost
+
+    # 4. Hawkes self-exciting: se il tasso gol osservato è superiore all'atteso,
+    # la partita è "calda" → boost leggero al rate rimanente.
+    # Cattura il clustering dei gol (dopo un gol è più probabile un altro).
+    gol_tot = gol_casa + gol_trasf
+    if gol_tot > 0 and minuto > 5:
+        rate_obs_90 = gol_tot / max(minuto, 1) * 90.0
+        excess = max(0.0, rate_obs_90 / HAWKES.RATE_REF_PER_90 - 1.0)
+        hawkes_boost = 1.0 + min(HAWKES.MAX_BOOST, excess * HAWKES.ALPHA)
+        xg_c *= hawkes_boost
+        xg_t *= hawkes_boost
+
+    # 5. Smorzamento xG per momentum estremo
     # Mercati molto volatili (momentum > 2.5) segnalano informazione non catturata
     # dal modello → smorzare xG per evitare falsi edge in mercati instabili.
     if momentum > DECAY.MOMENTUM_XG_THRESHOLD:

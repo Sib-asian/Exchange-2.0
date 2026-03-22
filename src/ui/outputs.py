@@ -55,14 +55,6 @@ def render_quote_fair(
 # Confidence Band + Model Confidence
 # ---------------------------------------------------------------------------
 
-def _confidence_band(prob: float, model_confidence: float) -> tuple[float, float]:
-    """Calcola l'intervallo 68% attorno alla quota fair."""
-    q_fair = 1.0 / prob if prob > 0.001 else 999.0
-    # Incertezza base: 5% della quota, scalata inversamente con la confidence
-    uncertainty = max(0.05, 0.15 * (1.0 - model_confidence))
-    q_std = q_fair * uncertainty
-    return max(1.01, q_fair - q_std), q_fair + q_std
-
 
 def render_model_confidence(risultati: ProbabilitaModello) -> None:
     """Render del model confidence score con indicazione visuale."""
@@ -76,28 +68,52 @@ def render_model_confidence(risultati: ProbabilitaModello) -> None:
     else:
         label = f"Bassa ({conf:.0%})"
         icon = "🔴"
-    st.caption(f"{icon} Confidenza modello: **{label}** — basata su tiri, linee, tempo e blend")
+    parts = [f"{icon} Confidenza modello: **{label}**"]
+    if risultati.stale_line:
+        parts.append(" · Linea stantia (nessun movimento)")
+    agreement_pct = risultati.model_agreement
+    if agreement_pct < 0.70:
+        parts.append(f" · Accordo modelli: {agreement_pct:.0%}")
+    st.caption("".join(parts))
 
 
 def render_confidence_bands(
     risultati: ProbabilitaModello,
     linea_ou: float,
 ) -> None:
-    """Render degli intervalli di confidenza attorno alle quote fair."""
-    with st.expander("Intervalli di confidenza (68%)"):
-        markets = [
-            ("1 Casa", risultati.p1),
-            ("X Pareggio", risultati.px),
-            ("2 Trasf.", risultati.p2),
-            (f"Over {linea_ou}", risultati.p_over),
-            (f"Under {linea_ou}", risultati.p_under),
-            ("BTTS Sì", risultati.p_btts),
-        ]
+    """Render degli intervalli di credibilità basati sullo spread tra modelli."""
+    ci = risultati.credible_intervals
+    if not ci:
+        return
+
+    label_map = {
+        "p1": "1 Casa", "px": "X Pareggio", "p2": "2 Trasf.",
+        "p_over": f"Over {linea_ou}", "p_under": f"Under {linea_ou}",
+        "p_btts": "BTTS Sì",
+    }
+    prob_map = {
+        "p1": risultati.p1, "px": risultati.px, "p2": risultati.p2,
+        "p_over": risultati.p_over, "p_under": risultati.p_under,
+        "p_btts": risultati.p_btts,
+    }
+
+    with st.expander("Intervalli di credibilità (multi-modello)"):
+        st.caption("Basati sullo spread tra Bivariate Poisson, CMP+Copula e Markov Chain")
         rows = []
-        for label, prob in markets:
+        for key in ["p1", "px", "p2", "p_over", "p_under", "p_btts"]:
+            if key not in ci:
+                continue
+            prob = prob_map[key]
+            lo, hi = ci[key]
             q_fair = _q_fair(prob)
-            ci_lo, ci_hi = _confidence_band(prob, risultati.model_confidence)
-            rows.append(f"**{label}**: @{q_fair:.2f} (68% CI: @{ci_lo:.2f} – @{ci_hi:.2f})")
+            q_lo = _q_fair(hi) if hi > 0.001 else 999.0  # inverso: alta prob → bassa quota
+            q_hi = _q_fair(lo) if lo > 0.001 else 999.0
+            spread = hi - lo
+            icon = "🟢" if spread < 0.02 else ("🟡" if spread < 0.05 else "🔴")
+            rows.append(
+                f"{icon} **{label_map[key]}**: @{q_fair:.2f} "
+                f"(CI: @{q_lo:.2f} – @{q_hi:.2f} · spread {spread:.1%})"
+            )
         st.markdown("  \n".join(rows))
 
 
