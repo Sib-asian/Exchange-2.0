@@ -35,6 +35,7 @@ from src.ui.outputs import (
     render_model_confidence,
     render_momentum,
     render_quote_fair,
+    render_red_card_impact,
     render_segnali_avanzati,
     render_segnali_rapidi,
 )
@@ -84,9 +85,12 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     render_correct_score(risultati)
     render_asian_handicap(risultati.full_matrix)
 
-    # ── Momentum ─────────────────────────────────────────────────────────────
+    # ── Red card impact (Fix #16) ─────────────────────────────────────────────
+    render_red_card_impact(state.rossi_casa, state.rossi_trasf, state.minuto)
+
+    # ── Momentum con decomposizione AH/Total (Fix #14) ───────────────────────
     st.divider()
-    render_momentum(risultati.momentum)
+    render_momentum(risultati.momentum, risultati.delta_ah, risultati.delta_tot)
 
     # ── Fine partita ─────────────────────────────────────────────────────────
     if state.minuto >= SIGNALS.GAME_END_THRESHOLD:
@@ -125,7 +129,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     st.divider()
     quotes = render_exchange_quotes(linea_ou)
 
-    kelly_frac = calcola_kelly_fraction(state.minuto, n_shots_tot)
+    kelly_frac = calcola_kelly_fraction(state.minuto, n_shots_tot, risultati.model_confidence)
     momentum_factor = max(
         SIGNALS.MOMENTUM_STAKE_FLOOR,
         1.0 - SIGNALS.MOMENTUM_STAKE_REDUCTION_RATE * max(0.0, risultati.momentum - SIGNALS.MOMENTUM_STAKE_THRESHOLD),
@@ -139,6 +143,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         state.minuto, linea_ou, gol_attuali,
         bankroll, comm_rate, n_shots_tot,
         risultati.momentum,
+        model_confidence=risultati.model_confidence,
     )
 
     # Filtra segnali avanzati per mercati già chiusi (stessa logica dei rapidi)
@@ -149,6 +154,29 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     render_segnali_avanzati(segnali_avanzati, quotes.any_active)
     render_allineamento_mercato(risultati, quotes)
+
+    # Fix #17: calcola e mostra market_divergence se ci sono quote exchange
+    if quotes.any_active:
+        from src.models.consensus import compute_model_market_divergence
+        model_probs_map = {
+            "p1": risultati.p1, "px": risultati.px, "p2": risultati.p2,
+            "p_over": risultati.p_over, "p_under": risultati.p_under,
+            "p_btts": risultati.p_btts,
+        }
+        market_probs_map: dict[str, float] = {}
+        if quotes.q_1 > 1.0:
+            market_probs_map["p1"] = 1.0 / quotes.q_1
+        if quotes.q_x > 1.0:
+            market_probs_map["px"] = 1.0 / quotes.q_x
+        if quotes.q_2 > 1.0:
+            market_probs_map["p2"] = 1.0 / quotes.q_2
+        if quotes.q_over > 1.0:
+            market_probs_map["p_over"] = 1.0 / quotes.q_over
+        if quotes.q_under > 1.0:
+            market_probs_map["p_under"] = 1.0 / quotes.q_under
+        if quotes.q_btts_si > 1.0:
+            market_probs_map["p_btts"] = 1.0 / quotes.q_btts_si
+        risultati.market_divergence = compute_model_market_divergence(model_probs_map, market_probs_map)
 
     # ── Avvisi incoerenza ────────────────────────────────────────────────────
     render_avvisi_incoerenza(

@@ -47,6 +47,7 @@ class Signal:
     liability: float = 0.0   # Solo per LAY
     ev_euro: float = 0.0
     riduzioni: list[str] = field(default_factory=list)
+    kelly_raw: float = 0.0   # Stake Kelly lordo (prima di fraction e momentum)
 
     @property
     def prob_implicita(self) -> float:
@@ -186,6 +187,7 @@ def valuta_mercato(
     momentum_factor: float,
     back_only: bool = False,
     minuto: int = 0,
+    kelly_frac_base: float = KELLY.KELLY_BASE_FRACTION,
 ) -> Signal | None:
     """
     Valuta un singolo mercato con quota exchange.
@@ -251,6 +253,8 @@ def valuta_mercato(
                                1.0 - (1.0 - momentum_factor) * (1.0 + SIGNALS.MOMENTUM_EDGE_AMPLIFY))
         else:
             adj_momentum = momentum_factor
+        # kelly_raw: stake al 100% Kelly senza fraction/momentum (per trasparenza breakdown)
+        kelly_raw = calcola_stake_kelly(prob_mod, q_net, bankroll, 1.0, edge_back)
         stake_raw = calcola_stake_kelly(prob_mod, q_net, bankroll, kelly_frac, edge_back)
         stake = stake_raw * adj_momentum
 
@@ -268,6 +272,7 @@ def valuta_mercato(
                 stake=stake,
                 ev_euro=ev,
                 riduzioni=riduzioni,
+                kelly_raw=kelly_raw,
             )
 
     # LAY
@@ -336,6 +341,7 @@ def genera_segnali_avanzati(
     comm_rate: float,
     n_shots_tot: int,
     momentum: float,
+    model_confidence: float = 1.0,
 ) -> list[Signal]:
     """
     Genera segnali avanzati con quote exchange, Kelly criterion e EV.
@@ -350,12 +356,13 @@ def genera_segnali_avanzati(
         comm_rate: Commissione exchange.
         n_shots_tot: Numero tiri totali inseriti.
         momentum: Indice momentum di mercato.
+        model_confidence: Score di confidenza del modello [0, 1].
 
     Returns:
         Lista di Signal con calcoli Kelly/EV completi.
     """
     soglie = calcola_soglie(minuto, linea_ou, gol_attuali)
-    kelly_frac = calcola_kelly_fraction(minuto, n_shots_tot)
+    kelly_frac = calcola_kelly_fraction(minuto, n_shots_tot, model_confidence)
     momentum_factor = max(
         SIGNALS.MOMENTUM_STAKE_FLOOR,
         1.0 - SIGNALS.MOMENTUM_STAKE_REDUCTION_RATE * max(0.0, momentum - SIGNALS.MOMENTUM_STAKE_THRESHOLD),

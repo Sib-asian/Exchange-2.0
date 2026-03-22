@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 
 from src.config import BAYES, POISSON, SHOTS
-from src.models.poisson import dixon_coles_tau, poisson_pmf
+from src.models.poisson import dixon_coles_tau, poisson_pmf, rho_dc_dinamico
 
 # ---------------------------------------------------------------------------
 # AH EV helper
@@ -27,6 +27,7 @@ def _ah_ev_half(
     mu_h: float,
     mu_a: float,
     handicap: float,
+    rho_dc: float = -0.13,
 ) -> float:
     """
     Calcola l'EV dell'Asian Handicap con correzione Dixon-Coles inclusa.
@@ -42,6 +43,7 @@ def _ah_ev_half(
         mu_h: Lambda casa (componente indipendente).
         mu_a: Lambda trasferta (componente indipendente).
         handicap: Handicap applicato alla casa (es. -0.75, +0.5).
+        rho_dc: Coefficiente Dixon-Coles dinamico (coerente con build_bivariate_matrix).
 
     Returns:
         EV in [-1, 1]: positivo = valore per la casa.
@@ -57,7 +59,7 @@ def _ah_ev_half(
         for j, pj in enumerate(pmf_a):
             if pj < 1e-18:
                 continue
-            w = pi * pj * dixon_coles_tau(i, j, mu_h, mu_a)
+            w = pi * pj * dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=rho_dc)
             dc_norm += w
             s = (i - j) + handicap
             if s > 0:
@@ -68,7 +70,7 @@ def _ah_ev_half(
     return ev / dc_norm if dc_norm > 0 else 0.0
 
 
-def _ah_ev(mu_h: float, mu_a: float, ah: float) -> float:
+def _ah_ev(mu_h: float, mu_a: float, ah: float, rho_dc: float = -0.13) -> float:
     """
     EV dell'AH con interpolazione continua tra le half-lines adiacenti.
 
@@ -103,7 +105,7 @@ def _ah_ev(mu_h: float, mu_a: float, ah: float) -> float:
 
     # Controlla se è esattamente una half-line (es. -0.5, 0.0, +0.5, -1.0)
     if abs(ah2 - round(ah2)) < POISSON.EPS:
-        return _ah_ev_half(mu_h, mu_a, ah_f)
+        return _ah_ev_half(mu_h, mu_a, ah_f, rho_dc=rho_dc)
 
     # Per tutti gli altri valori (quarter lines standard e valori non-standard dal blend):
     # interpolazione con correzione di curvatura (Hermite-like).
@@ -113,15 +115,15 @@ def _ah_ev(mu_h: float, mu_a: float, ah: float) -> float:
     h_high = h_low + 0.5
     t = (ah_f - h_low) / 0.5  # posizione in [0, 1): 0.5 per quarter lines standard
 
-    ev_low = _ah_ev_half(mu_h, mu_a, h_low)
-    ev_high = _ah_ev_half(mu_h, mu_a, h_high)
+    ev_low = _ah_ev_half(mu_h, mu_a, h_low, rho_dc=rho_dc)
+    ev_high = _ah_ev_half(mu_h, mu_a, h_high, rho_dc=rho_dc)
     ev_linear = (1.0 - t) * ev_low + t * ev_high
 
     # Correzione curvatura: derivata seconda approssimata con 4-point stencil
     h_ll = h_low - 0.5
     h_hh = h_high + 0.5
-    ev_ll = _ah_ev_half(mu_h, mu_a, h_ll)
-    ev_hh = _ah_ev_half(mu_h, mu_a, h_hh)
+    ev_ll = _ah_ev_half(mu_h, mu_a, h_ll, rho_dc=rho_dc)
+    ev_hh = _ah_ev_half(mu_h, mu_a, h_hh, rho_dc=rho_dc)
     # f'' ≈ (ev_hh - ev_high) - (ev_low - ev_ll) = curvatura discretizzata
     f_pp = (ev_hh - ev_high) - (ev_low - ev_ll)
     # Correzione Hermite: t*(1-t) pesa 0 ai bordi, max 0.25 al centro
@@ -177,6 +179,10 @@ def calcola_xg_bayesiani(
     frac_giocata = minuto / 90.0
     frac_rimasta = max(BAYES.FRAC_RIMASTA_FLOOR, 1.0 - frac_giocata)
 
+    # Rho DC dinamico: coerente con build_bivariate_matrix (Fix #1).
+    # Elimina il bias sistematico 3-5% dalla calibrazione con rho statico.
+    rho_dc_val = rho_dc_dinamico(tot_cur, minuto, gol_tot)
+
     # Pesi time-varying (esponenziali):
     # w_op decade più velocemente early game (eventi compound) ma mantiene un residuo.
     # t=0: w_op=0.35, t=30': ~0.22, t=60': ~0.14, t=90': ~0.10
@@ -210,7 +216,7 @@ def calcola_xg_bayesiani(
     def _ev(delta: float) -> float:
         lh = max(eps, 0.5 * (tot_bayes + delta))
         la = max(eps, 0.5 * (tot_bayes - delta))
-        return _ah_ev(lh, la, ah_bayes)
+        return _ah_ev(lh, la, ah_bayes, rho_dc=rho_dc_val)
 
     lo = -tot_bayes + eps
     hi = tot_bayes - eps
@@ -358,11 +364,11 @@ def blend_xg_shots(
     # SOT (in porta): qualità alta, sensibile al game-state (contropiede vs pressing)
     # SOFF (fuori porta): qualità bassa, meno sensibile (tiri disperati = rumore)
     #
-    # Early game: la squadra in vantaggio preme → SOT qualità ↑ (contropiede)
-    # Late game: la squadra in vantaggio difende → SOT qualità ↓ (si abbassa)
-    # La squadra in svantaggio tardi forza pressing → SOFF ↑ (volume), SOT ↓ (qualità)
+    # Early game: effetto ridotto (ancora molti tiri, punteggio instabile).
+    # Late game (>60'): il team vincente tira in contropiede su difese aperte → qualità ↑.
+    # Scala CRESCENTE: 0.8 (inizio) → 1.4 (fine). Fix #2: direzione invertita.
     diff_score = gol_h - gol_a
-    gs_minute_scale = max(0.6, 1.2 - 0.8 * frac_giocata)
+    gs_minute_scale = min(1.4, 0.8 + 0.6 * frac_giocata)
 
     gs_sot = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE_SOT) * gs_minute_scale
     gs_soff = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE_SOFF) * gs_minute_scale
@@ -403,6 +409,15 @@ def blend_xg_shots(
     # Pesi blend dinamici
     n_shots = sot_h + soff_h + sot_a + soff_a
     shot_info = min(1.0, n_shots / SHOTS.SHOT_INFO_THRESHOLD)
+
+    # Shrinkage Bayesiano verso la media di lega (Fix #7).
+    # Con pochi tiri (early game) il campione è rumoroso → maggiore shrinkage.
+    # Con molti tiri (late game) il campione è affidabile → meno shrinkage.
+    # League mean ripartita equamente tra le due squadre.
+    league_mu_rem = SHOTS.LEAGUE_MEAN_RATE * frac_rimasta * 0.5  # per squadra
+    alpha_shrink = SHOTS.SHRINKAGE_WEIGHT * (1.0 - shot_info)
+    mu_h_shots = (1.0 - alpha_shrink) * mu_h_shots + alpha_shrink * league_mu_rem
+    mu_a_shots = (1.0 - alpha_shrink) * mu_a_shots + alpha_shrink * league_mu_rem
     alpha_t = min(SHOTS.ALPHA_T_MAX, shot_info * frac_giocata * SHOTS.ALPHA_T_RATE)
     alpha_d = min(SHOTS.ALPHA_D_MAX, shot_info * math.sqrt(frac_giocata))
 

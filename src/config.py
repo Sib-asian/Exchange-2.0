@@ -103,8 +103,8 @@ class ShotConfig:
     # per tiri in porta in assenza di heatmap (Caley 2015, Statsbomb open data)
     XG_SOT: float = 0.30
 
-    # xG per tiro fuori porta (molto basso, include parabole e tiri bloccati)
-    XG_SOFF: float = 0.05
+    # xG per tiro fuori porta (StatsBomb open data senza dati posizionali: 0.06-0.10)
+    XG_SOFF: float = 0.07
 
     # Numero di tiri totali per considerare il campione "sufficiente"
     SHOT_INFO_THRESHOLD: int = 15
@@ -124,6 +124,12 @@ class ShotConfig:
     # Decay rate 2.0: converge rapidamente dopo il 30' (campione affidabile).
     RATE_DAMP_FLOOR: float = 0.75
     RATE_DAMP_DECAY: float = 2.0
+
+    # Shrinkage Bayesiano verso la media di lega (Stein shrinkage).
+    # Riduce la varianza delle previsioni shot-based verso il prior di lega.
+    # 10% verso la media con campione perfetto; cresce con pochi tiri.
+    SHRINKAGE_WEIGHT: float = 0.10
+    LEAGUE_MEAN_RATE: float = 2.7  # gol/90' media top-5 leagues
 
     # Correzione game-state differenziata per tipo di tiro
     # SOT (in porta): +10% per gol di vantaggio (contropiede di qualità)
@@ -205,8 +211,9 @@ class BayesianConfig:
     # Totale minimo bayesiano (evita tot_bayes troppo basso)
     TOT_BAYES_MIN: float = 0.20
 
-    # Soglia delta per considerare le linee "flat" (non applicare il blend)
-    FLAT_LINE_THRESHOLD: float = 1e-6
+    # Soglia delta per considerare le linee "flat" (non applicare il blend).
+    # Le linee si muovono in step di ±0.25 o ±0.5; sotto 0.10 il mercato non si è mosso.
+    FLAT_LINE_THRESHOLD: float = 0.10
 
     # Cap rapporto xG: se max(xg_h,xg_a)/min(xg_h,xg_a) > XG_RATIO_CAP,
     # blend verso approssimazione lineare per evitare split estremi a fine partita.
@@ -242,10 +249,14 @@ class KellyConfig:
     # Frazione Kelly base (50% = half-Kelly)
     KELLY_BASE_FRACTION: float = 0.50
 
-    # Riduzione late-game: graduale da KELLY_LATE_START a 90'
-    # (no cliff-edge: la riduzione cresce linearmente nel range)
-    KELLY_LATE_GAME_REDUCTION: float = 0.10
+    # Riduzione late-game: graduale da KELLY_LATE_START a 90'.
+    # Lo spread exchange esplode nel late game (4-8x) → riduzione 0.22.
+    KELLY_LATE_GAME_REDUCTION: float = 0.22
     KELLY_LATE_START: int = 65   # inizio riduzione graduale
+
+    # Scaling della confidenza sul Kelly: conf=1.0 → nessuna riduzione,
+    # conf=0.0 → riduzione massima del 40%.
+    KELLY_CONFIDENCE_SCALE: float = 0.60
 
     # Riduzione senza dati tiri live
     KELLY_NO_SHOTS_REDUCTION: float = 0.05
@@ -395,9 +406,16 @@ class UIConfig:
 class CMPConfig:
     """Parametri per Conway-Maxwell-Poisson."""
 
-    # Parametro di dispersione: ν < 1 = overdispersion.
+    # Parametro di dispersione base: ν < 1 = overdispersion.
     # 0.92 calibrato su Premier League + La Liga (varianza/media ≈ 1.08-1.12)
     NU: float = 0.92
+
+    # nu dinamico: partite difensive (basso total) → meno overdispersion (nu → 1.0)
+    # partite aperte (alto total) → più overdispersion (nu → 0.85)
+    NU_MIN: float = 0.85      # floor per partite molto aperte
+    NU_MAX: float = 0.98      # ceiling per partite molto difensive
+    NU_TOT_REF: float = 2.5   # total di riferimento (nu base)
+    NU_TOT_SCALE: float = -0.04  # effetto total: basso → nu ↑, alto → nu ↓
 
 
 @dataclass(frozen=True)
@@ -434,6 +452,9 @@ class SubstitutionConfig:
     BOOST_PEAK: int = 70
     # Boost massimo: +6% sul rate di gol (Brechot & Flepp 2020)
     BOOST_MAX: float = 0.06
+    # Asimmetria score: la squadra in svantaggio sostituisce più aggressivamente
+    # ma con qualità inferiore (pressing disperato). Riduzione boost 40%.
+    BOOST_SCORE_ASYMMETRY: float = 0.40
 
 
 @dataclass(frozen=True)
