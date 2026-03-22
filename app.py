@@ -6,7 +6,7 @@ Entry point Streamlit. Orchestra input → engine → output.
 import streamlit as st
 
 from src.config import SIGNALS, UI
-from src.engine import ExchangeQuotes, analizza
+from src.engine import analizza
 from src.models.kelly import calcola_kelly_fraction
 from src.signals import (
     calcola_soglie,
@@ -23,12 +23,16 @@ from src.ui.inputs import (
     render_shots,
 )
 from src.ui.outputs import (
+    render_allineamento_mercato,
     render_asian_handicap,
     render_avvisi_affidabilita,
     render_avvisi_incoerenza,
+    render_coerenza_mercati,
+    render_confidence_bands,
     render_correct_score,
     render_debug,
     render_mercati_chiusi,
+    render_model_confidence,
     render_momentum,
     render_quote_fair,
     render_segnali_avanzati,
@@ -74,6 +78,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     # ── Quote Fair ───────────────────────────────────────────────────────────
     render_quote_fair(risultati, state.minuto, state.gol_casa, state.gol_trasf, linea_ou)
+    render_model_confidence(risultati)
+    render_confidence_bands(risultati, linea_ou)
+    render_coerenza_mercati(risultati, linea_ou)
     render_correct_score(risultati)
     render_asian_handicap(risultati.full_matrix)
 
@@ -141,6 +148,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         segnali_avanzati = [s for s in segnali_avanzati if "BTTS" not in s.mercato.upper()]
 
     render_segnali_avanzati(segnali_avanzati, quotes.any_active)
+    render_allineamento_mercato(risultati, quotes)
 
     # ── Avvisi incoerenza ────────────────────────────────────────────────────
     render_avvisi_incoerenza(

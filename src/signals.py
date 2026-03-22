@@ -242,8 +242,17 @@ def valuta_mercato(
 
     # BACK
     if edge_back >= SIGNALS.MIN_EDGE_BACK and prob_mod >= soglia_back:
+        # Modulazione momentum × edge: edge forte → meno riduzione, edge debole → più riduzione.
+        if edge_back >= SIGNALS.MOMENTUM_EDGE_STRONG:
+            adj_momentum = max(SIGNALS.MOMENTUM_STAKE_FLOOR,
+                               1.0 - (1.0 - momentum_factor) * (1.0 - SIGNALS.MOMENTUM_EDGE_DAMPEN))
+        elif edge_back < SIGNALS.MIN_EDGE_BACK * 1.5:
+            adj_momentum = max(SIGNALS.MOMENTUM_STAKE_FLOOR,
+                               1.0 - (1.0 - momentum_factor) * (1.0 + SIGNALS.MOMENTUM_EDGE_AMPLIFY))
+        else:
+            adj_momentum = momentum_factor
         stake_raw = calcola_stake_kelly(prob_mod, q_net, bankroll, kelly_frac, edge_back)
-        stake = stake_raw * momentum_factor
+        stake = stake_raw * adj_momentum
 
         if stake > 0:
             ev = calcola_ev_back(stake, prob_mod, q_net)
@@ -266,8 +275,17 @@ def valuta_mercato(
         result = calcola_stake_lay(prob_mod, q_exc, bankroll, kelly_frac, comm_rate)
         if result is not None:
             stake_lay, liab_lay = result
-            stake_lay *= momentum_factor
-            liab_lay *= momentum_factor
+            # Modulazione momentum × edge (lay)
+            if edge_lay >= SIGNALS.MOMENTUM_EDGE_STRONG:
+                adj_momentum_lay = max(SIGNALS.MOMENTUM_STAKE_FLOOR,
+                                       1.0 - (1.0 - momentum_factor) * (1.0 - SIGNALS.MOMENTUM_EDGE_DAMPEN))
+            elif edge_lay < SIGNALS.MIN_EDGE_LAY * 1.5:
+                adj_momentum_lay = max(SIGNALS.MOMENTUM_STAKE_FLOOR,
+                                       1.0 - (1.0 - momentum_factor) * (1.0 + SIGNALS.MOMENTUM_EDGE_AMPLIFY))
+            else:
+                adj_momentum_lay = momentum_factor
+            stake_lay *= adj_momentum_lay
+            liab_lay *= adj_momentum_lay
             ev = calcola_ev_lay(stake_lay, prob_mod, q_exc, comm_rate)
             riduzioni = _build_riduzioni(0.0, momentum_factor, kelly_frac, None)
             return Signal(

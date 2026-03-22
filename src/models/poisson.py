@@ -148,10 +148,19 @@ def rho_dinamico(
         Coefficiente rho in [RHO_MIN, ~0.14].
     """
     base = max(RHO.RHO_MIN, RHO.BASE_MAX - RHO.BASE_DECAY_RATE * min(tot_cur, RHO.BASE_TOT_CAP))
-    time_factor = 1.0 - RHO.TIME_DECAY_FACTOR * max(0.0, min(minuto / 90.0, 1.0))
+    frac_giocata = max(0.0, min(minuto / 90.0, 1.0))
+    time_factor = 1.0 - RHO.TIME_DECAY_FACTOR * frac_giocata
     goal_decay = max(RHO.GOAL_DECAY_FLOOR, 1.0 - RHO.GOAL_DECAY_RATE * gol_totali)
     rho_base = base * time_factor * goal_decay
-    shot_factor = 1.0 - RHO.SHOT_DOM_REDUCTION * shot_dom
+
+    # shot_dom × tempo: early game il dominio è instabile → effetto ridotto.
+    # Late game il dominio è predittivo → effetto pieno.
+    shot_dom_time = RHO.SHOT_DOM_TIME_FLOOR + (1.0 - RHO.SHOT_DOM_TIME_FLOOR) * frac_giocata
+    # shot_dom × totale: in partite aperte (alto totale) il dominio tiri è meno
+    # informativo (entrambe le squadre tirano molto → shot_dom meno discriminante).
+    shot_dom_tot = 1.0 - min(RHO.SHOT_DOM_TOT_REDUCTION, tot_cur / RHO.SHOT_DOM_TOT_CAP * RHO.SHOT_DOM_TOT_REDUCTION)
+    shot_dom_adj = shot_dom * shot_dom_time * shot_dom_tot
+    shot_factor = 1.0 - RHO.SHOT_DOM_REDUCTION * shot_dom_adj
 
     return max(RHO.RHO_MIN, rho_base * shot_factor)
 

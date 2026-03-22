@@ -43,16 +43,17 @@ class TestAHEVInterpolation:
             )
 
     def test_quarter_lines_split(self):
-        """Alle quarter lines standard, EV = media dei due half-lines adiacenti."""
+        """Alle quarter lines standard, EV ≈ media dei due half-lines adiacenti (con correzione curvatura)."""
         mu_h, mu_a = 1.2, 0.8
         for ah in [-0.75, -0.25, 0.25, 0.75]:
             ev_q = _ah_ev(mu_h, mu_a, ah)
             h_low = math.floor(ah * 2) / 2.0
             h_high = h_low + 0.5
-            ev_expected = 0.5 * (_ah_ev_half(mu_h, mu_a, h_low) +
-                                 _ah_ev_half(mu_h, mu_a, h_high))
-            assert abs(ev_q - ev_expected) < 1e-9, (
-                f"ah={ah}: got={ev_q}, expected avg={ev_expected}"
+            ev_avg = 0.5 * (_ah_ev_half(mu_h, mu_a, h_low) +
+                            _ah_ev_half(mu_h, mu_a, h_high))
+            # La correzione cubica introduce una piccola deviazione (< 0.5%)
+            assert abs(ev_q - ev_avg) < 0.005, (
+                f"ah={ah}: got={ev_q}, expected avg≈{ev_avg}, diff={abs(ev_q - ev_avg)}"
             )
 
     def test_non_standard_values_differ(self):
