@@ -221,6 +221,14 @@ class BayesianConfig:
     # ma evita rapporti >10:1 irrealistici quando tot_bayes < 0.5.
     XG_RATIO_CAP: float = 5.0
 
+    # Cap temporale per i gol rimanenti: max = (90-minuto)/90 * TOT_TEMPORAL_MAX.
+    # Protegge dal caso in cui l'utente non aggiorna le linee live al progredire
+    # della partita. Senza questo cap, al 80' con linee invariate da inizio partita
+    # il modello usava tot_cur=2.75 remaining (invece di ~0.4) → xG insensati.
+    # 4.0 = massimo realistico per una partita con gol/90 elevatissimo:
+    #   minuto=0: max=4.0 | minuto=45: max=2.0 | minuto=80: max=0.44
+    TOT_TEMPORAL_MAX: float = 4.0
+
 
 @dataclass(frozen=True)
 class MomentumConfig:
