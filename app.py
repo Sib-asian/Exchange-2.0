@@ -5,7 +5,7 @@ Entry point Streamlit. Orchestra input → engine → output.
 
 import streamlit as st
 
-from src.config import BAYES, SIGNALS, UI
+from src.config import SIGNALS, UI
 from src.engine import analizza
 from src.models.kelly import calcola_kelly_fraction
 from src.signals import (
@@ -70,20 +70,6 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     except AssertionError as e:
         st.error(f"❌ Input non valido: {e}")
         st.stop()
-
-    # Avviso linee live non aggiornate: se tot_cur (gol rimanenti) è implausibilmente
-    # alto per il minuto giocato, l'utente probabilmente non ha aggiornato le linee.
-    # Il motore applica comunque un cap automatico, ma meglio avvisare esplicitamente.
-    if state.minuto >= 15:
-        _mins_rem_warn = max(1, 90 - state.minuto)
-        _expected_max = max(0.25, _mins_rem_warn / 90.0 * BAYES.TOT_TEMPORAL_MAX)
-        if state.tot_cur > _expected_max * 1.5:
-            st.warning(
-                f"⚠️ **Linee live non aggiornate?** "
-                f"Il Total Rimanente ({state.tot_cur:.2f} gol) è implausibile al {state.minuto}' "
-                f"(massimo realistico ≈ {_expected_max:.2f} gol). "
-                f"Aggiorna **AH Corrente** e **Totale Corrente** con i valori live prima di analizzare."
-            )
 
     with st.spinner("Calcolo matrice bivariata..."):
         risultati = analizza(state)
