@@ -264,6 +264,12 @@ class SignalConfig:
     MOMENTUM_STAKE_THRESHOLD: float = 2.5
     MOMENTUM_STAKE_FLOOR: float = 0.40
 
+    # Late-game LAY Over: abilitato solo dopo questo minuto con gol mancanti sufficienti.
+    # Il LAY Over è normalmente disabilitato per evitare duplicati con BACK Under,
+    # ma in late game la liquidità Over è superiore.
+    LATE_GAME_LAY_OVER_MINUTE: int = 75
+    LATE_GAME_LAY_OVER_GOALS: int = 2
+
     # Soglia fine partita: nessun segnale oltre questo minuto
     GAME_END_THRESHOLD: int = 85
 
