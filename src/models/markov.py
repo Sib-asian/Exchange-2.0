@@ -17,7 +17,7 @@ Vantaggi:
 
 from __future__ import annotations
 
-from src.config import DECAY  # noqa: I001
+from src.config import DECAY
 
 
 # Moltiplicatore per l'effetto pressing (coerente con time_decay.py)
