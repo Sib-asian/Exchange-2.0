@@ -169,6 +169,100 @@ def genera_segnali_rapidi(
                 quota_exc=q_max_lay,  # Quota massima cercata
             ))
 
+    return _filtra_segnali_coerenti(segnali)
+
+
+# ---------------------------------------------------------------------------
+# Filtro coerenza cross-mercato
+# ---------------------------------------------------------------------------
+
+# Gruppi di mercati mutualmente esclusivi: un solo BACK è ammesso per gruppo.
+_GRUPPO_1X2 = {"1 Casa", "X Pareggio", "2 Trasf."}
+_TIPO_BACK = {"BACK", "INFO_BACK"}
+_TIPO_LAY  = {"LAY", "INFO_LAY"}
+
+
+def _filtra_segnali_coerenti(segnali: list[Signal]) -> list[Signal]:
+    """
+    Applica tre livelli di filtro per eliminare segnali contraddittori o ridondanti.
+
+    Regola 1 — Esclusività mutua 1X2:
+        Solo il miglior segnale BACK tra 1/X/2 sopravvive.
+        Ragionamento: scommettere su due esiti diversi dello stesso mercato
+        è matematicamente incoerente (non importa chi vince, perdi commissioni).
+
+    Regola 2 — Esclusività mutua O/U e BTTS:
+        Solo una direzione per mercato (Over O Under, BTTS Sì O No).
+        Stesso principio: non puoi guadagnare backando entrambi i lati.
+
+    Regola 3 — Coerenza cross-mercato:
+        - BACK Over + BACK BTTS No → incoerente (gol multipli senza BTTS?
+          raro, ma sopra 2.5 è implausibile). Rimuove il segnale con edge minore.
+        - BACK Under + BACK BTTS Sì → incoerente (BTTS richiede ≥2 gol,
+          difficile compatibile con Under 2.5 o meno). Rimuove il più debole.
+
+    Ordine finale: segnali ordinati per edge decrescente (migliori prima).
+    """
+    if not segnali:
+        return segnali
+
+    def _forza(s: Signal) -> float:
+        """Forza del segnale: edge se disponibile, altrimenti prob_mod."""
+        return s.edge if s.edge > 0 else s.prob_mod
+
+    # ── Regola 1: 1X2 — un solo BACK ────────────────────────────────────────
+    back_1x2 = [s for s in segnali if s.mercato in _GRUPPO_1X2 and s.tipo in _TIPO_BACK]
+    if len(back_1x2) > 1:
+        best = max(back_1x2, key=_forza)
+        segnali = [s for s in segnali if s not in back_1x2 or s is best]
+
+    # I LAY su 1X2 sono direzionalmente compatibili con BACK su altro esito,
+    # ma più di uno LAY su 1X2 è confuso → teniamo solo il migliore.
+    lay_1x2 = [s for s in segnali if s.mercato in _GRUPPO_1X2 and s.tipo in _TIPO_LAY]
+    if len(lay_1x2) > 1:
+        best_lay = max(lay_1x2, key=_forza)
+        segnali = [s for s in segnali if s not in lay_1x2 or s is best_lay]
+
+    # ── Regola 2: O/U — una sola direzione ──────────────────────────────────
+    back_over = [s for s in segnali if "Over" in s.mercato and s.tipo in _TIPO_BACK]
+    back_under = [s for s in segnali if "Under" in s.mercato and s.tipo in _TIPO_BACK]
+    if back_over and back_under:
+        # Tieni solo il più forte tra le due direzioni
+        tutti_ou = back_over + back_under
+        best_ou = max(tutti_ou, key=_forza)
+        segnali = [s for s in segnali if s not in tutti_ou or s is best_ou]
+
+    # ── Regola 2b: BTTS — una sola direzione ────────────────────────────────
+    back_btts_si = [s for s in segnali if s.mercato == "BTTS Sì" and s.tipo in _TIPO_BACK]
+    back_btts_no = [s for s in segnali if s.mercato == "BTTS No" and s.tipo in _TIPO_BACK]
+    if back_btts_si and back_btts_no:
+        tutti_btts = back_btts_si + back_btts_no
+        best_btts = max(tutti_btts, key=_forza)
+        segnali = [s for s in segnali if s not in tutti_btts or s is best_btts]
+
+    # ── Regola 3: coerenza cross-mercato ────────────────────────────────────
+    has_back_over = any("Over" in s.mercato and s.tipo in _TIPO_BACK for s in segnali)
+    has_back_under = any("Under" in s.mercato and s.tipo in _TIPO_BACK for s in segnali)
+    has_btts_si = any(s.mercato == "BTTS Sì" and s.tipo in _TIPO_BACK for s in segnali)
+    has_btts_no = any(s.mercato == "BTTS No" and s.tipo in _TIPO_BACK for s in segnali)
+
+    if has_back_over and has_btts_no:
+        # Over alto + BTTS No → gol multipli da UNA squadra: raro, incoerente
+        over_s = next(s for s in segnali if "Over" in s.mercato and s.tipo in _TIPO_BACK)
+        no_s = next(s for s in segnali if s.mercato == "BTTS No" and s.tipo in _TIPO_BACK)
+        rimuovi = no_s if _forza(over_s) >= _forza(no_s) else over_s
+        segnali = [s for s in segnali if s is not rimuovi]
+
+    if has_back_under and has_btts_si:
+        # Under + BTTS Sì → impossibile su linee ≤ 1.5, incoerente ≤ 2.5
+        under_s = next(s for s in segnali if "Under" in s.mercato and s.tipo in _TIPO_BACK)
+        si_s = next(s for s in segnali if s.mercato == "BTTS Sì" and s.tipo in _TIPO_BACK)
+        rimuovi = si_s if _forza(under_s) >= _forza(si_s) else under_s
+        segnali = [s for s in segnali if s is not rimuovi]
+
+    # Ordina: BACK/LAY prima, poi per forza decrescente
+    ordine_tipo = {"BACK": 0, "LAY": 1, "INFO_BACK": 2, "INFO_LAY": 3}
+    segnali.sort(key=lambda s: (ordine_tipo.get(s.tipo, 9), -_forza(s)))
     return segnali
 
 
@@ -400,4 +494,4 @@ def genera_segnali_avanzati(
     _valuta("BTTS Sì", prob_btts, quotes.q_btts_si, soglie["btts_si"])
     _valuta("BTTS No", 1.0 - prob_btts, quotes.q_btts_no, soglie["btts_no"])
 
-    return segnali
+    return _filtra_segnali_coerenti(segnali)
