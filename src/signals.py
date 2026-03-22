@@ -219,7 +219,7 @@ def valuta_mercato(
                 prob_mod=prob_mod,
                 quota_fair=q_fair,
             )
-        if prob_mod <= 0.30 and not back_only:
+        if prob_mod <= SIGNALS.SOGLIA_LAY_MAX and not back_only:
             return Signal(
                 tipo="INFO_LAY",
                 mercato=etichetta,
@@ -347,10 +347,10 @@ def genera_segnali_avanzati(
             segnali.append(s)
 
     # 1X2
-    _valuta("1 CASA", prob_1, quotes.q_1, soglie["1x2"])
-    _valuta("2 TRASFERTA", prob_2, quotes.q_2, soglie["1x2"])
+    _valuta("1 Casa", prob_1, quotes.q_1, soglie["1x2"])
+    _valuta("2 Trasf.", prob_2, quotes.q_2, soglie["1x2"])
     if quotes.q_x > 1.0:
-        _valuta("X PAREGGIO", prob_x, quotes.q_x, soglie["1x2"])
+        _valuta("X Pareggio", prob_x, quotes.q_x, soglie["1x2"])
 
     # Over/Under
     # LAY Over = scommettere che non arriveranno abbastanza gol = equivalente a BACK Under.
@@ -358,14 +358,14 @@ def genera_segnali_avanzati(
     # Over è disabilitato in condizioni normali. Eccezione: late game (>75') con ≥2 gol
     # mancanti, dove la liquidità del mercato Over è superiore e il LAY è più efficiente.
     gol_mancanti = soglie["gol_mancanti"]
-    if minuto >= 75 and gol_mancanti >= 2:
-        _valuta(f"OVER {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"], back_only=False)
+    if minuto >= SIGNALS.LATE_GAME_LAY_OVER_MINUTE and gol_mancanti >= SIGNALS.LATE_GAME_LAY_OVER_GOALS:
+        _valuta(f"Over {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"], back_only=False)
     else:
-        _valuta(f"OVER {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"], back_only=True)
-    _valuta(f"UNDER {linea_ou}", prob_under, quotes.q_under, soglie["ou_under"])
+        _valuta(f"Over {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"], back_only=True)
+    _valuta(f"Under {linea_ou}", prob_under, quotes.q_under, soglie["ou_under"])
 
     # BTTS
-    _valuta("BTTS SÌ", prob_btts, quotes.q_btts_si, soglie["btts_si"])
-    _valuta("BTTS NO", 1.0 - prob_btts, quotes.q_btts_no, soglie["btts_no"])
+    _valuta("BTTS Sì", prob_btts, quotes.q_btts_si, soglie["btts_si"])
+    _valuta("BTTS No", 1.0 - prob_btts, quotes.q_btts_no, soglie["btts_no"])
 
     return segnali

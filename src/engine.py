@@ -153,7 +153,7 @@ def analizza(
     Returns:
         ProbabilitaModello con tutte le probabilità e i parametri interni.
     """
-    from src.config import UI
+    from src.config import BAYES, UI
     from src.markets.btts import calcola_btts
     from src.markets.over_under import calcola_over_under
     from src.markets.result import calcola_1x2, calcola_correct_score
@@ -221,7 +221,7 @@ def analizza(
     delta_ah = ah_cur_full - state.ah_op            # variazione pura del mercato AH
     delta_tot = tot_cur_full - state.tot_op         # variazione pura del mercato Total
     momentum = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto)
-    flat_lines = abs(delta_ah) < 1e-6 and abs(delta_tot) < 1e-6
+    flat_lines = abs(delta_ah) < BAYES.FLAT_LINE_THRESHOLD and abs(delta_tot) < BAYES.FLAT_LINE_THRESHOLD
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,

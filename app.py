@@ -105,11 +105,11 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         state.minuto, risultati.p_btts,
     )
 
-    # Filtra i segnali per mercati chiusi
+    # Filtra i segnali per mercati chiusi (usa .upper() per robustezza)
     if settled.get("ou_vinto"):
-        segnali_rapidi = [s for s in segnali_rapidi if "Over" not in s.mercato and "Under" not in s.mercato]
+        segnali_rapidi = [s for s in segnali_rapidi if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]
     if settled.get("btts_si_settled") or settled.get("btts_no_settled"):
-        segnali_rapidi = [s for s in segnali_rapidi if "BTTS" not in s.mercato]
+        segnali_rapidi = [s for s in segnali_rapidi if "BTTS" not in s.mercato.upper()]
 
     render_segnali_rapidi(segnali_rapidi)
     render_avvisi_affidabilita(risultati.flat_lines, n_shots_tot, state.minuto)
