@@ -20,17 +20,20 @@ from src.config import KELLY
 def calcola_kelly_fraction(
     minuto: int,
     n_shots_tot: int,
+    model_confidence: float = 1.0,
 ) -> float:
     """
     Calcola la frazione Kelly dinamica in base al contesto di gioco.
 
     Riduce la fraction quando:
-    - Late-game (>75'): spread ampi, modello meno affidabile.
+    - Late-game (>65'): spread ampi, modello meno affidabile.
     - Partita in corso senza dati tiri: informazione incompleta.
+    - Model confidence bassa: edge stimato con maggiore incertezza (Fix #10).
 
     Args:
         minuto: Minuto attuale [0, 90].
         n_shots_tot: Numero totale di tiri inseriti.
+        model_confidence: Score di confidenza del modello [0, 1].
 
     Returns:
         Frazione Kelly in [KELLY_MIN_FRACTION, KELLY_BASE_FRACTION].
@@ -43,6 +46,10 @@ def calcola_kelly_fraction(
         fraction -= KELLY.KELLY_LATE_GAME_REDUCTION * min(1.0, progress)
     if minuto > 0 and n_shots_tot == 0:
         fraction -= KELLY.KELLY_NO_SHOTS_REDUCTION
+    # Scaling model_confidence: conf=1.0 → nessuna riduzione,
+    # conf=0.0 → riduzione del (1 - KELLY_CONFIDENCE_SCALE) = 40%
+    confidence_factor = KELLY.KELLY_CONFIDENCE_SCALE + (1.0 - KELLY.KELLY_CONFIDENCE_SCALE) * model_confidence
+    fraction *= confidence_factor
     return max(KELLY.KELLY_MIN_FRACTION, fraction)
 
 

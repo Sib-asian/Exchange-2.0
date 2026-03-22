@@ -26,12 +26,18 @@ def markov_score_distribution(
     gol_a: int,
     score_effect_rate: float = 0.03,
     max_goals: int = 8,
+    rho_dc: float = -0.13,
 ) -> dict[tuple[int, int], float]:
     """
     Calcola la distribuzione dei gol rimanenti via Markov chain.
 
     Propaga minuto per minuto dalla situazione attuale, con rates che
     dipendono dallo stato del punteggio (score-dependent).
+
+    Fix #9: aggiunge approssimazione della correlazione Dixon-Coles.
+    rho_dc < 0 → le squadre tendono a NON segnare simultaneamente.
+    Implementato come correzione della probabilità di doppio gol nello stesso minuto:
+    il joint rate viene scalato per (1 + rho_dc * cap) per i punteggi bassi.
 
     Args:
         mu_h: Lambda casa (gol rimanenti attesi).
@@ -41,6 +47,7 @@ def markov_score_distribution(
         gol_a: Gol trasferta attuali.
         score_effect_rate: Intensità del score effect per gol di vantaggio.
         max_goals: Massimo gol rimanenti per squadra (troncatura).
+        rho_dc: Coefficiente Dixon-Coles (negativo = correlazione negativa).
 
     Returns:
         Distribuzione {(rem_h, rem_a): prob} dei gol rimanenti.
@@ -51,6 +58,11 @@ def markov_score_distribution(
     # Rates base per minuto
     base_rate_h = max(0.0, mu_h / minutes_remaining)
     base_rate_a = max(0.0, mu_a / minutes_remaining)
+
+    # Fattore correlazione DC: rho_dc < 0 → penalizza i gol simultanei.
+    # Si applica solo a punteggi bassi (totale ≤ 1), coerente con la tau-correction DC.
+    # Ai punteggi alti il fattore converge a 1.0 (nessuna correzione).
+    dc_corr_low = max(0.7, 1.0 + rho_dc)   # correzione per punteggi bassi (0-0, 1-0, 0-1)
 
     # Stato iniziale: (0, 0) gol rimanenti
     states: dict[tuple[int, int], float] = {(0, 0): 1.0}
@@ -77,9 +89,22 @@ def markov_score_distribution(
                 lh = base_rate_h
                 la = base_rate_a
 
-            # Probabilità di transizione (cap per evitare > 1)
-            p_h = min(0.20, lh * dt)
-            p_a = min(0.20, la * dt)
+            # Probabilità di transizione base (cap per evitare > 1)
+            p_h_raw = min(0.20, lh * dt)
+            p_a_raw = min(0.20, la * dt)
+
+            # Correzione DC per punteggi bassi: riduce la probabilità
+            # di gol simultanei quando il totale cumulato è basso.
+            total_so_far = gol_h + gh + gol_a + ga
+            if total_so_far <= 1:
+                # Applica correzione DC: rho_dc < 0 → meno prob simultanea
+                # Redistribuisce la riduzione del joint verso i gol singoli.
+                joint_reduction = p_h_raw * p_a_raw * (1.0 - dc_corr_low)
+                p_h_raw = min(0.20, p_h_raw + joint_reduction * 0.5)
+                p_a_raw = min(0.20, p_a_raw + joint_reduction * 0.5)
+
+            p_h = p_h_raw
+            p_a = p_a_raw
             p_none = max(0.0, 1.0 - p_h - p_a)
 
             # Nessun gol

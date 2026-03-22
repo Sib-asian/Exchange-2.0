@@ -152,17 +152,29 @@ def time_decay_dinamico(
         xg_t *= decay_eff * DECAY.RED_AWAY_PENALTY
         xg_c *= boost_eff * DECAY.RED_HOME_BOOST
 
-    # 3. Effetto sostituzione: dopo il 55' le squadre inseriscono attaccanti freschi
-    # contro difese stanche → spike del tasso gol (+6% al picco).
+    # 3. Effetto sostituzione ASIMMETRICO (Fix #20): dopo il 55' le squadre inseriscono
+    # attaccanti freschi contro difese stanche → spike del tasso gol (+6% al picco).
     # L'effetto cresce da 55' a 70' (fase sostituzioni) e decade gradualmente fino a 90'.
+    # La squadra in VANTAGGIO sostituisce in modo organizzato (qualità piena).
+    # La squadra in SVANTAGGIO sostituisce con urgenza/disperazione → boost ridotto del 40%.
     if minuto >= SUBST.BOOST_START:
         if minuto <= SUBST.BOOST_PEAK:
             subst_frac = (minuto - SUBST.BOOST_START) / max(1, SUBST.BOOST_PEAK - SUBST.BOOST_START)
         else:
             subst_frac = max(0.0, 1.0 - (minuto - SUBST.BOOST_PEAK) / max(1, 90 - SUBST.BOOST_PEAK))
-        subst_boost = 1.0 + SUBST.BOOST_MAX * subst_frac
-        xg_c *= subst_boost
-        xg_t *= subst_boost
+        # Asimmetria: la squadra in svantaggio ha boost ridotto (pressing disperato)
+        if diff > 0:     # casa in vantaggio
+            boost_c = 1.0                        # pieno
+            boost_t = 1.0 - SUBST.BOOST_SCORE_ASYMMETRY  # ridotto
+        elif diff < 0:   # trasferta in vantaggio
+            boost_c = 1.0 - SUBST.BOOST_SCORE_ASYMMETRY
+            boost_t = 1.0
+        else:
+            boost_c = boost_t = 1.0
+        subst_boost_c = 1.0 + SUBST.BOOST_MAX * subst_frac * boost_c
+        subst_boost_t = 1.0 + SUBST.BOOST_MAX * subst_frac * boost_t
+        xg_c *= subst_boost_c
+        xg_t *= subst_boost_t
 
     # 4. Hawkes self-exciting: se il tasso gol osservato è superiore all'atteso,
     # la partita è "calda" → boost leggero al rate rimanente.

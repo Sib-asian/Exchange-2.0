@@ -128,6 +128,8 @@ class ProbabilitaModello:
     stale_line: bool = False       # True se la linea corrente è stantia
     model_agreement: float = 1.0   # [0,1] accordo tra i 3 modelli del consensus
     market_divergence: float = 0.0 # Divergenza modello-mercato (proxy Brier)
+    delta_ah: float = 0.0          # Variazione pura AH (market movement)
+    delta_tot: float = 0.0         # Variazione pura Total (market movement)
 
     # Intervalli di credibilità multi-modello
     credible_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
@@ -239,12 +241,20 @@ def analizza(
     copula_theta = max(0.1, COPULA.THETA_BASE
                        + COPULA.THETA_TOT_SCALE * max(0.0, state.tot_cur - COPULA.THETA_TOT_REF)
                        + COPULA.THETA_TIME_SCALE * frac_giocata)
-    full_copula = build_copula_matrix(xg_h_final, xg_a_final, copula_theta, nu=CMP.NU)
+    # CMP nu dinamico (Fix #8): partite difensive (basso total) → meno overdispersion,
+    # partite aperte (alto total) → più overdispersion.
+    nu_dynamic = max(CMP.NU_MIN, min(CMP.NU_MAX,
+                                     CMP.NU + CMP.NU_TOT_SCALE * (state.tot_cur - CMP.NU_TOT_REF)))
+    full_copula = build_copula_matrix(xg_h_final, xg_a_final, copula_theta, nu=nu_dynamic)
 
-    # 7. Modello C: Markov chain (score-dependent rates)
+    # 7. Modello C: Markov chain con correlazione DC (Fix #9)
+    from src.models.poisson import rho_dc_dinamico as _rho_dc_fn
+    _rho_dc_markov = _rho_dc_fn(state.tot_cur, state.minuto,
+                                 state.gol_casa + state.gol_trasf)
     full_markov = markov_score_distribution(
         xg_h_final, xg_a_final,
         state.minuto, state.gol_casa, state.gol_trasf,
+        rho_dc=_rho_dc_markov,
     )
 
     # 8. Consensus multi-modello: media pesata
@@ -261,10 +271,22 @@ def analizza(
         draw_shrinkage=CONSENSUS.DRAW_SHRINKAGE,
     )
 
-    # 10. Correct score e distribuzione gol (dal modello principale per dettaglio)
-    # Il consensus migliora le probabilità aggregate, ma il correct score richiede
-    # la matrice completa del modello principale per il dettaglio cell-by-cell.
-    full_matrix = full_bp
+    # 10. Correct score e distribuzione gol dal consensus (Fix #5).
+    # Usa la media pesata delle 3 matrici per coerenza con le probabilità 1X2/OU/BTTS.
+    # La matrice consensus è coerente con le probabilità mostrate sopra.
+    w_bp, w_cop, w_mk = CONSENSUS.W_BIVARIATE, CONSENSUS.W_COPULA, CONSENSUS.W_MARKOV
+    all_keys = set(full_bp.keys()) | set(full_copula.keys()) | set(full_markov.keys())
+    full_consensus: dict = {}
+    for key in all_keys:
+        p = (w_bp * full_bp.get(key, 0.0)
+             + w_cop * full_copula.get(key, 0.0)
+             + w_mk * full_markov.get(key, 0.0))
+        if p > 0:
+            full_consensus[key] = p
+    total_fc = sum(full_consensus.values())
+    if total_fc > 0:
+        full_consensus = {k: v / total_fc for k, v in full_consensus.items()}
+    full_matrix = full_consensus if full_consensus else full_bp
     top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
 
     # 11. Intervalli di credibilità multi-modello
@@ -278,11 +300,19 @@ def analizza(
     _spreads = [hi - lo for lo, hi in credible_intervals.values() if hi > lo]
     model_agreement = max(0.0, 1.0 - (sum(_spreads) / max(len(_spreads), 1)) * 5.0) if _spreads else 1.0
 
-    # 13. Model confidence score [0, 1]
-    _shots_conf = min(1.0, n_shots_tot / 15.0)
-    _line_conf = 0.3 if stale_line else (0.0 if flat_lines else 1.0)
-    _blend_conf = (alpha_t + alpha_d) / 2.0 if n_shots_tot > 0 else 0.0
-    _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else 0.0
+    # 13. Model confidence score [0, 1] (Fix #3)
+    # Quando non ci sono tiri, usa la qualità delle linee come proxy del blend.
+    # Questo evita la penalizzazione artificiale a minuto 0 con linee fresche.
+    if n_shots_tot > 0:
+        _shots_conf = min(1.0, n_shots_tot / 15.0)
+        _blend_conf = (alpha_t + alpha_d) / 2.0
+    else:
+        # Baseline line-only: le linee di mercato sono l'unica fonte di informazione.
+        # Un'analisi pre-match con linee efficienti ha confidence media (0.35).
+        _shots_conf = 0.35
+        _blend_conf = max(0.20, (0.3 if stale_line else (0.15 if flat_lines else 0.50)))
+    _line_conf = 0.3 if stale_line else (0.5 if flat_lines else 1.0)
+    _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else 0.35
     _agreement_conf = model_agreement
     _product = max(1e-9, _shots_conf * max(0.01, _line_conf) * max(0.01, _blend_conf)
                    * max(0.01, _time_conf) * max(0.01, _agreement_conf))
@@ -309,4 +339,6 @@ def analizza(
         credible_intervals=credible_intervals,
         joint_ind=joint_ind,
         full_matrix=full_matrix,
+        delta_ah=delta_ah,
+        delta_tot=delta_tot,
     )

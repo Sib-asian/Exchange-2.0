@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.config import MOMENTUM as MOMENTUM_CFG
+from src.config import DECAY, MOMENTUM as MOMENTUM_CFG
 from src.config import SIGNALS, UI
 from src.engine import ExchangeQuotes, ProbabilitaModello
 from src.markets.asian_handicap import calcola_asian_handicap
@@ -29,6 +29,17 @@ def _q_fair(prob: float) -> float:
 # Quote Fair
 # ---------------------------------------------------------------------------
 
+def _ci_label(ci: dict, key: str, prob: float) -> str:
+    """Restituisce la stringa CI inline '@fair (CI: @lo–@hi)' se disponibile."""
+    if key not in ci:
+        return f"{prob:.1%}"
+    lo, hi = ci[key]
+    q_fair = _q_fair(prob)
+    q_lo = _q_fair(hi) if hi > 0.001 else 999.0
+    q_hi = _q_fair(lo) if lo > 0.001 else 999.0
+    return f"{prob:.1%} · CI @{q_lo:.2f}–@{q_hi:.2f}"
+
+
 def render_quote_fair(
     risultati: ProbabilitaModello,
     minuto: int,
@@ -36,19 +47,22 @@ def render_quote_fair(
     gol_trasf: int,
     linea_ou: float,
 ) -> None:
-    """Render delle quote fair per tutti i mercati principali."""
+    """Render delle quote fair con intervalli di credibilità inline (Fix #12)."""
     st.header(f"Quote Fair  —  {minuto}' | {gol_casa}–{gol_trasf}")
-    st.caption("Confronta queste quote con quelle sull'exchange: se vedi di meglio, c'è valore.")
+    st.caption("Confronta queste quote con quelle sull'exchange: se vedi di meglio, c'è valore. "
+               "CI = intervallo di credibilità multi-modello.")
+
+    ci = risultati.credible_intervals
 
     c1, cx, c2 = st.columns(3)
-    c1.metric("1 — Casa", f"@{_q_fair(risultati.p1):.2f}", f"{risultati.p1:.1%}")
-    cx.metric("X — Pareggio", f"@{_q_fair(risultati.px):.2f}", f"{risultati.px:.1%}")
-    c2.metric("2 — Trasf.", f"@{_q_fair(risultati.p2):.2f}", f"{risultati.p2:.1%}")
+    c1.metric("1 — Casa", f"@{_q_fair(risultati.p1):.2f}", _ci_label(ci, "p1", risultati.p1))
+    cx.metric("X — Pareggio", f"@{_q_fair(risultati.px):.2f}", _ci_label(ci, "px", risultati.px))
+    c2.metric("2 — Trasf.", f"@{_q_fair(risultati.p2):.2f}", _ci_label(ci, "p2", risultati.p2))
 
     cu, co, cb = st.columns(3)
-    cu.metric(f"Under {linea_ou}", f"@{_q_fair(risultati.p_under):.2f}", f"{risultati.p_under:.1%}")
-    co.metric(f"Over  {linea_ou}", f"@{_q_fair(risultati.p_over):.2f}", f"{risultati.p_over:.1%}")
-    cb.metric("BTTS — Sì", f"@{_q_fair(risultati.p_btts):.2f}", f"{risultati.p_btts:.1%}")
+    cu.metric(f"Under {linea_ou}", f"@{_q_fair(risultati.p_under):.2f}", _ci_label(ci, "p_under", risultati.p_under))
+    co.metric(f"Over  {linea_ou}", f"@{_q_fair(risultati.p_over):.2f}", _ci_label(ci, "p_over", risultati.p_over))
+    cb.metric("BTTS — Sì", f"@{_q_fair(risultati.p_btts):.2f}", _ci_label(ci, "p_btts", risultati.p_btts))
 
 
 # ---------------------------------------------------------------------------
@@ -264,8 +278,12 @@ def render_asian_handicap(full_matrix: dict) -> None:
 # Momentum
 # ---------------------------------------------------------------------------
 
-def render_momentum(momentum: float) -> None:
-    """Render della barra del momentum con etichetta testuale."""
+def render_momentum(
+    momentum: float,
+    delta_ah: float = 0.0,
+    delta_tot: float = 0.0,
+) -> None:
+    """Render della barra del momentum con decomposizione AH/Total (Fix #14)."""
     if momentum < MOMENTUM_CFG.STABLE_THRESHOLD:
         label = f"Mercato stabile [{momentum:.2f}/6.0]"
     elif momentum < MOMENTUM_CFG.MODERATE_THRESHOLD:
@@ -276,6 +294,18 @@ def render_momentum(momentum: float) -> None:
         label = f"Movimento estremo — verifica eventi non registrati [{momentum:.2f}/6.0]"
 
     st.progress(min(momentum / MOMENTUM_CFG.MOMENTUM_CAP, 1.0), text=label)
+
+    # Decomposizione AH vs Total (Fix #14):
+    # Delta AH → suggerisce revisione forza relativa → impatto su 1X2 / AH
+    # Delta Total → suggerisce revisione gol attesi → impatto su Over/Under
+    if abs(delta_ah) > 0.05 or abs(delta_tot) > 0.05:
+        ah_dir = ("+" if delta_ah > 0 else "") + f"{delta_ah:+.2f}"
+        tot_dir = ("+" if delta_tot > 0 else "") + f"{delta_tot:+.2f}"
+        ah_impact = "→ AH mosso: revisiona 1X2 e Asian Handicap" if abs(delta_ah) > abs(delta_tot) else ""
+        tot_impact = "→ Total mosso: revisiona Over/Under" if abs(delta_tot) >= abs(delta_ah) else ""
+        st.caption(
+            f"Δ AH: **{ah_dir}** {ah_impact}  ·  Δ Total: **{tot_dir}** {tot_impact}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -294,15 +324,20 @@ def render_segnali_rapidi(segnali: list[Signal]) -> bool:
         return False
 
     for s in segnali:
+        # Fix #13: mostra probabilità implicita della quota target (1/quota)
+        prob_impl_back = 1.0 / s.quota_exc if s.quota_exc > 1.0 else 0.0
         if s.tipo == "INFO_BACK":
+            impl_txt = f" · Prob. implicita @{s.quota_exc:.2f} = {prob_impl_back:.1%}" if prob_impl_back > 0 else ""
             st.success(
                 f"**BACK candidato — {s.mercato}** · Modello {s.prob_mod:.1%} · Fair @{s.quota_fair:.2f}\n\n"
-                f"✅ Cerca sull'exchange **almeno @{s.quota_exc:.2f}** per avere edge"
+                f"✅ Cerca sull'exchange **almeno @{s.quota_exc:.2f}**{impl_txt}"
             )
         elif s.tipo == "INFO_LAY":
+            prob_impl_lay = 1.0 / s.quota_exc if s.quota_exc > 1.0 else 0.0
+            impl_txt = f" · Prob. implicita = {prob_impl_lay:.1%}" if prob_impl_lay > 0 else ""
             st.warning(
                 f"**LAY candidato — {s.mercato}** · Modello {s.prob_mod:.1%} · Fair @{s.quota_fair:.2f}\n\n"
-                f"✅ Banca se la quota sull'exchange è **al massimo @{s.quota_exc:.2f}**"
+                f"✅ Banca se la quota sull'exchange è **al massimo @{s.quota_exc:.2f}**{impl_txt}"
             )
 
     return True
@@ -320,7 +355,15 @@ def render_segnali_avanzati(segnali: list[Signal], any_exc_quote: bool) -> None:
                 f"Modello {s.prob_mod:.1%} · Mercato @{s.quota_exc:.2f} {prob_imp_txt} · "
                 f"Edge netto **+{s.edge*100:.1f}%** · EV **€{s.ev_euro:+.2f}**"
             )
-            st.write(f"Stake Kelly: **€{s.stake:.2f}**{rid_txt}")
+            # Fix #15: breakdown della stake Kelly
+            if s.kelly_raw > 0 and s.kelly_raw != s.stake:
+                fraction_applied = s.stake / s.kelly_raw if s.kelly_raw > 0 else 1.0
+                st.write(
+                    f"Stake Kelly: **€{s.stake:.2f}**{rid_txt}  "
+                    f"_(Raw 100% Kelly: €{s.kelly_raw:.2f} → ×{fraction_applied:.2f} fattori applicati)_"
+                )
+            else:
+                st.write(f"Stake Kelly: **€{s.stake:.2f}**{rid_txt}")
 
         elif s.tipo == "LAY":
             st.warning(
@@ -395,6 +438,52 @@ def render_mercati_chiusi(
         settled["btts_no_settled"] = True
 
     return settled
+
+
+# ---------------------------------------------------------------------------
+# Impatto cartellini rossi (Fix #16)
+# ---------------------------------------------------------------------------
+
+def render_red_card_impact(
+    rossi_casa: int,
+    rossi_trasf: int,
+    minuto: int,
+) -> None:
+    """Mostra il delta xG quantificato per i cartellini rossi inseriti (Fix #16)."""
+    if rossi_casa == 0 and rossi_trasf == 0:
+        return
+
+    time_remaining_pct = max(0.0, (90.0 - minuto) / 90.0)
+    red_time_mult = DECAY.RED_TIME_FLOOR + (1.0 - DECAY.RED_TIME_FLOOR) * time_remaining_pct
+
+    rows = []
+    if rossi_casa > 0:
+        idx = min(rossi_casa, len(DECAY.RED_DECAY) - 1)
+        decay_eff = 1.0 + (DECAY.RED_DECAY[idx] - 1.0) * red_time_mult
+        boost_eff = 1.0 + (DECAY.RED_BOOST[idx] - 1.0) * red_time_mult
+        pct_decay = (decay_eff - 1.0) * 100
+        pct_boost = (boost_eff - 1.0) * 100
+        rows.append(
+            f"🟥 **{rossi_casa} rosso/i CASA**: attacco casa **{pct_decay:+.0f}%** xG · "
+            f"attacco trasf **{pct_boost:+.0f}%** xG · "
+            f"(effetto temporale {red_time_mult:.0%})"
+        )
+    if rossi_trasf > 0:
+        idx = min(rossi_trasf, len(DECAY.RED_DECAY) - 1)
+        decay_eff = 1.0 + (DECAY.RED_DECAY[idx] - 1.0) * red_time_mult * DECAY.RED_AWAY_PENALTY
+        boost_eff = 1.0 + (DECAY.RED_BOOST[idx] - 1.0) * red_time_mult * DECAY.RED_HOME_BOOST
+        pct_decay = (decay_eff - 1.0) * 100
+        pct_boost = (boost_eff - 1.0) * 100
+        rows.append(
+            f"🟥 **{rossi_trasf} rosso/i TRASF**: attacco trasf **{pct_decay:+.0f}%** xG · "
+            f"attacco casa **{pct_boost:+.0f}%** xG · "
+            f"(penalità trasferta +5% inclusa, effetto temporale {red_time_mult:.0%})"
+        )
+
+    if rows:
+        with st.expander("Impatto cartellini rossi"):
+            for r in rows:
+                st.markdown(r)
 
 
 # ---------------------------------------------------------------------------
