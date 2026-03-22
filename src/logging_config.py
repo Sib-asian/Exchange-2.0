@@ -124,7 +124,7 @@ class AnalysisLogger:
         self.data_points: list[dict] = []
         self.logger = engine_logger
 
-    def __enter__(self) -> "AnalysisLogger":
+    def __enter__(self) -> AnalysisLogger:
         self.start_time = datetime.utcnow()
         self.logger.info(
             f"Analysis started: match={self.match_id}, minute={self.minute}",

@@ -13,11 +13,10 @@ Il cache è particolarmente utile quando:
 
 from __future__ import annotations
 
-import math
 import time
 from collections import OrderedDict
+from collections.abc import Callable, Hashable
 from dataclasses import dataclass
-from typing import Callable, Hashable
 
 # Configurazione cache
 CACHE_MAX_SIZE = 100  # Numero massimo di entry
