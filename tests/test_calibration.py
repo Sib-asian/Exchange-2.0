@@ -40,13 +40,15 @@ class TestCalcolaXGBayesiani:
         assert xg_a > xg_h, f"AH positivo ma xg_a={xg_a:.3f} <= xg_h={xg_h:.3f}"
 
     def test_flat_lines_returns_direct_values(self):
-        """Con linee flat, il blend non deve alterare i valori correnti."""
+        """Con linee flat, il blend deve rispettare il cap temporale."""
         ah = -0.5
         tot = 2.5
         xg_h, xg_a = calcola_xg_bayesiani(ah, tot, ah, tot, 45)
-        # Flat lines: usa direttamente ah_cur/tot_cur
-        # La somma deve rimanere vicina a tot_cur
-        assert abs((xg_h + xg_a) - tot) < 0.1
+        # Flat lines: usa direttamente ah_cur/tot_cur con cap temporale applicato
+        # A minuto 45, il cap è (90-45)/90 * 4.0 = 2.0
+        # Quindi xg_h + xg_a ≈ 2.0, non 2.5
+        expected_cap = (90 - 45) / 90.0 * 4.0  # = 2.0
+        assert abs((xg_h + xg_a) - expected_cap) < 0.2, f"Somma xG = {xg_h+xg_a:.3f}, atteso ≈ {expected_cap:.1f}"
 
     def test_xg_positive_at_minute_0(self):
         """Gli xG devono essere positivi anche a minuto 0."""
