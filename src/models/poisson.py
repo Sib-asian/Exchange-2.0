@@ -223,7 +223,7 @@ def build_bivariate_matrix(
         for j, pj in enumerate(pmf_a):
             if pj < POISSON.PROB_SKIP_THRESHOLD:
                 continue
-            tau = dixon_coles_tau(i, j, mu_h_ind, mu_a_ind)
+            tau = dixon_coles_tau(i, j, mu_h, mu_a)
             val = pi * pj * tau
             joint_ind[(i, j)] = val
             dc_sum += val
