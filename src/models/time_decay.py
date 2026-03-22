@@ -103,33 +103,52 @@ def time_decay_dinamico(
     xg_c = float(xg_casa)
     xg_t = float(xg_trasf)
 
-    # 1. Score effect residuale
+    # 1. Score effect residuale ASIMMETRICO
+    # La squadra in svantaggio preme con tiri disperati (volume ↑, qualità ↓):
+    #   il boost xG è ridotto (SCORE_DOWN_MULTIPLIER = 0.65).
+    # La squadra in vantaggio controlla possesso e difende in modo organizzato:
+    #   il suo vantaggio difensivo è amplificato (SCORE_UP_MULTIPLIER = 1.15).
+    # In partite ad alto punteggio (3-2, 4-3), l'AH live ha già incorporato
+    #   la volatilità → il residuo va scalato in base ai gol totali.
     diff = gol_casa - gol_trasf
     if diff != 0:
         sat = abs(diff) / (DECAY.SCORE_SATURATION + abs(diff))
-        # Scale temporale: early-game AH ha latency maggiore → residuo cattura più info non prezzata
         minute_scale = max(
             DECAY.SCORE_MINUTE_SCALE_FLOOR,
             DECAY.SCORE_MINUTE_SCALE_A - DECAY.SCORE_MINUTE_SCALE_B * (minuto / 90.0),
         )
-        residual = min(DECAY.SCORE_EFFECT_MAX, DECAY.SCORE_EFFECT_BASE * sat * minute_scale)
-        if diff < 0:  # casa in svantaggio → preme di più
-            xg_c *= (1.0 + residual)
-            xg_t *= (1.0 - residual)
-        else:  # casa in vantaggio → si abbassa
-            xg_t *= (1.0 + residual)
-            xg_c *= (1.0 - residual)
+        # Goal intensity: residuo cala con gol totali (AH già prezza la volatilità)
+        gol_tot = gol_casa + gol_trasf
+        goal_intensity = 1.0 - min(0.60, gol_tot * DECAY.SCORE_GOAL_INTENSITY_SCALE)
+        residual_base = min(DECAY.SCORE_EFFECT_MAX, DECAY.SCORE_EFFECT_BASE * sat * minute_scale * goal_intensity)
 
-    # 2. Cartellini rossi — tabella precalcolata con effetto marginale decrescente
+        if diff < 0:  # casa in svantaggio
+            xg_c *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
+            xg_t *= (1.0 - residual_base * DECAY.SCORE_UP_MULTIPLIER)
+        else:  # casa in vantaggio
+            xg_t *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
+            xg_c *= (1.0 - residual_base * DECAY.SCORE_UP_MULTIPLIER)
+
+    # 2. Cartellini rossi — effetto marginale decrescente × tempo rimanente
+    # Un rosso al 10' (80 minuti restanti) ha effetto pieno: la squadra gioca
+    # in inferiorità per quasi tutta la partita.
+    # Un rosso all'80' (10 minuti restanti) ha effetto dimezzato: pochi minuti
+    # restanti riducono l'impatto tattico.
+    time_remaining_pct = max(0.0, (90.0 - minuto) / 90.0)
+    red_time_mult = DECAY.RED_TIME_FLOOR + (1.0 - DECAY.RED_TIME_FLOOR) * time_remaining_pct
+
     if rossi_casa > 0:
         idx = min(rossi_casa, len(DECAY.RED_DECAY) - 1)
-        xg_c *= DECAY.RED_DECAY[idx]
-        xg_t *= DECAY.RED_BOOST[idx]
+        decay_eff = 1.0 + (DECAY.RED_DECAY[idx] - 1.0) * red_time_mult
+        boost_eff = 1.0 + (DECAY.RED_BOOST[idx] - 1.0) * red_time_mult
+        xg_c *= decay_eff
+        xg_t *= boost_eff
 
     if rossi_trasf > 0:
         idx = min(rossi_trasf, len(DECAY.RED_DECAY) - 1)
-        # Asimmetria: trasferta perde supporto pubblico e familiarità col campo (~5% extra)
-        xg_t *= DECAY.RED_DECAY[idx] * DECAY.RED_AWAY_PENALTY
-        xg_c *= DECAY.RED_BOOST[idx] * DECAY.RED_HOME_BOOST
+        decay_eff = 1.0 + (DECAY.RED_DECAY[idx] - 1.0) * red_time_mult
+        boost_eff = 1.0 + (DECAY.RED_BOOST[idx] - 1.0) * red_time_mult
+        xg_t *= decay_eff * DECAY.RED_AWAY_PENALTY
+        xg_c *= boost_eff * DECAY.RED_HOME_BOOST
 
     return max(DECAY.XG_FLOOR, xg_c), max(DECAY.XG_FLOOR, xg_t)

@@ -312,33 +312,43 @@ def blend_xg_shots(
 
     frac_giocata = max(minuto, 1) / 90.0
 
-    # Correzione game-state sulla qualità dei tiri, modulata dal minuto.
-    # Early game (min 0-30): la squadra in vantaggio preme → k_leading > 1 (contropiede)
-    # Late game (min 70-90): la squadra in vantaggio difende → k_leading ridotto
-    # La squadra in svantaggio tardi forza pressing disperato → qualità ↓ (k_trailing ↓)
+    # Correzione game-state DIFFERENZIATA per tipo di tiro, modulata dal minuto.
+    # SOT (in porta): qualità alta, sensibile al game-state (contropiede vs pressing)
+    # SOFF (fuori porta): qualità bassa, meno sensibile (tiri disperati = rumore)
+    #
+    # Early game: la squadra in vantaggio preme → SOT qualità ↑ (contropiede)
+    # Late game: la squadra in vantaggio difende → SOT qualità ↓ (si abbassa)
+    # La squadra in svantaggio tardi forza pressing → SOFF ↑ (volume), SOT ↓ (qualità)
     diff_score = gol_h - gol_a
-    gs_adj = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE)
-    # Scala temporale: 1.2 early → 0.6 late (la qualità in contropiede cala
-    # quando la squadra in vantaggio si abbassa, Brechot & Flepp 2020)
     gs_minute_scale = max(0.6, 1.2 - 0.8 * frac_giocata)
-    gs_adj *= gs_minute_scale
-    if diff_score > 0:
-        k_h, k_a = 1.0 + gs_adj, 1.0 - gs_adj
-    elif diff_score < 0:
-        k_h, k_a = 1.0 - gs_adj, 1.0 + gs_adj
-    else:
-        k_h, k_a = 1.0, 1.0
 
-    xg_h_accum = sot_h * SHOTS.XG_SOT * k_h + soff_h * SHOTS.XG_SOFF
-    xg_a_accum = sot_a * SHOTS.XG_SOT * k_a + soff_a * SHOTS.XG_SOFF
+    gs_sot = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE_SOT) * gs_minute_scale
+    gs_soff = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE_SOFF) * gs_minute_scale
+
+    if diff_score > 0:
+        # Casa in vantaggio: SOT casa ↑ (contropiede), SOT trasf ↓ (pressing disperato)
+        # SOFF trasf ↑ (volume disperazione), SOFF casa invariato
+        k_sot_h, k_sot_a = 1.0 + gs_sot, 1.0 - gs_sot
+        k_soff_h, k_soff_a = 1.0, 1.0 + gs_soff
+    elif diff_score < 0:
+        k_sot_h, k_sot_a = 1.0 - gs_sot, 1.0 + gs_sot
+        k_soff_h, k_soff_a = 1.0 + gs_soff, 1.0
+    else:
+        k_sot_h, k_sot_a = 1.0, 1.0
+        k_soff_h, k_soff_a = 1.0, 1.0
+
+    xg_h_accum = sot_h * SHOTS.XG_SOT * k_sot_h + soff_h * SHOTS.XG_SOFF * k_soff_h
+    xg_a_accum = sot_a * SHOTS.XG_SOT * k_sot_a + soff_a * SHOTS.XG_SOFF * k_soff_a
 
     frac_rimasta = max(BAYES.FRAC_RIMASTA_FLOOR, (90.0 - minuto) / 90.0)
 
     # Proiezione rate → mu rimanenti (shot-based)
-    # Smorzamento: il tasso di tiri osservato su un campione breve tende a sovrastimare
-    # il ritmo effettivo sul resto della partita (fatica, adattamento tattico, sostituzioni).
-    # Fattore: 0.85 a inizio partita (forte regressione), 1.0 a fine (campione ≈ verità).
-    dampening = SHOTS.RATE_DAMP_BASE + (1.0 - SHOTS.RATE_DAMP_BASE) * frac_giocata
+    # Smorzamento esponenziale: il tasso di tiri osservato su un campione breve
+    # sovrastima il ritmo effettivo (regressione alla media). Curva esponenziale:
+    # converge rapidamente dopo il 30' (campione diventa affidabile) ma resta
+    # conservativa nei primi 15' (alta varianza del campione).
+    # 0.75 a inizio → ~0.92 a 30' → ~0.98 a 60' → 1.0 a fine
+    dampening = 1.0 - (1.0 - SHOTS.RATE_DAMP_FLOOR) * math.exp(-SHOTS.RATE_DAMP_DECAY * frac_giocata)
     rate_h = xg_h_accum / frac_giocata * dampening
     rate_a = xg_a_accum / frac_giocata * dampening
     mu_h_shots = rate_h * frac_rimasta

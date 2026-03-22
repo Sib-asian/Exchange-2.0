@@ -36,8 +36,11 @@ def calcola_kelly_fraction(
         Frazione Kelly in [KELLY_MIN_FRACTION, KELLY_BASE_FRACTION].
     """
     fraction = KELLY.KELLY_BASE_FRACTION
-    if minuto > 75:
-        fraction -= KELLY.KELLY_LATE_GAME_REDUCTION
+    if minuto > KELLY.KELLY_LATE_START:
+        # Riduzione graduale: cresce linearmente da 0 a KELLY_LATE_GAME_REDUCTION
+        # tra KELLY_LATE_START e 90'. Evita cliff-edge a un singolo minuto.
+        progress = (minuto - KELLY.KELLY_LATE_START) / max(1, 90 - KELLY.KELLY_LATE_START)
+        fraction -= KELLY.KELLY_LATE_GAME_REDUCTION * min(1.0, progress)
     if minuto > 0 and n_shots_tot == 0:
         fraction -= KELLY.KELLY_NO_SHOTS_REDUCTION
     return max(KELLY.KELLY_MIN_FRACTION, fraction)
