@@ -142,7 +142,7 @@ def genera_segnali_rapidi(
     ]
 
     for etichetta, prob, soglia_back in mercati:
-        q_fair = 1.0 / prob if prob > 0.001 else 999.0
+        q_fair = 1.0 / prob if prob > SIGNALS.MIN_PROB_FOR_QUOTE else SIGNALS.MAX_QUOTE_FALLBACK
 
         # Skip eventi quasi certi
         if q_fair < SIGNALS.QUICK_SIGNAL_MIN_FAIR_Q:
@@ -207,7 +207,7 @@ def valuta_mercato(
     Returns:
         Signal se trovato valore, None altrimenti.
     """
-    q_fair = 1.0 / prob_mod if prob_mod > 0.001 else 999.0
+    q_fair = 1.0 / prob_mod if prob_mod > SIGNALS.MIN_PROB_FOR_QUOTE else SIGNALS.MAX_QUOTE_FALLBACK
 
     # Skip eventi quasi certi
     if q_fair < SIGNALS.MIN_FAIR_Q:

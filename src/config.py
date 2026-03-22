@@ -217,6 +217,9 @@ class KellyConfig:
     KELLY_MEDIUM_EDGE_THRESHOLD: float = 0.10
     KELLY_MEDIUM_EDGE_CAP_PCT: float = 0.040
 
+    # Quota netta minima per calcolo Kelly BACK (sotto → stake 0)
+    MIN_QUOTA_NETTA: float = 1.01
+
     # Quota minima per il LAY (sotto questa quota non ha senso)
     LAY_MIN_ODDS: float = 1.30
 
@@ -230,6 +233,12 @@ class SignalConfig:
 
     # Edge netto minimo per LAY (rischio asimmetrico)
     MIN_EDGE_LAY: float = 0.040
+
+    # Probabilità minima per calcolo quota fair (sotto → fallback)
+    MIN_PROB_FOR_QUOTE: float = 0.001
+
+    # Quota fallback per probabilità quasi-zero
+    MAX_QUOTE_FALLBACK: float = 999.0
 
     # Quota fair minima: eventi >80% → skip (già nel prezzo)
     MIN_FAIR_Q: float = 1.25

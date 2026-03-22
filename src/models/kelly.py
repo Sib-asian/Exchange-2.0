@@ -74,7 +74,7 @@ def calcola_stake_kelly(
     Returns:
         Stake in euro, 0.0 se EV <= 0.
     """
-    if quota_netta <= 1.01 or prob_modello * quota_netta <= 1.0:
+    if quota_netta <= KELLY.MIN_QUOTA_NETTA or prob_modello * quota_netta <= 1.0:
         return 0.0
 
     kelly_pct = (prob_modello * quota_netta - 1.0) / (quota_netta - 1.0)
