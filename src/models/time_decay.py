@@ -123,12 +123,16 @@ def time_decay_dinamico(
         goal_intensity = 1.0 - min(0.60, gol_tot * DECAY.SCORE_GOAL_INTENSITY_SCALE)
         residual_base = min(DECAY.SCORE_EFFECT_MAX, DECAY.SCORE_EFFECT_BASE * sat * minute_scale * goal_intensity)
 
+        # FIX: Usare lo stesso moltiplicatore per entrambe le squadre per evitare xG negativi
+        # La squadra in svantaggio preme (boost ridotto per qualità inferiore)
+        # La squadra in vantaggio difende (riduzione xG)
+        # SCORE_DOWN_MULTIPLIER (0.65) cattura l'asimmetria: pressing = volume alto ma qualità bassa
         if diff < 0:  # casa in svantaggio
-            xg_c *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
-            xg_t *= (1.0 - residual_base * DECAY.SCORE_UP_MULTIPLIER)
+            xg_c *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)  # casa preme
+            xg_t *= (1.0 - residual_base * DECAY.SCORE_DOWN_MULTIPLIER)  # trasferta difende
         else:  # casa in vantaggio
-            xg_t *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
-            xg_c *= (1.0 - residual_base * DECAY.SCORE_UP_MULTIPLIER)
+            xg_t *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)  # trasferta preme
+            xg_c *= (1.0 - residual_base * DECAY.SCORE_DOWN_MULTIPLIER)  # casa difende
 
     # 2. Cartellini rossi — effetto marginale decrescente × tempo rimanente
     # Un rosso al 10' (80 minuti restanti) ha effetto pieno: la squadra gioca
