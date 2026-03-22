@@ -99,6 +99,11 @@ class ShotConfig:
     # Peso massimo dei tiri sul Differenziale (più informativo del mercato)
     ALPHA_D_MAX: float = 0.70
 
+    # Smorzamento proiezione tiri: a inizio partita il campione è piccolo,
+    # il tasso osservato sovrastima il ritmo effettivo per regressione alla media.
+    # 0.85 → 15% di riduzione early, 0% a fine partita (campione ≈ universo).
+    RATE_DAMP_BASE: float = 0.85
+
     # Correzione game-state sulla qualità: +7% per gol di vantaggio, cap 15%
     GAME_STATE_RATE: float = 0.07
     GAME_STATE_CAP: float = 0.15

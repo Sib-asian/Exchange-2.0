@@ -310,25 +310,37 @@ def blend_xg_shots(
     # Cap dinamico: in gare ad alto punteggio il cap fisso 3.5 sottostima il ritmo
     mu_max = max(3.5, gol_totali_now * 1.2)
 
-    # Correzione game-state sulla qualità dei tiri
+    frac_giocata = max(minuto, 1) / 90.0
+
+    # Correzione game-state sulla qualità dei tiri, modulata dal minuto.
+    # Early game (min 0-30): la squadra in vantaggio preme → k_leading > 1 (contropiede)
+    # Late game (min 70-90): la squadra in vantaggio difende → k_leading ridotto
+    # La squadra in svantaggio tardi forza pressing disperato → qualità ↓ (k_trailing ↓)
     diff_score = gol_h - gol_a
     gs_adj = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE)
+    # Scala temporale: 1.2 early → 0.6 late (la qualità in contropiede cala
+    # quando la squadra in vantaggio si abbassa, Brechot & Flepp 2020)
+    gs_minute_scale = max(0.6, 1.2 - 0.8 * frac_giocata)
+    gs_adj *= gs_minute_scale
     if diff_score > 0:
-        k_h, k_a = 1.0 + gs_adj, 1.0 - gs_adj  # casa in vantaggio → contropiede
+        k_h, k_a = 1.0 + gs_adj, 1.0 - gs_adj
     elif diff_score < 0:
-        k_h, k_a = 1.0 - gs_adj, 1.0 + gs_adj  # trasferta in vantaggio
+        k_h, k_a = 1.0 - gs_adj, 1.0 + gs_adj
     else:
         k_h, k_a = 1.0, 1.0
 
     xg_h_accum = sot_h * SHOTS.XG_SOT * k_h + soff_h * SHOTS.XG_SOFF
     xg_a_accum = sot_a * SHOTS.XG_SOT * k_a + soff_a * SHOTS.XG_SOFF
 
-    frac_giocata = max(minuto, 1) / 90.0
     frac_rimasta = max(BAYES.FRAC_RIMASTA_FLOOR, (90.0 - minuto) / 90.0)
 
     # Proiezione rate → mu rimanenti (shot-based)
-    rate_h = xg_h_accum / frac_giocata
-    rate_a = xg_a_accum / frac_giocata
+    # Smorzamento: il tasso di tiri osservato su un campione breve tende a sovrastimare
+    # il ritmo effettivo sul resto della partita (fatica, adattamento tattico, sostituzioni).
+    # Fattore: 0.85 a inizio partita (forte regressione), 1.0 a fine (campione ≈ verità).
+    dampening = SHOTS.RATE_DAMP_BASE + (1.0 - SHOTS.RATE_DAMP_BASE) * frac_giocata
+    rate_h = xg_h_accum / frac_giocata * dampening
+    rate_a = xg_a_accum / frac_giocata * dampening
     mu_h_shots = rate_h * frac_rimasta
     mu_a_shots = rate_a * frac_rimasta
 
