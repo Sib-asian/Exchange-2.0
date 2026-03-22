@@ -323,6 +323,7 @@ def valuta_mercato(
     back_only: bool = False,
     minuto: int = 0,
     kelly_frac_base: float = KELLY.KELLY_BASE_FRACTION,
+    model_confidence: float = 1.0,
 ) -> Signal | None:
     """
     Valuta un singolo mercato con quota exchange.
@@ -377,8 +378,21 @@ def valuta_mercato(
     edge_back = calcola_edge_back(prob_mod, q_net)
     edge_lay = calcola_edge_lay(prob_mod, q_exc, comm_rate)
 
+    # Edge minimo dinamico: con bassa confidenza richiediamo un vantaggio più netto.
+    # Tra MIN_CONFIDENCE_FOR_SIGNALS e CONF_EDGE_BOOST_HIGH il boost scala linearmente.
+    # Razionale: se il modello è incerto (linee stantie, pochi tiri, modelli discordi),
+    # solo un'opportunità molto chiara giustifica l'operazione.
+    if model_confidence < SIGNALS.CONF_EDGE_BOOST_HIGH:
+        t = max(0.0, (SIGNALS.CONF_EDGE_BOOST_HIGH - model_confidence)
+                     / (SIGNALS.CONF_EDGE_BOOST_HIGH - SIGNALS.MIN_CONFIDENCE_FOR_SIGNALS))
+        edge_boost = t * SIGNALS.CONF_EDGE_BOOST_MAX
+    else:
+        edge_boost = 0.0
+    min_edge_back = SIGNALS.MIN_EDGE_BACK + edge_boost
+    min_edge_lay = SIGNALS.MIN_EDGE_LAY + edge_boost
+
     # BACK
-    if edge_back >= SIGNALS.MIN_EDGE_BACK and prob_mod >= soglia_back:
+    if edge_back >= min_edge_back and prob_mod >= soglia_back:
         # Modulazione momentum × edge: edge forte → meno riduzione, edge debole → più riduzione.
         if edge_back >= SIGNALS.MOMENTUM_EDGE_STRONG:
             adj_momentum = max(SIGNALS.MOMENTUM_STAKE_FLOOR,
@@ -411,7 +425,7 @@ def valuta_mercato(
             )
 
     # LAY
-    if not back_only and edge_lay >= SIGNALS.MIN_EDGE_LAY and q_exc >= KELLY.LAY_MIN_ODDS:
+    if not back_only and edge_lay >= min_edge_lay and q_exc >= KELLY.LAY_MIN_ODDS:
         result = calcola_stake_lay(prob_mod, q_exc, bankroll, kelly_frac, comm_rate)
         if result is not None:
             stake_lay, liab_lay = result
@@ -497,6 +511,12 @@ def genera_segnali_avanzati(
     Returns:
         Lista di Signal con calcoli Kelly/EV completi.
     """
+    # Gate confidenza: sopprimi segnali avanzati se il modello non è affidabile.
+    # Stessa soglia dei rapidi: linee stantie, dati assenti, modelli discordi
+    # rendono anche l'edge misurato non affidabile (il modello è fuori calibrazione).
+    if model_confidence < SIGNALS.MIN_CONFIDENCE_FOR_SIGNALS:
+        return []
+
     soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement)
     kelly_frac = calcola_kelly_fraction(minuto, n_shots_tot, model_confidence)
     momentum_factor = max(
@@ -510,6 +530,7 @@ def genera_segnali_avanzati(
             etichetta, prob, q_exc, soglia,
             bankroll, comm_rate, kelly_frac, momentum_factor, back_only,
             minuto=minuto,
+            model_confidence=model_confidence,
         )
         if s is not None:
             segnali.append(s)
