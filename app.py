@@ -134,6 +134,12 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         risultati.momentum,
     )
 
+    # Filtra segnali avanzati per mercati già chiusi (stessa logica dei rapidi)
+    if settled.get("ou_vinto"):
+        segnali_avanzati = [s for s in segnali_avanzati if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]
+    if settled.get("btts_si_settled") or settled.get("btts_no_settled"):
+        segnali_avanzati = [s for s in segnali_avanzati if "BTTS" not in s.mercato.upper()]
+
     render_segnali_avanzati(segnali_avanzati, quotes.any_active)
 
     # ── Avvisi incoerenza ────────────────────────────────────────────────────

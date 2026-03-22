@@ -70,24 +70,50 @@ def _ah_ev_half(
 
 def _ah_ev(mu_h: float, mu_a: float, ah: float) -> float:
     """
-    EV dell'AH con supporto per quarter lines (2.25, 2.75, 3.25...).
+    EV dell'AH con interpolazione continua tra le half-lines adiacenti.
 
-    Quarter line: split 50/50 tra la half-line inferiore e superiore.
+    Per la calibrazione degli xG, l'AH dal blend bayesiano può essere qualsiasi float
+    (es. -0.212, -0.406), non solo valori standard di mercato (±0.25, ±0.50, ...).
+
+    L'EV esatto della distribuzione di Poisson è una funzione a gradini:
+    costante tra due interi consecutivi, con discontinuità agli interi (dove il push cambia).
+    Usare il gradino direttamente per valori non-standard causa errori sistematici
+    del 15-35% nella calibrazione degli xG.
+
+    Soluzione: interpolazione lineare tra le due half-lines adiacenti.
+    Questo produce una funzione EV continua che:
+    - Ai valori half-line (±0.5, ±1.0): coincide con l'EV esatto (con push)
+    - Alle quarter lines (±0.25, ±0.75): dà il corretto split 50/50
+    - Per valori non-standard (dal blend): interpola smoothly
+
+    Esempio: ah = -0.212
+      h_low = -0.5, h_high = 0.0
+      t = (-0.212 - (-0.5)) / 0.5 = 0.576
+      EV = 0.424 × EV(-0.5) + 0.576 × EV(0.0)
 
     Args:
-        mu_h, mu_a: Lambda casa e trasferta (componenti indipendenti).
-        ah: Linea AH (es. -0.75, +0.25, -0.50).
+        mu_h, mu_a: Lambda casa e trasferta.
+        ah: Linea AH (standard di mercato o valore dal blend).
 
     Returns:
         EV in [-1, 1].
     """
-    ah2 = float(ah) * 2.0
+    ah_f = float(ah)
+    ah2 = ah_f * 2.0
+
+    # Controlla se è esattamente una half-line (es. -0.5, 0.0, +0.5, -1.0)
     if abs(ah2 - round(ah2)) < POISSON.EPS:
-        # Linea intera o half-line: es. -0.5, -1.0, +0.75
-        return _ah_ev_half(mu_h, mu_a, float(ah))
-    # Quarter line: es. -0.75 = 50% di -0.5 + 50% di -1.0
+        return _ah_ev_half(mu_h, mu_a, ah_f)
+
+    # Per tutti gli altri valori (quarter lines standard e valori non-standard dal blend):
+    # interpolazione lineare tra le due half-lines adiacenti.
     h_low = math.floor(ah2) / 2.0
-    return 0.5 * _ah_ev_half(mu_h, mu_a, h_low) + 0.5 * _ah_ev_half(mu_h, mu_a, h_low + 0.5)
+    h_high = h_low + 0.5
+    t = (ah_f - h_low) / 0.5  # posizione in [0, 1): 0.5 per quarter lines standard
+
+    ev_low = _ah_ev_half(mu_h, mu_a, h_low)
+    ev_high = _ah_ev_half(mu_h, mu_a, h_high)
+    return (1.0 - t) * ev_low + t * ev_high
 
 
 # ---------------------------------------------------------------------------
@@ -179,8 +205,17 @@ def calcola_xg_bayesiani(
     elif ev_hi == 0.0:
         delta_star = hi
     elif ev_lo * ev_hi > 0:
-        # Stessa direzione: usa il bound con EV più vicino a zero
-        delta_star = lo if abs(ev_lo) < abs(ev_hi) else hi
+        # Stessa direzione: la bisection non può trovare una radice.
+        # Questo accade tipicamente a fine partita con tot_bayes basso e |ah_bayes| significativo:
+        # P(0,0) domina e l'AH EV è negativo per qualsiasi split.
+        #
+        # Fallback: approssimazione lineare delta ≈ -ah_bayes.
+        # Per Poisson con mu piccolo, E[X-Y] ≈ mu_h - mu_a = delta,
+        # e l'AH EV → 0 quando E[D] → -ah (la differenza attesa bilancia l'handicap).
+        # Questo produce uno split (mu_h, mu_a) molto più equilibrato
+        # rispetto al bound estremo, evitando xG_a ≈ 0 irrealistici.
+        delta_linear = -ah_bayes
+        delta_star = max(lo, min(hi, delta_linear))
     else:
         # Bisection standard
         increasing = ev_hi > ev_lo
@@ -201,6 +236,15 @@ def calcola_xg_bayesiani(
                 else:
                     dr = m
         delta_star = 0.5 * (dl + dr)
+
+    # Cap su |delta_star| per garantire xg_h/xg_a ≤ XG_RATIO_CAP.
+    # Da (tot+d)/(tot-d) = R → d_max = tot·(R-1)/(R+1).
+    # A fine partita con tot_bayes basso, la bisection/fallback può produrre
+    # rapporti estremi (>10:1) perché P(0,0) domina e l'EV è negativo
+    # per qualsiasi split, o perché |ah_bayes| > tot_bayes.
+    cap = BAYES.XG_RATIO_CAP
+    delta_max = tot_bayes * (cap - 1.0) / (cap + 1.0)
+    delta_star = max(-delta_max, min(delta_max, delta_star))
 
     xg_h = max(eps, 0.5 * (tot_bayes + delta_star))
     xg_a = max(eps, 0.5 * (tot_bayes - delta_star))
@@ -280,7 +324,7 @@ def blend_xg_shots(
     xg_a_accum = sot_a * SHOTS.XG_SOT * k_a + soff_a * SHOTS.XG_SOFF
 
     frac_giocata = max(minuto, 1) / 90.0
-    frac_rimasta = max(0.0, (90.0 - minuto) / 90.0)
+    frac_rimasta = max(BAYES.FRAC_RIMASTA_FLOOR, (90.0 - minuto) / 90.0)
 
     # Proiezione rate → mu rimanenti (shot-based)
     rate_h = xg_h_accum / frac_giocata
