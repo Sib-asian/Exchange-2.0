@@ -81,7 +81,9 @@ def calcola_correct_score(
         key = (gol_casa + a, gol_trasf + b)
         cs_final[key] = cs_final.get(key, 0.0) + p
 
-    top_cs = sorted(cs_final.items(), key=lambda x: x[1], reverse=True)[:top_n]
+    # Ordinamento deterministico: probabilità decrescente, poi per punteggio crescente
+    # (evita ordine non-deterministico quando due score hanno la stessa probabilità)
+    top_cs = sorted(cs_final.items(), key=lambda x: (-x[1], x[0][0], x[0][1]))[:top_n]
 
     gol_tot_dist: dict[int, float] = {}
     for (fc, ft), p in cs_final.items():

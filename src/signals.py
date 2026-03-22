@@ -10,6 +10,7 @@ liste di Signal invece di usare flag globali.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from src.config import KELLY, SIGNALS
@@ -76,8 +77,13 @@ def calcola_soglie(
         Dict con le soglie per ogni mercato.
     """
     frac = minuto / 90.0
-    base_1x2 = max(SIGNALS.SOGLIA_BACK_MIN, SIGNALS.SOGLIA_BACK_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac)
-    base_ou = max(SIGNALS.OVER_BASE_MIN, SIGNALS.OVER_BASE_THRESHOLD + SIGNALS.SOGLIA_BACK_SLOPE * frac)
+    # Sqrt scaling: l'informazione si accumula velocemente nei primi 45' (tattiche chiare,
+    # dominio visibile) e lentamente dopo il 70' (conferma di quanto già osservato).
+    # sqrt(0.5) = 0.71 vs 0.50 lineare → soglie più alte a metà partita (più selettivi),
+    # sqrt(0.83) = 0.91 vs 0.83 lineare → quasi pieni a fine partita.
+    frac_sqrt = math.sqrt(frac) if frac > 0 else 0.0
+    base_1x2 = max(SIGNALS.SOGLIA_BACK_MIN, SIGNALS.SOGLIA_BACK_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt)
+    base_ou = max(SIGNALS.OVER_BASE_MIN, SIGNALS.OVER_BASE_THRESHOLD + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt)
 
     gol_mancanti = max(0.0, linea_ou - gol_attuali)
     ou_gol_bonus = min(SIGNALS.OVER_GOL_BONUS_CAP, max(0.0, (gol_mancanti - 1.0) * SIGNALS.OVER_GOL_BONUS_RATE))
@@ -85,7 +91,7 @@ def calcola_soglie(
     return {
         "1x2": base_1x2,
         "btts_si": base_1x2,
-        "btts_no": max(SIGNALS.SOGLIA_BTTS_NO_MIN, SIGNALS.SOGLIA_BTTS_NO_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac),
+        "btts_no": max(SIGNALS.SOGLIA_BTTS_NO_MIN, SIGNALS.SOGLIA_BTTS_NO_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt),
         "ou_over": base_ou + ou_gol_bonus,
         "ou_under": base_ou,
         "gol_mancanti": gol_mancanti,
@@ -210,8 +216,9 @@ def valuta_mercato(
     # Senza quota exchange: indicazione qualitativa con soglia adattiva al tempo
     if q_exc <= 1.0:
         frac_giocata = minuto / 90.0
+        frac_sqrt = math.sqrt(frac_giocata) if frac_giocata > 0 else 0.0
         soglia_q = max(SIGNALS.SOGLIA_QUALITATIVA_MIN,
-                       SIGNALS.SOGLIA_QUALITATIVA_BASE + SIGNALS.SOGLIA_QUALITATIVA_SLOPE * frac_giocata)
+                       SIGNALS.SOGLIA_QUALITATIVA_BASE + SIGNALS.SOGLIA_QUALITATIVA_SLOPE * frac_sqrt)
         if prob_mod >= soglia_q:
             return Signal(
                 tipo="INFO_BACK",
