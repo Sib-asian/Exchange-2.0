@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.config import DECAY, MOMENTUM as MOMENTUM_CFG
-from src.config import SIGNALS, UI
+from src.config import DECAY, SIGNALS, UI
+from src.config import MOMENTUM as MOMENTUM_CFG
 from src.engine import ExchangeQuotes, ProbabilitaModello
 from src.markets.asian_handicap import calcola_asian_handicap
 from src.signals import Signal
@@ -30,11 +30,10 @@ def _q_fair(prob: float) -> float:
 # ---------------------------------------------------------------------------
 
 def _ci_label(ci: dict, key: str, prob: float) -> str:
-    """Restituisce la stringa CI inline '@fair (CI: @lo–@hi)' se disponibile."""
+    """Restituisce la stringa CI inline 'prob · CI @lo–@hi' se disponibile."""
     if key not in ci:
         return f"{prob:.1%}"
     lo, hi = ci[key]
-    q_fair = _q_fair(prob)
     q_lo = _q_fair(hi) if hi > 0.001 else 999.0
     q_hi = _q_fair(lo) if lo > 0.001 else 999.0
     return f"{prob:.1%} · CI @{q_lo:.2f}–@{q_hi:.2f}"
