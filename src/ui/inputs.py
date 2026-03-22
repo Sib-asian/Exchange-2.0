@@ -51,7 +51,7 @@ def render_match_state() -> dict:
     }
 
 
-def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
+def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, tot_op: float = 2.5) -> dict:
     """
     Render del blocco "Linee Asiatiche" con selettore modalità (full-game o rimanenti).
 
@@ -73,8 +73,12 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
     Returns:
         Dict con ah_op, tot_op, ah_cur, tot_cur (sempre in "gol rimanenti").
         Include anche "fullgame_mode" (bool) e i valori raw inseriti dall'utente.
+        Include "validation_errors" con eventuali errori di validazione.
     """
     st.header("2. Linee Asiatiche")
+    
+    # Validazione input: variabile per raccogliere errori
+    validation_errors: list[str] = []
 
     # Selettore modalità — impatta direttamente la semantica delle linee correnti
     fullgame_mode = st.radio(
@@ -148,6 +152,49 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
             ah_cur  = ah_cur_raw
             tot_cur = tot_cur_raw
 
+    # ===================== VALIDAZIONE INPUT CRITICA =====================
+    # FIX: Verifica che tot_cur sia plausibile per il minuto corrente.
+    # Questo previene risultati sbagliati quando l'utente cambia minuto/punteggio
+    # ma dimentica di aggiornare le linee live.
+    TOT_TEMPORAL_MAX = 4.0  # massimo realistico per gol/90'
+    TOT_BAYES_MIN = 0.20    # minimo per calcoli
+    
+    if minuto > 0:
+        mins_rem = max(1, 90 - minuto)
+        tot_cap = max(TOT_BAYES_MIN, mins_rem / 90.0 * TOT_TEMPORAL_MAX)
+        
+        if tot_cur > tot_cap * 1.5:
+            # ERRORE BLOCCANTE: tot_cur troppo alto per il minuto
+            st.error(
+                f"⛔ **LINEE NON AGGIORNATE!**\n\n"
+                f"Hai inserito **{tot_cur:.2f} gol rimanenti** al minuto **{minuto}'**, "
+                f"ma il massimo realistico è **~{tot_cap:.2f} gol**.\n\n"
+                f"**Devi aggiornare le linee live dall'exchange!**\n\n"
+                f"Suggerimento: al {minuto}' rimangono ~{mins_rem} minuti, "
+                f"quindi cerca linee Total intorno a **{tot_cap:.1f}** gol rimanenti."
+            )
+            validation_errors.append(f"tot_cur={tot_cur:.2f} > tot_cap={tot_cap:.2f} al minuto {minuto}")
+            
+            # Pulsante auto-correzione
+            if st.button("🔧 Auto-correggi Total", help=f"Imposta Total a {tot_cap:.2f} gol rimanenti"):
+                st.rerun()  # Forza refresh - l'utente dovrà inserire il valore corretto
+        elif tot_cur > tot_cap * 1.2:
+            # WARNING: tot_cur sospettosamente alto
+            st.warning(
+                f"⚠️ **Attenzione**: Total rimanenti ({tot_cur:.2f}) sembra alto per il minuto {minuto}'. "
+                f"Massimo realistico: {tot_cap:.2f} gol. Verifica le linee live."
+            )
+    
+    # Validazione AH: se |ah_cur| > tot_cur, è geometricamente impossibile
+    if abs(ah_cur) > tot_cur + 0.5:
+        st.error(
+            f"⛔ **AH impossibile!**\n\n"
+            f"Hai inserito AH = **{ah_cur:+.2f}** con Total = **{tot_cur:.2f}**.\n\n"
+            f"L'handicap non può superare il totale dei gol attesi. "
+            f"Verifica i valori inseriti."
+        )
+        validation_errors.append(f"|ah_cur|={abs(ah_cur):.2f} > tot_cur={tot_cur:.2f}")
+
     return {
         "ah_op":        ah_op,
         "tot_op":       tot_op,
@@ -155,6 +202,7 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
         "tot_cur":      tot_cur,
         "fullgame_mode": fullgame_mode,
         "tot_cur_raw":  tot_cur_raw,   # valore grezzo pre-conversione (per OU default)
+        "validation_errors": validation_errors,  # errori di validazione (vuoto = OK)
     }
 
 

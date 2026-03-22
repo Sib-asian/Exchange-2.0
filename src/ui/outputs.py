@@ -274,6 +274,108 @@ def render_asian_handicap(full_matrix: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Clean Sheet & Win to Nil
+# ---------------------------------------------------------------------------
+
+def render_clean_sheet(
+    full_matrix: dict,
+    gol_casa: int,
+    gol_trasf: int,
+) -> tuple[float, float]:
+    """
+    Render delle probabilità Clean Sheet e Win to Nil.
+    
+    Returns:
+        (p_clean_casa, p_clean_trasf) per uso in altri componenti.
+    """
+    from src.markets.clean_sheet import calcola_clean_sheet, calcola_win_to_nil
+    
+    p_clean_casa, p_clean_trasf = calcola_clean_sheet(full_matrix, gol_casa, gol_trasf)
+    
+    with st.expander("🧤 Clean Sheet & Win to Nil"):
+        # Determina lo stato dei clean sheet
+        if gol_trasf > 0 and gol_casa > 0:
+            st.info("🚫 Clean Sheet impossibile per entrambe le squadre (hanno già segnato)")
+            return p_clean_casa, p_clean_trasf
+        
+        cs_cols = st.columns(2)
+        
+        # Clean Sheet Casa
+        if gol_trasf > 0:
+            cs_cols[0].metric(
+                "🧤 Clean Sheet Casa",
+                value="IMPOSSIBILE",
+                delta="Trasferta ha segnato",
+                delta_color="off"
+            )
+        else:
+            cs_cols[0].metric(
+                "🧤 Clean Sheet Casa",
+                value=f"{p_clean_casa:.1%}",
+                delta=f"@{_q_fair(p_clean_casa):.2f}"
+            )
+        
+        # Clean Sheet Trasferta
+        if gol_casa > 0:
+            cs_cols[1].metric(
+                "🧤 Clean Sheet Trasferta",
+                value="IMPOSSIBILE",
+                delta="Casa ha segnato",
+                delta_color="off"
+            )
+        else:
+            cs_cols[1].metric(
+                "🧤 Clean Sheet Trasferta",
+                value=f"{p_clean_trasf:.1%}",
+                delta=f"@{_q_fair(p_clean_trasf):.2f}"
+            )
+        
+        st.caption(
+            "Clean Sheet = la squadra non subisce gol per tutta la partita. "
+            "Se l'avversario ha già segnato, il mercato è chiuso."
+        )
+        
+        # Win to Nil (solo se clean sheet è possibile)
+        if (gol_trasf == 0 or gol_casa == 0):
+            st.divider()
+            st.markdown("**🏆 Win to Nil** (vince senza subire gol)")
+            
+            # Calcola Win to Nil usando le probabilità 1X2 se disponibili
+            # Per ora usiamo una stima basata sulla matrice
+            p_wtn_casa = sum(p for (a, b), p in full_matrix.items() 
+                           if gol_casa + a > gol_trasf + b and b == 0)
+            p_wtn_trasf = sum(p for (a, b), p in full_matrix.items() 
+                            if gol_trasf + b > gol_casa + a and a == 0)
+            
+            wtn_cols = st.columns(2)
+            
+            if gol_trasf > 0:
+                wtn_cols[0].metric("Casa WtN", value="—", delta_color="off")
+            else:
+                wtn_cols[0].metric(
+                    "Casa WtN",
+                    value=f"{p_wtn_casa:.1%}",
+                    delta=f"@{_q_fair(p_wtn_casa):.2f}"
+                )
+            
+            if gol_casa > 0:
+                wtn_cols[1].metric("Trasferta WtN", value="—", delta_color="off")
+            else:
+                wtn_cols[1].metric(
+                    "Trasferta WtN",
+                    value=f"{p_wtn_trasf:.1%}",
+                    delta=f"@{_q_fair(p_wtn_trasf):.2f}"
+                )
+            
+            st.caption(
+                "Win to Nil = la squadra vince senza subire gol. "
+                "Richiede che la squadra vinca E mantenga il clean sheet."
+            )
+    
+    return p_clean_casa, p_clean_trasf
+
+
+# ---------------------------------------------------------------------------
 # Momentum
 # ---------------------------------------------------------------------------
 

@@ -53,10 +53,15 @@ st.caption(f"v{UI.VERSION} · Modello bivariate Poisson + Dixon-Coles + Kelly fr
 match = render_match_state()
 st.divider()
 
-lines = render_asian_lines(match["gol_casa"], match["gol_trasf"])
+lines = render_asian_lines(match["gol_casa"], match["gol_trasf"], match["minuto"])
 gol_attuali = match["gol_casa"] + match["gol_trasf"]
 linea_ou = render_ou_selector(lines["tot_cur_raw"], gol_attuali, lines["fullgame_mode"])
 bankroll, comm_pct, comm_rate = render_bankroll()
+
+# Mostra avviso se ci sono errori di validazione
+if lines.get("validation_errors"):
+    st.warning(f"⚠️ Rilevati {len(lines['validation_errors'])} problemi di validazione. "
+               f"Correggi i valori prima di analizzare.")
 st.divider()
 
 shots = render_shots(match["minuto"])
@@ -98,6 +103,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     render_coerenza_mercati(risultati, linea_ou)
     render_correct_score(risultati)
     render_asian_handicap(risultati.full_matrix)
+    render_clean_sheet(risultati.full_matrix, state.gol_casa, state.gol_trasf)  # Nuovo mercato!
 
     # ── Red card impact (Fix #16) ─────────────────────────────────────────────
     render_red_card_impact(state.rossi_casa, state.rossi_trasf, state.minuto)

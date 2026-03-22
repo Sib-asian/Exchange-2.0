@@ -513,6 +513,29 @@ class StaleLineConfig:
     WEIGHT_DEGRADATION: float = 0.15
 
 
+@dataclass(frozen=True)
+class CacheConfig:
+    """Parametri per il sistema di caching."""
+
+    # Numero massimo di entry nel cache LRU
+    MAX_SIZE: int = 100
+    # Time-to-live in secondi (5 minuti)
+    TTL_SECONDS: float = 300.0
+    # Abilita/disabilita cache (utile per debug)
+    ENABLED: bool = True
+
+
+@dataclass(frozen=True)
+class CleanSheetConfig:
+    """Parametri per il calcolo Clean Sheet."""
+
+    # Boost per clean sheet quando la squadra è in vantaggio (parking the bus)
+    LEAD_BOOST: float = 0.05  # +5% per gol di vantaggio
+    LEAD_BOOST_MAX: float = 0.15  # Cap a +15%
+    # Penalità per partite con alto total atteso
+    HIGH_TOTAL_PENALTY: float = 0.03  # -3% per ogni gol sopra 2.5
+
+
 # Istanze globali immutabili — importare da qui
 POISSON   = PoissonConfig()
 DC        = DixonColesConfig()
@@ -530,3 +553,5 @@ HAWKES    = HawkesConfig()
 SUBST     = SubstitutionConfig()
 CONSENSUS = ConsensusConfig()
 STALE     = StaleLineConfig()
+CACHE     = CacheConfig()
+CLEAN_SHEET = CleanSheetConfig()

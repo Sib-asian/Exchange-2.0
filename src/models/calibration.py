@@ -202,12 +202,19 @@ def calcola_xg_bayesiani(
     delta_tot_inner = abs(tot_cur - expected_tot_cur)
     flat = delta_ah_inner < BAYES.FLAT_LINE_THRESHOLD and delta_tot_inner < BAYES.FLAT_LINE_THRESHOLD
 
+    # FIX: Cap temporale SEMPRE applicato per evitare xG insensati a fine partita.
+    # I gol rimanenti non possono superare ~(90-minuto)/90 * TOT_TEMPORAL_MAX.
+    # Questo protegge dal caso frequente in cui l'utente non aggiorna le linee live.
+    _mins_rem = max(1, 90 - minuto)
+    _tot_cap = max(BAYES.TOT_BAYES_MIN, _mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
+
     if flat:
         ah_bayes = float(ah_cur)
-        tot_bayes = max(BAYES.TOT_BAYES_MIN, float(tot_cur))
+        tot_bayes = min(max(BAYES.TOT_BAYES_MIN, float(tot_cur)), _tot_cap)  # Cap applicato!
     else:
         ah_bayes = (ah_op * frac_rimasta) * w_op + ah_cur * w_cur
-        tot_bayes = max(BAYES.TOT_BAYES_MIN, (tot_op * frac_rimasta) * w_op + tot_cur * w_cur)
+        tot_bayes_raw = (tot_op * frac_rimasta) * w_op + tot_cur * w_cur
+        tot_bayes = min(max(BAYES.TOT_BAYES_MIN, tot_bayes_raw), _tot_cap)  # Cap applicato!
 
     # Bisection: trova delta* tale che AH EV = 0
     # mu_h = (tot_bayes + delta) / 2
