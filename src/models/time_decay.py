@@ -180,7 +180,11 @@ def time_decay_dinamico(
     # la partita è "calda" → boost leggero al rate rimanente.
     # Cattura il clustering dei gol (dopo un gol è più probabile un altro).
     gol_tot = gol_casa + gol_trasf
-    if gol_tot > 0 and minuto > 5:
+    # Floor alzato da 5 a 15: sotto il 15' il campione è troppo piccolo.
+    # Esempio: 2 gol al 6' → rate = 2/6 × 90 = 30 gol/90'. Con ALPHA=0.01 e MAX_BOOST=0.03
+    # il cap scatta comunque, ma il segnale è rumore puro.
+    # Al 15', 2 gol → rate = 12/90' (ancora alto ma plausibile in una gara aperta).
+    if gol_tot > 0 and minuto >= 15:
         rate_obs_90 = gol_tot / max(minuto, 1) * 90.0
         excess = max(0.0, rate_obs_90 / HAWKES.RATE_REF_PER_90 - 1.0)
         hawkes_boost = 1.0 + min(HAWKES.MAX_BOOST, excess * HAWKES.ALPHA)

@@ -370,8 +370,11 @@ def blend_xg_shots(
     diff_score = gol_h - gol_a
     gs_minute_scale = min(1.4, 0.8 + 0.6 * frac_giocata)
 
-    gs_sot = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE_SOT) * gs_minute_scale
-    gs_soff = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE_SOFF) * gs_minute_scale
+    # IMPORTANTE: gs_minute_scale va DENTRO il min(), non fuori.
+    # Fuori: min(CAP, raw) × scale → quando raw ≥ CAP, il risultato = CAP × scale > CAP.
+    # Con diff_score=3 e scale=1.4 si superava il cap del 40%.
+    gs_sot = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE_SOT * gs_minute_scale)
+    gs_soff = min(SHOTS.GAME_STATE_CAP, abs(diff_score) * SHOTS.GAME_STATE_RATE_SOFF * gs_minute_scale)
 
     if diff_score > 0:
         # Casa in vantaggio: SOT casa ↑ (contropiede), SOT trasf ↓ (pressing disperato)

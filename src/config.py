@@ -286,11 +286,21 @@ class KellyConfig:
 class SignalConfig:
     """Parametri per la generazione dei segnali di betting."""
 
-    # Edge netto minimo per BACK (dopo commissione)
+    # Edge netto minimo per BACK (dopo commissione) — baseline con confidenza piena.
+    # Con confidenza bassa viene scalato dinamicamente: vedi MIN_EDGE_CONF_BOOST.
     MIN_EDGE_BACK: float = 0.030
 
     # Edge netto minimo per LAY (rischio asimmetrico)
     MIN_EDGE_LAY: float = 0.040
+
+    # Boost sull'edge minimo quando il modello ha bassa confidenza.
+    # Sotto MIN_CONFIDENCE_FOR_SIGNALS (0.45) gli avanzati vengono soppressi.
+    # Tra 0.45 e CONF_EDGE_BOOST_HIGH il requisito di edge cresce linearmente
+    # fino a MIN_EDGE_BACK + CONF_EDGE_BOOST_MAX.
+    # Razionale: con linee stantie o modelli in disaccordo serve un edge molto
+    # più netto per giustificare l'operazione (il modello potrebbe essere fuori).
+    CONF_EDGE_BOOST_HIGH: float = 0.70  # sopra questa confidenza: edge normale
+    CONF_EDGE_BOOST_MAX: float = 0.040  # max boost aggiuntivo (+4%) a conf minima
 
     # Probabilità minima per calcolo quota fair (sotto → fallback)
     MIN_PROB_FOR_QUOTE: float = 0.001

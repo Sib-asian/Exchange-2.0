@@ -314,8 +314,11 @@ def analizza(
     _line_conf = 0.3 if stale_line else (0.5 if flat_lines else 1.0)
     _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else 0.35
     _agreement_conf = model_agreement
-    _product = max(1e-9, _shots_conf * max(0.01, _line_conf) * max(0.01, _blend_conf)
-                   * max(0.01, _time_conf) * max(0.01, _agreement_conf))
+    # _line_conf ∈ {0.3, 0.5, 1.0}, _blend_conf ≥ 0.15, _time_conf ≥ 0.0:
+    # i max(0.01) sono dead code per i primi tre (non scendono a 0).
+    # _agreement_conf può essere 0.0 → il suo guard è necessario.
+    _product = max(1e-9, _shots_conf * _line_conf * _blend_conf
+                   * _time_conf * max(0.01, _agreement_conf))
     model_confidence = min(1.0, _product ** 0.20)  # 5th root (5 componenti)
 
     return ProbabilitaModello(
