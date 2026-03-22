@@ -233,25 +233,51 @@ def calcola_xg_bayesiani(
         delta_linear = -ah_bayes
         delta_star = max(lo, min(hi, delta_linear))
     else:
-        # Bisection standard
-        increasing = ev_hi > ev_lo
-        dl, dr = lo, hi
-        for _ in range(POISSON.BISECTION_ITERS):
-            m = 0.5 * (dl + dr)
-            em = _ev(m)
-            if abs(em) < POISSON.BISECTION_TOL or (dr - dl) < 1e-12:
+        # Newton-Raphson con derivata numerica (convergenza O(log log 1/ε) ≈ 5-6 iter)
+        # Fallback a bisection se Newton diverge o non converge.
+        delta_star = 0.5 * (lo + hi)
+        h_nr = 1e-7
+        converged = False
+        for _ in range(15):
+            em = _ev(delta_star)
+            if abs(em) < POISSON.BISECTION_TOL:
+                converged = True
                 break
-            if increasing:
-                if em > 0:
-                    dr = m
+            # Derivata numerica (central difference)
+            ev_plus = _ev(delta_star + h_nr)
+            ev_minus = _ev(delta_star - h_nr)
+            dev = (ev_plus - ev_minus) / (2 * h_nr)
+            if abs(dev) < 1e-15:
+                break
+            step = em / dev
+            new_delta = delta_star - step
+            new_delta = max(lo, min(hi, new_delta))
+            if abs(new_delta - delta_star) < 1e-12:
+                delta_star = new_delta
+                converged = True
+                break
+            delta_star = new_delta
+
+        if not converged:
+            # Fallback: bisection standard
+            increasing = ev_hi > ev_lo
+            dl, dr = lo, hi
+            for _ in range(POISSON.BISECTION_ITERS):
+                m = 0.5 * (dl + dr)
+                em = _ev(m)
+                if abs(em) < POISSON.BISECTION_TOL or (dr - dl) < 1e-12:
+                    break
+                if increasing:
+                    if em > 0:
+                        dr = m
+                    else:
+                        dl = m
                 else:
-                    dl = m
-            else:
-                if em > 0:
-                    dl = m
-                else:
-                    dr = m
-        delta_star = 0.5 * (dl + dr)
+                    if em > 0:
+                        dl = m
+                    else:
+                        dr = m
+            delta_star = 0.5 * (dl + dr)
 
     # Cap su |delta_star| per garantire xg_h/xg_a ≤ XG_RATIO_CAP.
     # Da (tot+d)/(tot-d) = R → d_max = tot·(R-1)/(R+1).

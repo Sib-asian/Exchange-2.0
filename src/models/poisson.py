@@ -118,6 +118,44 @@ def dixon_coles_tau(
 
 
 # ---------------------------------------------------------------------------
+# rho_DC dinamico
+# ---------------------------------------------------------------------------
+
+def rho_dc_dinamico(
+    tot_cur: float,
+    minuto: int,
+    gol_totali: int = 0,
+) -> float:
+    """
+    Coefficiente Dixon-Coles dinamico, contestualizzato alla partita.
+
+    La correlazione negativa tra gol bassi dipende dal contesto:
+    - Partite difensive (Total < 2.0): struttura difensiva → rho_DC più negativo
+    - Partite aperte (Total > 3.0): difese aperte → rho_DC meno negativo
+    - Late game con vantaggio: parking the bus → rho_DC più negativo
+    - Alto punteggio: partita aperta → rho_DC meno negativo
+
+    Args:
+        tot_cur: Total corrente (gol rimanenti).
+        minuto: Minuto attuale [0, 90].
+        gol_totali: Gol già segnati.
+
+    Returns:
+        rho_DC in [RHO_DC_MIN, RHO_DC_MAX].
+    """
+    # Effetto total: basso total → struttura difensiva → più negativo
+    tot_factor = max(0.0, DC.RHO_DC_TOT_REF - min(tot_cur, DC.RHO_DC_TOT_REF)) / DC.RHO_DC_TOT_REF
+    # Effetto tempo: late game → più negativo
+    time_factor = minuto / 90.0
+    # Effetto gol: alto punteggio → partita aperta → meno negativo
+    goal_factor = max(0.0, 1.0 - gol_totali * DC.RHO_DC_GOAL_DAMPEN)
+
+    rho_dc = DC.RHO_DC_BASE + DC.RHO_DC_TOT_SCALE * tot_factor * goal_factor \
+        + DC.RHO_DC_TIME_SCALE * time_factor
+    return max(DC.RHO_DC_MIN, min(DC.RHO_DC_MAX, rho_dc))
+
+
+# ---------------------------------------------------------------------------
 # Correlazione dinamica rho
 # ---------------------------------------------------------------------------
 
@@ -210,6 +248,7 @@ def build_bivariate_matrix(
     mu_a = max(POISSON.EPS, float(mu_a))
 
     rho = rho_dinamico(tot_cur, minuto, shot_dom, gol_totali)
+    rho_dc_val = rho_dc_dinamico(tot_cur, minuto, gol_totali)
 
     # lambda0: media geometrica più robusta di min() per partite sbilanciate
     geom_mu = math.sqrt(mu_h * mu_a)
@@ -232,7 +271,7 @@ def build_bivariate_matrix(
         for j, pj in enumerate(pmf_a):
             if pj < POISSON.PROB_SKIP_THRESHOLD:
                 continue
-            tau = dixon_coles_tau(i, j, mu_h, mu_a)
+            tau = dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=rho_dc_val)
             val = pi * pj * tau
             joint_ind[(i, j)] = val
             dc_sum += val

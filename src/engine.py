@@ -125,6 +125,12 @@ class ProbabilitaModello:
     momentum: float        # Indice momentum mercato
     flat_lines: bool       # Linee di mercato invariate
     model_confidence: float = 0.0  # Score [0, 1] di fiducia del modello
+    stale_line: bool = False       # True se la linea corrente è stantia
+    model_agreement: float = 1.0   # [0,1] accordo tra i 3 modelli del consensus
+    market_divergence: float = 0.0 # Divergenza modello-mercato (proxy Brier)
+
+    # Intervalli di credibilità multi-modello
+    credible_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
 
     # Matrici
     joint_ind: dict[tuple[int, int], float] = field(default_factory=dict)
@@ -154,11 +160,16 @@ def analizza(
     Returns:
         ProbabilitaModello con tutte le probabilità e i parametri interni.
     """
-    from src.config import BAYES, UI
-    from src.markets.btts import calcola_btts
-    from src.markets.over_under import calcola_over_under
-    from src.markets.result import calcola_1x2, calcola_correct_score
+    from src.config import BAYES, CMP, CONSENSUS, COPULA, STALE, UI
+    from src.markets.result import calcola_correct_score
     from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
+    from src.models.consensus import (
+        calibrate_probabilities,
+        compute_consensus,
+        compute_model_credible_intervals,
+    )
+    from src.models.copula import build_copula_matrix
+    from src.models.markov import markov_score_distribution
     from src.models.poisson import build_bivariate_matrix
     from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
 
@@ -210,8 +221,12 @@ def analizza(
         momentum=momentum,
     )
 
-    # 5. Matrice bivariata
-    joint_ind, full_matrix, rho = build_bivariate_matrix(
+    # 4b. Stale line detection: se le linee non si sono mosse dopo >15 minuti
+    # di partita, il mercato è potenzialmente illiquido o sospeso.
+    stale_line = flat_lines and state.minuto >= STALE.THRESHOLD_MINUTES
+
+    # 5. Modello A: Bivariate Poisson + Dixon-Coles (principale)
+    joint_ind, full_bp, rho = build_bivariate_matrix(
         xg_h_final, xg_a_final,
         state.minuto,
         state.tot_cur,
@@ -219,24 +234,59 @@ def analizza(
         gol_totali=state.gol_casa + state.gol_trasf,
     )
 
-    # 6. Probabilità mercati
-    p1, px, p2 = calcola_1x2(joint_ind, state.gol_casa, state.gol_trasf)
-    p_under, p_over = calcola_over_under(full_matrix, state.gol_casa + state.gol_trasf, state.linea_ou)
-    p_btts = calcola_btts(full_matrix, state.gol_casa, state.gol_trasf)
+    # 6. Modello B: CMP + Frank copula (overdispersion + copula archimedea)
+    frac_giocata = state.minuto / 90.0
+    copula_theta = max(0.1, COPULA.THETA_BASE
+                       + COPULA.THETA_TOT_SCALE * max(0.0, state.tot_cur - COPULA.THETA_TOT_REF)
+                       + COPULA.THETA_TIME_SCALE * frac_giocata)
+    full_copula = build_copula_matrix(xg_h_final, xg_a_final, copula_theta, nu=CMP.NU)
+
+    # 7. Modello C: Markov chain (score-dependent rates)
+    full_markov = markov_score_distribution(
+        xg_h_final, xg_a_final,
+        state.minuto, state.gol_casa, state.gol_trasf,
+    )
+
+    # 8. Consensus multi-modello: media pesata
+    consensus_probs = compute_consensus(
+        full_bp, full_copula, full_markov,
+        state.gol_casa, state.gol_trasf, state.linea_ou,
+        weights=(CONSENSUS.W_BIVARIATE, CONSENSUS.W_COPULA, CONSENSUS.W_MARKOV),
+    )
+
+    # 9. Calibrazione isotonica
+    p1, px, p2, p_over, p_under, p_btts = calibrate_probabilities(
+        consensus_probs["p1"], consensus_probs["px"], consensus_probs["p2"],
+        consensus_probs["p_over"], consensus_probs["p_under"], consensus_probs["p_btts"],
+        draw_shrinkage=CONSENSUS.DRAW_SHRINKAGE,
+    )
+
+    # 10. Correct score e distribuzione gol (dal modello principale per dettaglio)
+    # Il consensus migliora le probabilità aggregate, ma il correct score richiede
+    # la matrice completa del modello principale per il dettaglio cell-by-cell.
+    full_matrix = full_bp
     top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
 
-    # 7. Model confidence score [0, 1]
-    # Combina: qualità dati tiri, movimento linee, blend weights, tempo giocato.
-    # Score basso = modello opera su prior, alta incertezza.
-    # Score alto = dati abbondanti, linee attive, blend maturo.
+    # 11. Intervalli di credibilità multi-modello
+    credible_intervals = compute_model_credible_intervals(
+        full_bp, full_copula, full_markov,
+        state.gol_casa, state.gol_trasf, state.linea_ou,
+    )
+
+    # 12. Accordo tra modelli: se i 3 modelli concordano, agreement → 1.0
     import math as _math
+    _spreads = [hi - lo for lo, hi in credible_intervals.values() if hi > lo]
+    model_agreement = max(0.0, 1.0 - (sum(_spreads) / max(len(_spreads), 1)) * 5.0) if _spreads else 1.0
+
+    # 13. Model confidence score [0, 1]
     _shots_conf = min(1.0, n_shots_tot / 15.0)
-    _line_conf = 0.0 if flat_lines else 1.0
+    _line_conf = 0.3 if stale_line else (0.0 if flat_lines else 1.0)
     _blend_conf = (alpha_t + alpha_d) / 2.0 if n_shots_tot > 0 else 0.0
     _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else 0.0
-    # Media geometrica: se un componente è zero, il confidence è basso
-    _product = max(1e-9, _shots_conf * max(0.01, _line_conf) * max(0.01, _blend_conf) * max(0.01, _time_conf))
-    model_confidence = min(1.0, _product ** 0.25)
+    _agreement_conf = model_agreement
+    _product = max(1e-9, _shots_conf * max(0.01, _line_conf) * max(0.01, _blend_conf)
+                   * max(0.01, _time_conf) * max(0.01, _agreement_conf))
+    model_confidence = min(1.0, _product ** 0.20)  # 5th root (5 componenti)
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,
@@ -254,6 +304,9 @@ def analizza(
         momentum=momentum,
         flat_lines=flat_lines,
         model_confidence=model_confidence,
+        stale_line=stale_line,
+        model_agreement=model_agreement,
+        credible_intervals=credible_intervals,
         joint_ind=joint_ind,
         full_matrix=full_matrix,
     )
