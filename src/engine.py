@@ -175,10 +175,19 @@ def analizza(
     from src.models.poisson import build_bivariate_matrix
     from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
 
+    # Cap temporale: i gol rimanenti non possono superare ~(90-minuto)/90 * 4.0.
+    # Protegge dal caso frequente in cui l'utente cambia il punteggio/minuto ma
+    # dimentica di aggiornare le linee live → tot_cur rimane il valore full-game
+    # d'apertura (es. 2.75) che diventa insensato come "gol rimanenti" al 80'.
+    # Esempio: 0-0 al 80', default tot_cur=2.75 → cap a 0.44 (= 4.0 × 10/90).
+    _mins_rem = max(1, 90 - state.minuto)
+    _tot_cap = max(BAYES.TOT_BAYES_MIN, _mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
+    tot_cur_eff = min(state.tot_cur, _tot_cap)
+
     # 1. xG da linee (prior bayesiano)
     xg_h_base, xg_a_base = calcola_xg_bayesiani(
         state.ah_op, state.tot_op,
-        state.ah_cur, state.tot_cur,
+        state.ah_cur, tot_cur_eff,
         state.minuto,
         gol_diff=state.gol_casa - state.gol_trasf,
         gol_tot=state.gol_casa + state.gol_trasf,
@@ -231,7 +240,7 @@ def analizza(
     joint_ind, full_bp, rho = build_bivariate_matrix(
         xg_h_final, xg_a_final,
         state.minuto,
-        state.tot_cur,
+        tot_cur_eff,
         shot_dom=shot_dom,
         gol_totali=state.gol_casa + state.gol_trasf,
     )
@@ -239,17 +248,17 @@ def analizza(
     # 6. Modello B: CMP + Frank copula (overdispersion + copula archimedea)
     frac_giocata = state.minuto / 90.0
     copula_theta = max(0.1, COPULA.THETA_BASE
-                       + COPULA.THETA_TOT_SCALE * max(0.0, state.tot_cur - COPULA.THETA_TOT_REF)
+                       + COPULA.THETA_TOT_SCALE * max(0.0, tot_cur_eff - COPULA.THETA_TOT_REF)
                        + COPULA.THETA_TIME_SCALE * frac_giocata)
     # CMP nu dinamico (Fix #8): partite difensive (basso total) → meno overdispersion,
     # partite aperte (alto total) → più overdispersion.
     nu_dynamic = max(CMP.NU_MIN, min(CMP.NU_MAX,
-                                     CMP.NU + CMP.NU_TOT_SCALE * (state.tot_cur - CMP.NU_TOT_REF)))
+                                     CMP.NU + CMP.NU_TOT_SCALE * (tot_cur_eff - CMP.NU_TOT_REF)))
     full_copula = build_copula_matrix(xg_h_final, xg_a_final, copula_theta, nu=nu_dynamic)
 
     # 7. Modello C: Markov chain con correlazione DC (Fix #9)
     from src.models.poisson import rho_dc_dinamico as _rho_dc_fn
-    _rho_dc_markov = _rho_dc_fn(state.tot_cur, state.minuto,
+    _rho_dc_markov = _rho_dc_fn(tot_cur_eff, state.minuto,
                                  state.gol_casa + state.gol_trasf)
     full_markov = markov_score_distribution(
         xg_h_final, xg_a_final,
