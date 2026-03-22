@@ -62,6 +62,7 @@ def calcola_soglie(
     minuto: int,
     linea_ou: float,
     gol_attuali: int,
+    model_agreement: float = 1.0,
 ) -> dict[str, float]:
     """
     Calcola le soglie di probabilità dinamiche per tutti i mercati.
@@ -69,32 +70,47 @@ def calcola_soglie(
     Le soglie crescono col tempo per compensare la riduzione di incertezza
     e i costi di spread più elevati nelle fasi avanzate della partita.
 
+    Quando i modelli sono in disaccordo (model_agreement < MODEL_AGREEMENT_LOW),
+    le soglie vengono alzate fino a MODEL_AGREEMENT_PENALTY_MAX per ridurre i
+    falsi positivi: se tre modelli indipendenti danno stime molto diverse,
+    la stima consensus è meno affidabile.
+
     Args:
         minuto: Minuto attuale [0, 90].
         linea_ou: Linea Over/Under selezionata.
         gol_attuali: Gol totali già segnati.
+        model_agreement: Grado di accordo tra i 3 modelli [0, 1].
 
     Returns:
         Dict con le soglie per ogni mercato.
     """
     frac = minuto / 90.0
-    # Sqrt scaling: l'informazione si accumula velocemente nei primi 45' (tattiche chiare,
-    # dominio visibile) e lentamente dopo il 70' (conferma di quanto già osservato).
-    # sqrt(0.5) = 0.71 vs 0.50 lineare → soglie più alte a metà partita (più selettivi),
-    # sqrt(0.83) = 0.91 vs 0.83 lineare → quasi pieni a fine partita.
     frac_sqrt = math.sqrt(frac) if frac > 0 else 0.0
     base_1x2 = max(SIGNALS.SOGLIA_BACK_MIN, SIGNALS.SOGLIA_BACK_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt)
     base_ou = max(SIGNALS.OVER_BASE_MIN, SIGNALS.OVER_BASE_THRESHOLD + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt)
+
+    # Penalità disaccordo modelli: se agreement < LOW, le soglie salgono linearmente.
+    # Formula: penalty = max(0, (LOW - agreement) / LOW) × PENALTY_MAX
+    # Esempio: agreement=0.40, LOW=0.60 → penalty = (0.20/0.60) × 0.08 = 2.7%
+    agreement_penalty = 0.0
+    if model_agreement < SIGNALS.MODEL_AGREEMENT_LOW:
+        agreement_penalty = (
+            (SIGNALS.MODEL_AGREEMENT_LOW - model_agreement)
+            / SIGNALS.MODEL_AGREEMENT_LOW
+            * SIGNALS.MODEL_AGREEMENT_PENALTY_MAX
+        )
 
     gol_mancanti = max(0.0, linea_ou - gol_attuali)
     ou_gol_bonus = min(SIGNALS.OVER_GOL_BONUS_CAP, max(0.0, (gol_mancanti - 1.0) * SIGNALS.OVER_GOL_BONUS_RATE))
 
     return {
-        "1x2": base_1x2,
-        "btts_si": base_1x2,
-        "btts_no": max(SIGNALS.SOGLIA_BTTS_NO_MIN, SIGNALS.SOGLIA_BTTS_NO_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt),
-        "ou_over": base_ou + ou_gol_bonus,
-        "ou_under": base_ou,
+        "1x2":      base_1x2 + agreement_penalty,
+        "btts_si":  base_1x2 + agreement_penalty,
+        "btts_no":  max(SIGNALS.SOGLIA_BTTS_NO_MIN,
+                        SIGNALS.SOGLIA_BTTS_NO_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt
+                        + agreement_penalty),
+        "ou_over":  base_ou + ou_gol_bonus + agreement_penalty,
+        "ou_under": base_ou + agreement_penalty,
         "gol_mancanti": gol_mancanti,
     }
 
@@ -113,6 +129,8 @@ def genera_segnali_rapidi(
     minuto: int,
     linea_ou: float,
     gol_attuali: int,
+    model_confidence: float = 1.0,
+    model_agreement: float = 1.0,
 ) -> list[Signal]:
     """
     Genera segnali rapidi basati sulle probabilità del modello, senza quote exchange.
@@ -125,11 +143,22 @@ def genera_segnali_rapidi(
         minuto: Minuto attuale.
         linea_ou: Linea Over/Under selezionata.
         gol_attuali: Gol totali già segnati.
+        model_confidence: Score di confidenza del modello [0, 1].
+            Se < SIGNALS.MIN_CONFIDENCE_FOR_SIGNALS, nessun segnale viene emesso.
+        model_agreement: Grado di accordo tra i 3 modelli [0, 1].
+            Usato per scalare le soglie verso l'alto quando i modelli divergono.
 
     Returns:
-        Lista di Signal di tipo INFO_BACK o INFO_LAY.
+        Lista di Signal di tipo INFO_BACK o INFO_LAY. Lista vuota se la
+        confidenza del modello è sotto soglia (linee stantie, dati mancanti, ecc.).
     """
-    soglie = calcola_soglie(minuto, linea_ou, gol_attuali)
+    # Gate confidenza: se il modello non è affidabile, non emettere segnali.
+    # Con linee stantie, assenza di dati sui tiri o modelli in forte disaccordo,
+    # qualsiasi segnale sarebbe rumore — meglio il silenzio di un consiglio errato.
+    if model_confidence < SIGNALS.MIN_CONFIDENCE_FOR_SIGNALS:
+        return []
+
+    soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement)
     segnali: list[Signal] = []
 
     mercati = [
@@ -259,6 +288,18 @@ def _filtra_segnali_coerenti(segnali: list[Signal]) -> list[Signal]:
         si_s = next(s for s in segnali if s.mercato == "BTTS Sì" and s.tipo in _TIPO_BACK)
         rimuovi = si_s if _forza(under_s) >= _forza(si_s) else under_s
         segnali = [s for s in segnali if s is not rimuovi]
+
+    # ── Regola 4: LAY X ridondante con BACK 1 o BACK 2 ──────────────────────
+    # LAY X (banca contro il pareggio) è direzionalmente identico a BACK 1/2:
+    # entrambi guadagnano se la squadra mantiene/conquista il vantaggio.
+    # Mostrare entrambi confonde l'utente senza aggiungere informazione.
+    # Eccezione: il LAY X da solo è un segnale valido quando non c'è un BACK 1X2,
+    # perché comunica "non credo al pareggio" senza prendere posizione su chi vince.
+    has_back_1 = any(s.mercato == "1 Casa" and s.tipo in _TIPO_BACK for s in segnali)
+    has_back_2 = any(s.mercato == "2 Trasf." and s.tipo in _TIPO_BACK for s in segnali)
+    if has_back_1 or has_back_2:
+        segnali = [s for s in segnali
+                   if not (s.mercato == "X Pareggio" and s.tipo in _TIPO_LAY)]
 
     # Ordina: BACK/LAY prima, poi per forza decrescente
     ordine_tipo = {"BACK": 0, "LAY": 1, "INFO_BACK": 2, "INFO_LAY": 3}
@@ -436,6 +477,7 @@ def genera_segnali_avanzati(
     n_shots_tot: int,
     momentum: float,
     model_confidence: float = 1.0,
+    model_agreement: float = 1.0,
 ) -> list[Signal]:
     """
     Genera segnali avanzati con quote exchange, Kelly criterion e EV.
@@ -455,7 +497,7 @@ def genera_segnali_avanzati(
     Returns:
         Lista di Signal con calcoli Kelly/EV completi.
     """
-    soglie = calcola_soglie(minuto, linea_ou, gol_attuali)
+    soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement)
     kelly_frac = calcola_kelly_fraction(minuto, n_shots_tot, model_confidence)
     momentum_factor = max(
         SIGNALS.MOMENTUM_STAKE_FLOOR,
