@@ -124,6 +124,7 @@ class ProbabilitaModello:
     shot_dom: float        # Indice dominio tiri
     momentum: float        # Indice momentum mercato
     flat_lines: bool       # Linee di mercato invariate
+    model_confidence: float = 0.0  # Score [0, 1] di fiducia del modello
 
     # Matrici
     joint_ind: dict[tuple[int, int], float] = field(default_factory=dict)
@@ -186,30 +187,7 @@ def analizza(
         xg_h_accum = xg_a_accum = 0.0
         alpha_t = alpha_d = shot_dom = 0.0
 
-    # 3. Time decay + score effect + rossi
-    xg_h_final, xg_a_final = time_decay_dinamico(
-        xg_h_blend, xg_a_blend,
-        state.minuto,
-        state.gol_casa, state.gol_trasf,
-        state.rossi_casa, state.rossi_trasf,
-    )
-
-    # 4. Matrice bivariata
-    joint_ind, full_matrix, rho = build_bivariate_matrix(
-        xg_h_final, xg_a_final,
-        state.minuto,
-        state.tot_cur,
-        shot_dom=shot_dom,
-        gol_totali=state.gol_casa + state.gol_trasf,
-    )
-
-    # 5. Probabilità mercati
-    p1, px, p2 = calcola_1x2(joint_ind, state.gol_casa, state.gol_trasf)
-    p_under, p_over = calcola_over_under(full_matrix, state.gol_casa + state.gol_trasf, state.linea_ou)
-    p_btts = calcola_btts(full_matrix, state.gol_casa, state.gol_trasf)
-    top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
-
-    # 6. Momentum mercato
+    # 3. Momentum mercato (calcolato PRIMA del time-decay per alimentare lo smorzamento xG)
     # ah_cur è in "gol rimanenti" (conversione full-game già applicata in inputs.py):
     #   ah_cur = ah_cur_full + (gol_casa - gol_trasf)
     # Per il momentum vogliamo il movimento PURO del mercato, eliminando l'effetto
@@ -222,6 +200,43 @@ def analizza(
     delta_tot = tot_cur_full - state.tot_op         # variazione pura del mercato Total
     momentum = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto)
     flat_lines = abs(delta_ah) < BAYES.FLAT_LINE_THRESHOLD and abs(delta_tot) < BAYES.FLAT_LINE_THRESHOLD
+
+    # 4. Time decay + score effect + rossi + momentum dampening
+    xg_h_final, xg_a_final = time_decay_dinamico(
+        xg_h_blend, xg_a_blend,
+        state.minuto,
+        state.gol_casa, state.gol_trasf,
+        state.rossi_casa, state.rossi_trasf,
+        momentum=momentum,
+    )
+
+    # 5. Matrice bivariata
+    joint_ind, full_matrix, rho = build_bivariate_matrix(
+        xg_h_final, xg_a_final,
+        state.minuto,
+        state.tot_cur,
+        shot_dom=shot_dom,
+        gol_totali=state.gol_casa + state.gol_trasf,
+    )
+
+    # 6. Probabilità mercati
+    p1, px, p2 = calcola_1x2(joint_ind, state.gol_casa, state.gol_trasf)
+    p_under, p_over = calcola_over_under(full_matrix, state.gol_casa + state.gol_trasf, state.linea_ou)
+    p_btts = calcola_btts(full_matrix, state.gol_casa, state.gol_trasf)
+    top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
+
+    # 7. Model confidence score [0, 1]
+    # Combina: qualità dati tiri, movimento linee, blend weights, tempo giocato.
+    # Score basso = modello opera su prior, alta incertezza.
+    # Score alto = dati abbondanti, linee attive, blend maturo.
+    import math as _math
+    _shots_conf = min(1.0, n_shots_tot / 15.0)
+    _line_conf = 0.0 if flat_lines else 1.0
+    _blend_conf = (alpha_t + alpha_d) / 2.0 if n_shots_tot > 0 else 0.0
+    _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else 0.0
+    # Media geometrica: se un componente è zero, il confidence è basso
+    _product = max(1e-9, _shots_conf * max(0.01, _line_conf) * max(0.01, _blend_conf) * max(0.01, _time_conf))
+    model_confidence = min(1.0, _product ** 0.25)
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,
@@ -238,6 +253,7 @@ def analizza(
         shot_dom=shot_dom,
         momentum=momentum,
         flat_lines=flat_lines,
+        model_confidence=model_confidence,
         joint_ind=joint_ind,
         full_matrix=full_matrix,
     )

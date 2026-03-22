@@ -70,6 +70,15 @@ class RhoConfig:
     # Riduzione per dominanza tiri: -45% con dominio totale
     SHOT_DOM_REDUCTION: float = 0.45
 
+    # Interazione shot_dom × tempo: early game il dominio tiri è instabile,
+    # late game è predittivo. Floor 0.40 = al minuto 0 solo il 40% dell'effetto.
+    SHOT_DOM_TIME_FLOOR: float = 0.40
+
+    # Interazione shot_dom × totale: in partite aperte (alto totale) il dominio
+    # tiri è meno informativo (entrambe le squadre tirano molto).
+    SHOT_DOM_TOT_CAP: float = 4.5     # tot_cur a cui si raggiunge la riduzione max
+    SHOT_DOM_TOT_REDUCTION: float = 0.50  # riduzione massima del shot_dom
+
     # Floor assoluto di rho
     RHO_MIN: float = 0.02
 
@@ -154,6 +163,12 @@ class TimeDecayConfig:
     # Interazione rosso × tempo rimanente: rosso early → effetto pieno, rosso late → dimezzato
     RED_TIME_FLOOR: float = 0.50     # floor del moltiplicatore temporale (rosso a min 90)
 
+    # Smorzamento xG per momentum estremo: mercati molto volatili segnalano
+    # informazione non catturata → smorzare xG offensivo per evitare falsi edge.
+    MOMENTUM_XG_THRESHOLD: float = 2.5   # sotto questa soglia nessun effetto
+    MOMENTUM_XG_DAMP_RATE: float = 0.05  # riduzione xG per unità di momentum sopra soglia
+    MOMENTUM_XG_DAMP_MAX: float = 0.15   # riduzione massima (15%)
+
     # Floor per xG dopo tutti gli aggiustamenti
     XG_FLOOR: float = 0.001
 
@@ -168,8 +183,10 @@ class BayesianConfig:
     # Peso massimo della linea corrente (fine partita)
     W_CUR_MAX: float = 0.90
 
-    # Velocità di crescita del peso corrente con la frazione giocata
-    W_CUR_SLOPE: float = 0.20
+    # Decadimento esponenziale del peso apertura: le quote d'apertura perdono
+    # valore più rapidamente early game (eventi compound) ma mantengono un residuo.
+    # w_op = 0.35 * exp(-2.5 * frac²) + 0.10 * (1 - frac)
+    W_OP_EXP_RATE: float = 2.5
 
     # Floor della frazione rimanente (evita "ghost goals" in zona recupero)
     FRAC_RIMASTA_FLOOR: float = 0.005
@@ -292,10 +309,17 @@ class SignalConfig:
     OVER_BASE_THRESHOLD: float = 0.58
     OVER_BASE_MIN: float = 0.55
 
-    # Riduzione stake per momentum anomalo
+    # Riduzione stake per momentum anomalo (modulata dall'edge)
     MOMENTUM_STAKE_REDUCTION_RATE: float = 0.10
     MOMENTUM_STAKE_THRESHOLD: float = 2.5
     MOMENTUM_STAKE_FLOOR: float = 0.40
+
+    # Modulazione edge sulla riduzione momentum:
+    # edge forte (>5%) → meno riduzione (il momentum è rumore)
+    # edge debole (<2%) → più riduzione (il momentum è segnale)
+    MOMENTUM_EDGE_STRONG: float = 0.05   # soglia edge "forte"
+    MOMENTUM_EDGE_AMPLIFY: float = 0.50  # amplificazione per edge debole
+    MOMENTUM_EDGE_DAMPEN: float = 0.30   # smorzamento per edge forte
 
     # Late-game LAY Over: abilitato solo dopo questo minuto con gol mancanti sufficienti.
     # Il LAY Over è normalmente disabilitato per evitare duplicati con BACK Under,

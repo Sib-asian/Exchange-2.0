@@ -65,6 +65,7 @@ def time_decay_dinamico(
     gol_trasf: int,
     rossi_casa: int,
     rossi_trasf: int,
+    momentum: float = 0.0,
 ) -> tuple[float, float]:
     """
     Aggiustamenti tattico-comportamentali sugli xG proiettati al tempo rimanente.
@@ -150,5 +151,14 @@ def time_decay_dinamico(
         boost_eff = 1.0 + (DECAY.RED_BOOST[idx] - 1.0) * red_time_mult
         xg_t *= decay_eff * DECAY.RED_AWAY_PENALTY
         xg_c *= boost_eff * DECAY.RED_HOME_BOOST
+
+    # 3. Smorzamento xG per momentum estremo
+    # Mercati molto volatili (momentum > 2.5) segnalano informazione non catturata
+    # dal modello → smorzare xG per evitare falsi edge in mercati instabili.
+    if momentum > DECAY.MOMENTUM_XG_THRESHOLD:
+        excess = momentum - DECAY.MOMENTUM_XG_THRESHOLD
+        damp = 1.0 - min(DECAY.MOMENTUM_XG_DAMP_MAX, excess * DECAY.MOMENTUM_XG_DAMP_RATE)
+        xg_c *= damp
+        xg_t *= damp
 
     return max(DECAY.XG_FLOOR, xg_c), max(DECAY.XG_FLOOR, xg_t)
