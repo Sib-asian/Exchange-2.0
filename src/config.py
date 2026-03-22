@@ -99,14 +99,18 @@ class ShotConfig:
     # Peso massimo dei tiri sul Differenziale (più informativo del mercato)
     ALPHA_D_MAX: float = 0.70
 
-    # Smorzamento proiezione tiri: a inizio partita il campione è piccolo,
-    # il tasso osservato sovrastima il ritmo effettivo per regressione alla media.
-    # 0.85 → 15% di riduzione early, 0% a fine partita (campione ≈ universo).
-    RATE_DAMP_BASE: float = 0.85
+    # Smorzamento proiezione tiri: curva esponenziale (regressione alla media)
+    # 0.75 a inizio partita → 1.0 a fine (campione ≈ universo).
+    # Decay rate 2.0: converge rapidamente dopo il 30' (campione affidabile).
+    RATE_DAMP_FLOOR: float = 0.75
+    RATE_DAMP_DECAY: float = 2.0
 
-    # Correzione game-state sulla qualità: +7% per gol di vantaggio, cap 15%
-    GAME_STATE_RATE: float = 0.07
-    GAME_STATE_CAP: float = 0.15
+    # Correzione game-state differenziata per tipo di tiro
+    # SOT (in porta): +10% per gol di vantaggio (contropiede di qualità)
+    # SOFF (fuori porta): +3% (pressing disperato, bassa qualità)
+    GAME_STATE_RATE_SOT: float = 0.10
+    GAME_STATE_RATE_SOFF: float = 0.03
+    GAME_STATE_CAP: float = 0.20
 
 
 @dataclass(frozen=True)
@@ -128,6 +132,16 @@ class TimeDecayConfig:
     # Floor scale temporale (fine partita)
     SCORE_MINUTE_SCALE_FLOOR: float = 0.30
 
+    # Asimmetria score effect (Brechot & Flepp 2020, Robberechts 2021):
+    # la squadra in svantaggio preme con tiri di bassa qualità (pressing disperato),
+    # mentre la squadra in vantaggio mantiene qualità ma riduce volume.
+    SCORE_DOWN_MULTIPLIER: float = 0.65   # squadra in svantaggio: meno boost (pressing bassa qualità)
+    SCORE_UP_MULTIPLIER: float = 1.15     # squadra in vantaggio: mantiene qualità difensiva
+
+    # Goal intensity: il residuo cala in partite ad alto punteggio
+    # (l'AH live ha già incorporato la volatilità, il residuo cattura solo il delta)
+    SCORE_GOAL_INTENSITY_SCALE: float = 0.25  # riduzione per ogni gol segnato (cap a 4)
+
     # Cartellini rossi — effetto marginale decrescente (Brechot & Flepp 2020)
     # Tabella precalcolata: indice = numero di rossi (0-4)
     RED_DECAY: tuple = (1.000, 0.680, 0.578, 0.532, 0.500)
@@ -136,6 +150,9 @@ class TimeDecayConfig:
     # Asimmetria home/away per cartellini rossi (~5% più grave in trasferta)
     RED_AWAY_PENALTY: float = 0.95   # moltiplicatore decay extra per la trasferta
     RED_HOME_BOOST: float = 1.04     # boost aggiuntivo per la casa
+
+    # Interazione rosso × tempo rimanente: rosso early → effetto pieno, rosso late → dimezzato
+    RED_TIME_FLOOR: float = 0.50     # floor del moltiplicatore temporale (rosso a min 90)
 
     # Floor per xG dopo tutti gli aggiustamenti
     XG_FLOOR: float = 0.001
@@ -197,8 +214,10 @@ class KellyConfig:
     # Frazione Kelly base (50% = half-Kelly)
     KELLY_BASE_FRACTION: float = 0.50
 
-    # Riduzione late-game (>75')
+    # Riduzione late-game: graduale da KELLY_LATE_START a 90'
+    # (no cliff-edge: la riduzione cresce linearmente nel range)
     KELLY_LATE_GAME_REDUCTION: float = 0.10
+    KELLY_LATE_START: int = 65   # inizio riduzione graduale
 
     # Riduzione senza dati tiri live
     KELLY_NO_SHOTS_REDUCTION: float = 0.05
