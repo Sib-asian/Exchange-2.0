@@ -313,12 +313,27 @@ class SignalConfig:
     SOGLIA_LAY_MAX: float = 0.35
     LAY_MIN_FAIR_Q: float = 1.30
 
-    # Soglia per BTTS No (strutturalmente più probabile di Sì)
-    SOGLIA_BTTS_NO_BASE: float = 0.45
-    SOGLIA_BTTS_NO_MIN: float = 0.50
+    # Soglia per BTTS No (strutturalmente più probabile di Sì).
+    # Con 0.45/0.50, il segnale scattava anche con BTTS quasi 50/50 → troppo basso.
+    # Con 0.55/0.60, richiede che BTTS No sia chiaramente dominante.
+    SOGLIA_BTTS_NO_BASE: float = 0.55
+    SOGLIA_BTTS_NO_MIN: float = 0.60
 
-    # Quota fair minima per mostrare un segnale rapido (evento quasi certo: skip)
-    QUICK_SIGNAL_MIN_FAIR_Q: float = 1.15
+    # Quota fair minima per mostrare un segnale rapido.
+    # Portato a 1.25 (da 1.15) per coerenza con la soglia degli avanzati:
+    # eventi con P > 80% (q_fair < 1.25) sono già troppo prezzati per trovare value.
+    QUICK_SIGNAL_MIN_FAIR_Q: float = 1.25
+
+    # Confidenza minima del modello per mostrare qualsiasi segnale.
+    # Sotto questa soglia la calibrazione non è affidabile (linee stantie, assenza dati tiri,
+    # modelli in forte disaccordo) → nessun segnale, solo avviso.
+    MIN_CONFIDENCE_FOR_SIGNALS: float = 0.45
+
+    # Penalità sulle soglie quando i modelli sono in disaccordo.
+    # model_agreement < MODEL_AGREEMENT_LOW → le soglie salgono fino a +PENALTY_MAX.
+    # Esempio: agreement=0.40, low=0.60 → penalty = (0.60-0.40)/0.60 × 0.08 = 2.7%
+    MODEL_AGREEMENT_LOW: float = 0.60
+    MODEL_AGREEMENT_PENALTY_MAX: float = 0.08
 
     # Soglia qualitativa senza quota exchange
     SOGLIA_QUALITATIVA_BASE: float = 0.60

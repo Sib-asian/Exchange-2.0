@@ -107,6 +107,8 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         risultati.p_over, risultati.p_under,
         risultati.p_btts,
         state.minuto, linea_ou, gol_attuali,
+        model_confidence=risultati.model_confidence,
+        model_agreement=risultati.model_agreement,
     )
 
     # Mostra mercati chiusi prima dei segnali
@@ -144,6 +146,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         bankroll, comm_rate, n_shots_tot,
         risultati.momentum,
         model_confidence=risultati.model_confidence,
+        model_agreement=risultati.model_agreement,
     )
 
     # Filtra segnali avanzati per mercati già chiusi (stessa logica dei rapidi)
