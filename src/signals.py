@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.config import KELLY, SIGNALS
+from src.engine import ExchangeQuotes  # noqa: F401 — used in type annotations
 from src.models.kelly import (
     calcola_edge_back,
     calcola_edge_lay,
@@ -302,7 +303,7 @@ def genera_segnali_avanzati(
     prob_over: float,
     prob_under: float,
     prob_btts: float,
-    quotes: ExchangeQuotes,  # noqa: F821
+    quotes: ExchangeQuotes,
     minuto: int,
     linea_ou: float,
     gol_attuali: int,

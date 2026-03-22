@@ -158,6 +158,12 @@ class BayesianConfig:
     # Soglia delta per considerare le linee "flat" (non applicare il blend)
     FLAT_LINE_THRESHOLD: float = 1e-6
 
+    # Cap rapporto xG: se max(xg_h,xg_a)/min(xg_h,xg_a) > XG_RATIO_CAP,
+    # blend verso approssimazione lineare per evitare split estremi a fine partita.
+    # 5:1 scelto come compromesso: permette split plausibili (70%-30% del totale)
+    # ma evita rapporti >10:1 irrealistici quando tot_bayes < 0.5.
+    XG_RATIO_CAP: float = 5.0
+
 
 @dataclass(frozen=True)
 class MomentumConfig:
