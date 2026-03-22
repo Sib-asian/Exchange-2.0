@@ -17,7 +17,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from typing import Any
 
-# Formattatore JSON personalizzato
+
 class JSONFormatter(logging.Formatter):
     """Formattatore che produce log in formato JSON."""
 
