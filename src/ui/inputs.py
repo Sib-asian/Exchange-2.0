@@ -168,25 +168,30 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
     # Questo previene risultati sbagliati quando l'utente cambia minuto/punteggio
     # ma dimentica di aggiornare le linee live.
 
+    # FIX: Lista errori BLOCCANTI (non solo warning)
+    blocking_errors: list[str] = []
+
     if minuto > 0:
         mins_rem = max(1, 90 - minuto)
         tot_cap = max(BAYES.TOT_BAYES_MIN, mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
 
         if tot_cur > tot_cap * INPUT_VALIDATION.TOT_VALIDATION_MULTIPLIER:
             # ERRORE BLOCCANTE: tot_cur troppo alto per il minuto
+            blocking_errors.append(
+                f"LINEE NON AGGIORNATE: Totale rimanenti {tot_cur:.2f} è impossibile al minuto {minuto}' "
+                f"(massimo realistico: {tot_cap:.2f}). Aggiorna le linee live dall'exchange!"
+            )
+            # Mostra suggerimento
             st.error(
-                f"⛔ **LINEE NON AGGIORNATE!**\n\n"
+                f"⛔ **BLOCCANTE**: Linee non aggiornate!\n\n"
                 f"Hai inserito **{tot_cur:.2f} gol rimanenti** al minuto **{minuto}'**, "
                 f"ma il massimo realistico è **~{tot_cap:.2f} gol**.\n\n"
                 f"**Devi aggiornare le linee live dall'exchange!**\n\n"
                 f"Suggerimento: al {minuto}' rimangono ~{mins_rem} minuti, "
-                f"quindi cerca linee Total intorno a **{tot_cap:.1f}** gol rimanenti."
+                f"cerca linee Total intorno a **{tot_cap:.1f}** gol rimanenti."
             )
             validation_errors.append(f"tot_cur={tot_cur:.2f} > tot_cap={tot_cap:.2f} al minuto {minuto}")
 
-            # Pulsante auto-correzione
-            if st.button("🔧 Auto-correggi Total", help=f"Imposta Total a {tot_cap:.2f} gol rimanenti"):
-                st.rerun()  # Forza refresh - l'utente dovrà inserire il valore corretto
         elif tot_cur > tot_cap * INPUT_VALIDATION.TOT_VALIDATION_WARNING:
             # WARNING: tot_cur sospettosamente alto
             st.warning(
@@ -196,13 +201,30 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
 
     # Fix #3.2: Validazione AH con buffer dal config
     if abs(ah_cur) > tot_cur + INPUT_VALIDATION.AH_VALIDATION_BUFFER:
+        blocking_errors.append(
+            f"AH impossibile: |{ah_cur:.2f}| > Total {tot_cur:.2f}"
+        )
         st.error(
-            f"⛔ **AH impossibile!**\n\n"
+            f"⛔ **AH IMPOSSIBILE!**\n\n"
             f"Hai inserito AH = **{ah_cur:+.2f}** con Total = **{tot_cur:.2f}**.\n\n"
             f"L'handicap non può superare il totale dei gol attesi. "
             f"Verifica i valori inseriti."
         )
         validation_errors.append(f"|ah_cur|={abs(ah_cur):.2f} > tot_cur={tot_cur:.2f}")
+
+    # FIX: Validazione AH vs punteggio attuale
+    # Se il punteggio è cambiato ma AH non si è mosso, probabile errore utente
+    if (minuto >= INPUT_VALIDATION.AH_SCORE_MOVE_MINUTE
+            and gol_casa + gol_trasf > 0 and fullgame_mode):
+        # In modalità full-game, se AH è uguale all'apertura ma ci sono gol,
+        # l'utente probabilmente non ha aggiornato
+        ah_expected_move = abs(ah_cur_raw - ah_op)
+        if ah_expected_move < INPUT_VALIDATION.AH_SCORE_MOVE_THRESHOLD:
+            st.warning(
+                f"⚠️ **Possibile AH non aggiornato**: Ci sono gol ({gol_casa}-{gol_trasf}) ma "
+                f"AH corrente ({ah_cur_raw:+.2f}) è ancora uguale all'apertura ({ah_op:+.2f}). "
+                f"Verifica le linee live."
+            )
 
     return {
         "ah_op":        ah_op,
@@ -212,6 +234,7 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
         "fullgame_mode": fullgame_mode,
         "tot_cur_raw":  tot_cur_raw,   # valore grezzo pre-conversione (per OU default)
         "validation_errors": validation_errors,  # errori di validazione (vuoto = OK)
+        "blocking_errors": blocking_errors,      # FIX: errori bloccanti
     }
 
 

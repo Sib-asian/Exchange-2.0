@@ -319,10 +319,12 @@ class SignalConfig:
 
     # Edge netto minimo per BACK (dopo commissione) — baseline con confidenza piena.
     # Con confidenza bassa viene scalato dinamicamente: vedi MIN_EDGE_CONF_BOOST.
-    MIN_EDGE_BACK: float = 0.030
+    # Aumentato da 0.030 a 0.040 per ridurre falsi positivi e segnali quasi identici.
+    MIN_EDGE_BACK: float = 0.040
 
     # Edge netto minimo per LAY (rischio asimmetrico)
-    MIN_EDGE_LAY: float = 0.040
+    # Aumentato da 0.040 a 0.050 per maggiore cautela sui lay.
+    MIN_EDGE_LAY: float = 0.050
 
     # Boost sull'edge minimo quando il modello ha bassa confidenza.
     # Sotto MIN_CONFIDENCE_FOR_SIGNALS (0.45) gli avanzati vengono soppressi.
@@ -346,19 +348,40 @@ class SignalConfig:
     MARGINE_RAPIDO: float = 0.06
 
     # Soglia prob minima per segnali rapidi BACK (cresce col tempo)
-    SOGLIA_BACK_MIN: float = 0.55
-    SOGLIA_BACK_BASE: float = 0.50
-    SOGLIA_BACK_SLOPE: float = 0.10
+    # Aumentate per ridurre segnali quasi identici tra mercati diversi.
+    SOGLIA_BACK_MIN: float = 0.58      # Aumentato da 0.55
+    SOGLIA_BACK_BASE: float = 0.52     # Aumentato da 0.50
+    SOGLIA_BACK_SLOPE: float = 0.08    # Ridotto da 0.10 per crescita più graduale
 
     # Soglia prob massima per segnali rapidi LAY
-    SOGLIA_LAY_MAX: float = 0.35
-    LAY_MIN_FAIR_Q: float = 1.30
+    # Ridotta da 0.35 a 0.30 per essere più selettivi.
+    SOGLIA_LAY_MAX: float = 0.30
+    LAY_MIN_FAIR_Q: float = 1.35       # Aumentato da 1.30
 
     # Soglia per BTTS No (strutturalmente più probabile di Sì).
     # Con 0.45/0.50, il segnale scattava anche con BTTS quasi 50/50 → troppo basso.
     # Con 0.55/0.60, richiede che BTTS No sia chiaramente dominante.
     SOGLIA_BTTS_NO_BASE: float = 0.55
     SOGLIA_BTTS_NO_MIN: float = 0.60
+
+    # FIX: Soglie differenziate per mercato 1X2 vs O/U vs BTTS
+    # Ogni mercato ha caratteristiche diverse e merita soglie dedicate.
+    # 1X2: tre esiti, soglia base
+    # Over/Under: due esiti, richiede probabilità più alta
+    # BTTS Sì: richiede che ENTRAMBE le squadre segnino → più incerto → soglia più alta
+    SOGLIA_1X2_OFFSET: float = 0.00      # Nessun offset per 1X2 (usa base)
+    SOGLIA_OU_OFFSET: float = 0.03       # +3% per Over/Under (due esiti)
+    SOGLIA_BTTS_OFFSET: float = 0.05     # +5% per BTTS (più volatile)
+
+    # FIX: Distanza minima tra quote fair di segnali diversi
+    # Evita di raccomandare segnali con quote quasi identiche.
+    # Esempio: se BACK 1 ha fair @1.80 e BACK Over ha fair @1.82, sono troppo simili.
+    MIN_QUOTE_DISTANCE: float = 0.15     # Differenza minima tra quote fair
+
+    # FIX: Numero massimo di segnali rapidi da mostrare
+    # Ridotto da illimitato a 3 per evitare confusione.
+    MAX_SEGNALI_RAPIDI: int = 3
+    MAX_SEGNALI_AVANZATI: int = 3
 
     # Quota fair minima per mostrare un segnale rapido.
     # Portato a 1.25 (da 1.15) per coerenza con la soglia degli avanzati:
@@ -420,6 +443,17 @@ class SignalConfig:
     # Incoerenza Over + BTTS No: soglie
     OVER_BTTS_INCOHERENCE_OVER: float = 0.50
     OVER_BTTS_INCOHERENCE_BTTS: float = 0.35
+
+    # FIX: Boost BTTS quando una squadra ha già segnato
+    # Se una squadra ha segnato, BTTS Sì diventa più probabile.
+    # Il boost è applicato solo se gol_casa > 0 XOR gol_trasf > 0.
+    BTTS_ONE_GOAL_BOOST: float = 0.08     # +8% se esattamente una squadra ha segnato
+    BTTS_TWO_GOAL_BOOST: float = 0.05     # +5% extra se entrambe hanno segnato (BTTS già vinto)
+
+    # FIX: Gestione recovery time (minuti > 90)
+    # Il modello continua a funzionare ma con warning
+    RECOVERY_TIME_WARNING: int = 90       # Mostra warning dopo questo minuto
+    RECOVERY_TIME_HARD_CAP: int = 120     # Blocca l'analisi dopo questo minuto
 
 
 @dataclass(frozen=True)
@@ -621,8 +655,14 @@ class InputValidationConfig:
     # AH_VALIDATION_BUFFER=0.5: permette piccolo buffer per errori di arrotondamento
     AH_VALIDATION_BUFFER: float = 0.5
 
-    # Floor per tot_cur (gol rimanenti minimi plausibili)
-    # Usa BAYES.TOT_BAYES_MIN = 0.20 invece di hardcoded 0.10
+    # FIX: Validazione AH vs punteggio attuale
+    # Se il punteggio è cambiato ma AH è rimasto identico all'apertura, probabile errore.
+    AH_SCORE_MOVE_THRESHOLD: float = 0.10  # Movimento minimo AH dopo gol
+    AH_SCORE_MOVE_MINUTE: int = 10          # Minuto minimo per check
+
+    # FIX: Errori bloccanti vs warning
+    # I dati palesemente sbagliati bloccano l'analisi invece di mostrare solo warning.
+    BLOCK_ON_CRITICAL_ERRORS: bool = True
 
 
 # Istanze globali immutabili — importare da qui

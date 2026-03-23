@@ -75,7 +75,7 @@ def calcola_soglie(
     - 1X2: soglia base
     - BTTS Sì: +5% rispetto a 1X2 (mercato più volatile)
     - BTTS No: +3% rispetto a 1X2
-    - Over/Under: soglia base OU
+    - Over/Under: soglia base OU + offset dedicato
 
     Quando i modelli sono in disaccordo (model_agreement < MODEL_AGREEMENT_LOW),
     le soglie vengono alzate fino a MODEL_AGREEMENT_PENALTY_MAX per ridurre i
@@ -94,7 +94,10 @@ def calcola_soglie(
     frac = minuto / 90.0
     frac_sqrt = math.sqrt(frac) if frac > 0 else 0.0
     base_1x2 = max(SIGNALS.SOGLIA_BACK_MIN, SIGNALS.SOGLIA_BACK_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt)
-    base_ou = max(SIGNALS.OVER_BASE_MIN, SIGNALS.OVER_BASE_THRESHOLD + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt)
+
+    # FIX: Soglie OU con offset dedicato per diversificare da 1X2
+    base_ou = max(SIGNALS.OVER_BASE_MIN,
+                  SIGNALS.OVER_BASE_THRESHOLD + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt + SIGNALS.SOGLIA_OU_OFFSET)
 
     # Penalità disaccordo modelli: se agreement < LOW, le soglie salgono linearmente.
     # Formula: penalty = max(0, (LOW - agreement) / LOW) × PENALTY_MAX
@@ -110,15 +113,16 @@ def calcola_soglie(
     gol_mancanti = max(0.0, linea_ou - gol_attuali)
     ou_gol_bonus = min(SIGNALS.OVER_GOL_BONUS_CAP, max(0.0, (gol_mancanti - 1.0) * SIGNALS.OVER_GOL_BONUS_RATE))
 
-    # FIX: Soglie DIVERSIFICATE per mercato
+    # FIX: Soglie DIVERSIFICATE per mercato con offset configurabili
     # BTTS Sì richiede che ENTRAMBE le squadre segnino → più difficile → soglia +5%
     # BTTS No è più probabile ma anche più soggetto a varianza → soglia +3%
+    # Over/Under hanno il loro offset dedicato (SOGLIA_OU_OFFSET)
     return {
-        "1x2":      base_1x2 + agreement_penalty,
-        "btts_si":  base_1x2 + 0.05 + agreement_penalty,  # FIX: +5% per BTTS Sì
+        "1x2":      base_1x2 + agreement_penalty + SIGNALS.SOGLIA_1X2_OFFSET,
+        "btts_si":  base_1x2 + SIGNALS.SOGLIA_BTTS_OFFSET + agreement_penalty,
         "btts_no":  max(SIGNALS.SOGLIA_BTTS_NO_MIN,
                         SIGNALS.SOGLIA_BTTS_NO_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt
-                        + 0.03 + agreement_penalty),  # FIX: +3% aggiuntivo
+                        + 0.03 + agreement_penalty),
         "ou_over":  base_ou + ou_gol_bonus + agreement_penalty,
         "ou_under": base_ou + agreement_penalty,
         "gol_mancanti": gol_mancanti,
@@ -223,7 +227,7 @@ _TIPO_LAY  = {"LAY", "INFO_LAY"}
 
 def _filtra_segnali_coerenti(segnali: list[Signal]) -> list[Signal]:
     """
-    Applica tre livelli di filtro per eliminare segnali contraddittori o ridondanti.
+    Applica quattro livelli di filtro per eliminare segnali contraddittori o ridondanti.
 
     Regola 1 — Esclusività mutua 1X2:
         Solo il miglior segnale BACK tra 1/X/2 sopravvive.
@@ -240,7 +244,15 @@ def _filtra_segnali_coerenti(segnali: list[Signal]) -> list[Signal]:
         - BACK Under + BACK BTTS Sì → incoerente (BTTS richiede ≥2 gol,
           difficile compatibile con Under 2.5 o meno). Rimuove il più debole.
 
-    Ordine finale: segnali ordinati per edge decrescente (migliori prima).
+    Regola 4 — LAY X ridondante con BACK 1 o BACK 2:
+        LAY X (banca contro il pareggio) è direzionalmente identico a BACK 1/2.
+
+    Regola 5 — Distanza minima tra quote (FIX):
+        Se due segnali hanno quote fair troppo simili (< MIN_QUOTE_DISTANCE),
+        tieni solo quello con edge/probabilità maggiore.
+
+    Ordine finale: segnali ordinati per edge decrescente (migliori prima),
+    limitati a MAX_SEGNALI_RAPIDI o MAX_SEGNALI_AVANZATI.
     """
     if not segnali:
         return segnali
@@ -311,10 +323,38 @@ def _filtra_segnali_coerenti(segnali: list[Signal]) -> list[Signal]:
         segnali = [s for s in segnali
                    if not (s.mercato == "X Pareggio" and s.tipo in _TIPO_LAY)]
 
+    # ── Regola 5 (FIX): Distanza minima tra quote fair ──────────────────────
+    # Se due segnali hanno quote fair troppo vicine, uno è ridondante.
+    segnali_sorted = sorted(segnali, key=_forza, reverse=True)
+    filtered: list[Signal] = []
+    for s in segnali_sorted:
+        is_close = False
+        for existing in filtered:
+            if abs(s.quota_fair - existing.quota_fair) < SIGNALS.MIN_QUOTE_DISTANCE:
+                # Quote troppo vicine → salta il più debole (s)
+                is_close = True
+                break
+        if not is_close:
+            filtered.append(s)
+    segnali = filtered
+
     # Ordina: BACK/LAY prima, poi per forza decrescente
     ordine_tipo = {"BACK": 0, "LAY": 1, "INFO_BACK": 2, "INFO_LAY": 3}
     segnali.sort(key=lambda s: (ordine_tipo.get(s.tipo, 9), -_forza(s)))
-    return segnali
+
+    # FIX: Limita il numero di segnali
+    # Conta quanti sono rapidi (INFO_*) vs avanzati (BACK/LAY)
+    rapidi = [s for s in segnali if s.tipo in ("INFO_BACK", "INFO_LAY")]
+    avanzati = [s for s in segnali if s.tipo in ("BACK", "LAY")]
+
+    # Se ci sono solo rapidi, limita a MAX_SEGNALI_RAPIDI
+    if rapidi and not avanzati:
+        return rapidi[:SIGNALS.MAX_SEGNALI_RAPIDI]
+    # Se ci sono avanzati, limita a MAX_SEGNALI_AVANZATI
+    elif avanzati:
+        return segnali[:SIGNALS.MAX_SEGNALI_AVANZATI]
+    else:
+        return segnali
 
 
 # ---------------------------------------------------------------------------
