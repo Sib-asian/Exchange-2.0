@@ -70,6 +70,13 @@ def calcola_soglie(
     Le soglie crescono col tempo per compensare la riduzione di incertezza
     e i costi di spread più elevati nelle fasi avanzate della partita.
 
+    IMPORTANTE: Ogni mercato ha soglie DIVERSE per evitare raccomandazioni
+    identiche. Le soglie sono diversificate per:
+    - 1X2: soglia base
+    - BTTS Sì: +5% rispetto a 1X2 (mercato più volatile)
+    - BTTS No: +3% rispetto a 1X2
+    - Over/Under: soglia base OU
+
     Quando i modelli sono in disaccordo (model_agreement < MODEL_AGREEMENT_LOW),
     le soglie vengono alzate fino a MODEL_AGREEMENT_PENALTY_MAX per ridurre i
     falsi positivi: se tre modelli indipendenti danno stime molto diverse,
@@ -103,12 +110,15 @@ def calcola_soglie(
     gol_mancanti = max(0.0, linea_ou - gol_attuali)
     ou_gol_bonus = min(SIGNALS.OVER_GOL_BONUS_CAP, max(0.0, (gol_mancanti - 1.0) * SIGNALS.OVER_GOL_BONUS_RATE))
 
+    # FIX: Soglie DIVERSIFICATE per mercato
+    # BTTS Sì richiede che ENTRAMBE le squadre segnino → più difficile → soglia +5%
+    # BTTS No è più probabile ma anche più soggetto a varianza → soglia +3%
     return {
         "1x2":      base_1x2 + agreement_penalty,
-        "btts_si":  base_1x2 + agreement_penalty,
+        "btts_si":  base_1x2 + 0.05 + agreement_penalty,  # FIX: +5% per BTTS Sì
         "btts_no":  max(SIGNALS.SOGLIA_BTTS_NO_MIN,
                         SIGNALS.SOGLIA_BTTS_NO_BASE + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt
-                        + agreement_penalty),
+                        + 0.03 + agreement_penalty),  # FIX: +3% aggiuntivo
         "ou_over":  base_ou + ou_gol_bonus + agreement_penalty,
         "ou_under": base_ou + agreement_penalty,
         "gol_mancanti": gol_mancanti,

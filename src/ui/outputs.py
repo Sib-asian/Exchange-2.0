@@ -614,6 +614,16 @@ def render_avvisi_affidabilita(
         )
 
 
+def render_lines_need_update(risultati: "ProbabilitaModello") -> None:
+    """Render avviso se le linee sembrano non aggiornate dopo i gol."""
+    if risultati.lines_need_update:
+        st.error(
+            "🚨 **ATTENZIONE**: Le linee di mercato sembrano NON AGGIORNATE! "
+            f"Sono stati segnati gol ma AH e Total sono ancora ai valori d'apertura. "
+            "**Aggiorna le linee live** per ottenere previsioni accurate."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Avvisi incoerenza
 # ---------------------------------------------------------------------------

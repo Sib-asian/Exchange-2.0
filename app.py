@@ -33,6 +33,7 @@ from src.ui.outputs import (
     render_confidence_bands,
     render_correct_score,
     render_debug,
+    render_lines_need_update,
     render_mercati_chiusi,
     render_model_confidence,
     render_momentum,
@@ -89,6 +90,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     n_shots_tot = sum(shots)
     gol_attuali = state.gol_casa + state.gol_trasf  # recompute from validated state
+
+    # ── Verifica linee non aggiornate (FIX) ───────────────────────────────────
+    render_lines_need_update(risultati)
 
     # ── Quote Fair ───────────────────────────────────────────────────────────
     render_quote_fair(risultati, state.minuto, state.gol_casa, state.gol_trasf, linea_ou)
