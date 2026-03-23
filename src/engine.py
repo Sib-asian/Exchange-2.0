@@ -148,7 +148,7 @@ class ProbabilitaModello:
     market_divergence: float = 0.0 # Divergenza modello-mercato (proxy Brier)
     delta_ah: float = 0.0          # Variazione pura AH (market movement)
     delta_tot: float = 0.0         # Variazione pura Total (market movement)
-    
+
     # FIX: Campo per indicare linee probabilmente non aggiornate
     # True se ci sono gol ma le linee sembrano ancora quelle d'apertura
     lines_need_update: bool = False
@@ -330,16 +330,16 @@ def analizza(
     tot_cur_full = state.tot_cur + gol_tot_scored   # ripristina il totale full-game
     delta_ah = ah_cur_full - state.ah_op            # variazione pura del mercato AH
     delta_tot = tot_cur_full - state.tot_op         # variazione pura del mercato Total
-    
+
     # FIX: Il momentum deve riflettere ANCHE l'attività della partita!
     # Se ci sono gol ma le linee non si sono mosse, c'è comunque "momentum"
     # perché il mercato sta reagendo (o dovrebbe reagire).
     # Aggiungiamo un "momentum da gol" che aumenta con i gol segnati.
     momentum_from_goals = min(1.5, gol_tot_scored * 0.3) if gol_tot_scored > 0 else 0.0
-    
+
     momentum = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto) + momentum_from_goals
     momentum = min(momentum, MOMENTUM.MOMENTUM_CAP)  # Rispetta il cap
-    
+
     flat_lines = abs(delta_ah) < BAYES.FLAT_LINE_THRESHOLD and abs(delta_tot) < BAYES.FLAT_LINE_THRESHOLD
 
     # 4. Time decay + score effect + rossi + momentum dampening
