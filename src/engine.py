@@ -149,6 +149,10 @@ class ProbabilitaModello:
     delta_ah: float = 0.0          # Variazione pura AH (market movement)
     delta_tot: float = 0.0         # Variazione pura Total (market movement)
 
+    # FIX: Campo per indicare linee probabilmente non aggiornate
+    # True se ci sono gol ma le linee sembrano ancora quelle d'apertura
+    lines_need_update: bool = False
+
     # Intervalli di credibilità multi-modello
     credible_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
 
@@ -271,7 +275,7 @@ def analizza(
     Returns:
         ProbabilitaModello con tutte le probabilità e i parametri interni.
     """
-    from src.config import CMP, CONSENSUS, COPULA, STALE, UI
+    from src.config import CMP, CONSENSUS, COPULA, MOMENTUM, STALE, UI
     from src.markets.result import calcola_correct_score
     from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
     from src.models.consensus import (
@@ -326,7 +330,16 @@ def analizza(
     tot_cur_full = state.tot_cur + gol_tot_scored   # ripristina il totale full-game
     delta_ah = ah_cur_full - state.ah_op            # variazione pura del mercato AH
     delta_tot = tot_cur_full - state.tot_op         # variazione pura del mercato Total
-    momentum = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto)
+
+    # FIX: Il momentum deve riflettere ANCHE l'attività della partita!
+    # Se ci sono gol ma le linee non si sono mosse, c'è comunque "momentum"
+    # perché il mercato sta reagendo (o dovrebbe reagire).
+    # Aggiungiamo un "momentum da gol" che aumenta con i gol segnati.
+    momentum_from_goals = min(1.5, gol_tot_scored * 0.3) if gol_tot_scored > 0 else 0.0
+
+    momentum = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto) + momentum_from_goals
+    momentum = min(momentum, MOMENTUM.MOMENTUM_CAP)  # Rispetta il cap
+
     flat_lines = abs(delta_ah) < BAYES.FLAT_LINE_THRESHOLD and abs(delta_tot) < BAYES.FLAT_LINE_THRESHOLD
 
     # 4. Time decay + score effect + rossi + momentum dampening
@@ -477,6 +490,11 @@ def analizza(
     # Fix #6.4: Usa parametro dal config per la radice
     model_confidence = min(1.0, _product ** ENGINE.CONFIDENCE_ROOT_POWER)
 
+    # FIX: Rileva se le linee sembrano non aggiornate dopo i gol
+    # Se ci sono gol segnati ma le linee sono ancora "flat" (uguale all'apertura),
+    # l'utente probabilmente ha dimenticato di aggiornarle.
+    lines_need_update = flat_lines and gol_tot_scored > 0 and state.minuto >= 15
+
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,
         p_under=p_under, p_over=p_over,
@@ -500,4 +518,5 @@ def analizza(
         full_matrix=full_matrix,
         delta_ah=delta_ah,
         delta_tot=delta_tot,
+        lines_need_update=lines_need_update,
     )
