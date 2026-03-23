@@ -166,33 +166,33 @@ def _build_consensus_matrix(
 ) -> dict[tuple[int, int], float]:
     """
     Costruisce la matrice consensus come media pesata delle 3 matrici.
-    
+
     Fix #2.7: Funzione helper per evitare duplicazione di codice.
     Usata per coerenza con le probabilità 1X2/OU/BTTS del consensus.
-    
+
     Args:
         full_bp: Matrice dal modello bivariate Poisson + DC.
         full_copula: Matrice dal modello CMP + Frank copula.
         full_markov: Matrice dal Markov chain score-state.
         w_bp, w_cop, w_mk: Pesi dei modelli (somma = 1).
-    
+
     Returns:
         Matrice consensus normalizzata.
     """
     all_keys = set(full_bp.keys()) | set(full_copula.keys()) | set(full_markov.keys())
     consensus: dict[tuple[int, int], float] = {}
-    
+
     for key in all_keys:
         p = (w_bp * full_bp.get(key, 0.0)
              + w_cop * full_copula.get(key, 0.0)
              + w_mk * full_markov.get(key, 0.0))
         if p > 0:
             consensus[key] = p
-    
+
     total = sum(consensus.values())
     if total > 0:
         consensus = {k: v / total for k, v in consensus.items()}
-    
+
     return consensus
 
 
@@ -219,7 +219,7 @@ def analizza(
     Returns:
         ProbabilitaModello con tutte le probabilità e i parametri interni.
     """
-    from src.config import BAYES, CMP, CONSENSUS, COPULA, STALE, UI
+    from src.config import CMP, CONSENSUS, COPULA, STALE, UI
     from src.markets.result import calcola_correct_score
     from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
     from src.models.consensus import (
@@ -297,7 +297,7 @@ def analizza(
     # Fix #2.3: Calcola rho_dc una sola volta e passa ai modelli che lo usano
     from src.models.poisson import rho_dc_dinamico as _calc_rho_dc
     _rho_dc_shared = _calc_rho_dc(tot_cur_eff, state.minuto, state.gol_casa + state.gol_trasf)
-    
+
     joint_ind, full_bp, rho = build_bivariate_matrix(
         xg_h_final, xg_a_final,
         state.minuto,
@@ -368,9 +368,9 @@ def analizza(
         # Baseline line-only: le linee di mercato sono l'unica fonte di informazione.
         # Fix #4.1/#4.5: Usa parametri dal config invece di hardcoded
         _shots_conf = ENGINE.PREMATCH_SHOTS_CONF
-        _blend_conf = max(ENGINE.BLEND_CONF_STALE, 
-                          (ENGINE.BLEND_CONF_STALE if stale_line 
-                           else (ENGINE.BLEND_CONF_FLAT if flat_lines 
+        _blend_conf = max(ENGINE.BLEND_CONF_STALE,
+                          (ENGINE.BLEND_CONF_STALE if stale_line
+                           else (ENGINE.BLEND_CONF_FLAT if flat_lines
                                 else ENGINE.BLEND_CONF_NORMAL)))
     _line_conf = ENGINE.LINE_CONF_STALE if stale_line else (ENGINE.LINE_CONF_FLAT if flat_lines else ENGINE.LINE_CONF_NORMAL)
     _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else ENGINE.PREMATCH_TIME_CONF
