@@ -380,12 +380,16 @@ def analizza(
         from src.models.cache import get_matrix_cache
         cache = get_matrix_cache()
 
+        # FIX: Aggiungi gol_totali alla chiave della cache per invalidare
+        # quando il punteggio cambia
+        gol_totali = state.gol_casa + state.gol_trasf
+
         joint_ind, full_bp, rho = cache.get_or_compute(
             lambda: _compute_bivariate_model(
                 xg_h_final, xg_a_final, state.minuto, tot_cur_eff,
-                shot_dom, state.gol_casa + state.gol_trasf, _rho_dc_shared
+                shot_dom, gol_totali, _rho_dc_shared
             ),
-            "bivariate", xg_h_final, xg_a_final, state.minuto, tot_cur_eff
+            "bivariate", xg_h_final, xg_a_final, state.minuto, tot_cur_eff, gol_totali
         )
         full_copula = cache.get_or_compute(
             lambda: _compute_copula_model(xg_h_final, xg_a_final, copula_theta, nu_dynamic),

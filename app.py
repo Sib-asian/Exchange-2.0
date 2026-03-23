@@ -5,7 +5,7 @@ Entry point Streamlit. Orchestra input → engine → output.
 
 import streamlit as st
 
-from src.config import SIGNALS, UI
+from src.config import INPUT_VALIDATION, SIGNALS, UI
 from src.engine import analizza
 from src.models.kelly import calcola_kelly_fraction
 from src.signals import (
@@ -68,6 +68,12 @@ bankroll, comm_pct, comm_rate = render_bankroll()
 if lines.get("validation_errors"):
     st.warning(f"⚠️ Rilevati {len(lines['validation_errors'])} problemi di validazione. "
                f"Correggi i valori prima di analizzare.")
+
+# FIX: Blocca l'analisi se ci sono errori critici
+if lines.get("blocking_errors") and INPUT_VALIDATION.BLOCK_ON_CRITICAL_ERRORS:
+    st.error(f"🚫 **ANALISI BLOCCATA**: Rilevati {len(lines['blocking_errors'])} errori critici nei dati. "
+             f"Correggi i valori evidenziati prima di procedere.")
+    st.stop()
 st.divider()
 
 shots = render_shots(match["minuto"])
@@ -115,6 +121,25 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         st.error("Fine partita — spread enormi, non entrare.")
         st.stop()
 
+    # FIX: Gestione recovery time (minuti > 90)
+    if state.minuto > SIGNALS.RECOVERY_TIME_WARNING:
+        if state.minuto >= SIGNALS.RECOVERY_TIME_HARD_CAP:
+            st.error(f"🚫 **ANALISI BLOCCATA**: Minuto {state.minuto}' supera il limite massimo ({SIGNALS.RECOVERY_TIME_HARD_CAP}').")
+            st.stop()
+        else:
+            st.warning(
+                f"⚠️ **RECOVERY TIME**: Minuto {state.minuto}' — il modello opera in zona recupero. "
+                f"Le previsioni sono meno affidabili e gli spread più ampi."
+            )
+
+    # ── Mercati chiusi (PRIMA dei segnali) ───────────────────────────────────
+    st.divider()
+    settled = render_mercati_chiusi(
+        gol_attuali, linea_ou,
+        state.gol_casa, state.gol_trasf,
+        state.minuto, risultati.p_btts,
+    )
+
     # ── Segnali rapidi ───────────────────────────────────────────────────────
     st.divider()
     st.header("Segnali rapidi")
@@ -127,13 +152,6 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         state.minuto, linea_ou, gol_attuali,
         model_confidence=risultati.model_confidence,
         model_agreement=risultati.model_agreement,
-    )
-
-    # Mostra mercati chiusi prima dei segnali
-    settled = render_mercati_chiusi(
-        gol_attuali, linea_ou,
-        state.gol_casa, state.gol_trasf,
-        state.minuto, risultati.p_btts,
     )
 
     # Filtra i segnali per mercati chiusi (usa .upper() per robustezza)
