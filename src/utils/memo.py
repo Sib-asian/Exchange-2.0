@@ -14,7 +14,7 @@ import hashlib
 import time
 from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import dataclass, asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from functools import wraps
 from typing import Any
 
