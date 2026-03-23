@@ -5,8 +5,6 @@ Test per logging_config.py — Configurazione logging strutturato.
 import json
 import logging
 
-import pytest
-
 from src.logging_config import (
     AnalysisLogger,
     JSONFormatter,
@@ -151,9 +149,8 @@ class TestAnalysisLogger:
 
     def test_context_manager_logs_start_and_end(self, caplog):
         """Deve loggare inizio e fine dell'analisi."""
-        with caplog.at_level(logging.INFO):
-            with AnalysisLogger(match_id="12345", minute=45):
-                pass
+        with caplog.at_level(logging.INFO), AnalysisLogger(match_id="12345", minute=45):
+            pass
 
         # Deve avere almeno un log di inizio e uno di fine
         messages = [r.message for r in caplog.records]
@@ -162,9 +159,8 @@ class TestAnalysisLogger:
 
     def test_data_logging(self, caplog):
         """Deve loggare i dati durante l'analisi."""
-        with caplog.at_level(logging.DEBUG):
-            with AnalysisLogger(match_id="12345") as log:
-                log.data("xG_calculated", {"home": 1.5, "away": 0.8})
+        with caplog.at_level(logging.DEBUG), AnalysisLogger(match_id="12345") as log:
+            log.data("xG_calculated", {"home": 1.5, "away": 0.8})
 
         # Il dato deve essere registrato
         assert len(log.data_points) == 1
@@ -172,9 +168,8 @@ class TestAnalysisLogger:
 
     def test_warning_logging(self, caplog):
         """Deve loggare warning durante l'analisi."""
-        with caplog.at_level(logging.WARNING):
-            with AnalysisLogger(match_id="12345") as log:
-                log.warning("Test warning", {"detail": "value"})
+        with caplog.at_level(logging.WARNING), AnalysisLogger(match_id="12345") as log:
+            log.warning("Test warning", {"detail": "value"})
 
         # Deve avere almeno un warning
         assert any(r.levelno == logging.WARNING for r in caplog.records)
