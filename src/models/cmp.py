@@ -34,6 +34,12 @@ def cmp_pmf(
     """
     PMF Conway-Maxwell-Poisson con troncatura adattiva e normalizzazione.
 
+    max_k = max(PMF_MIN_K, mu + PMF_SIGMA * sqrt(mu) + PMF_EXTRA_BUFFER)
+    garantisce la copertura per qualsiasi mu realistico:
+      - PMF_MIN_K=20: minimo assoluto per mu bassi
+      - PMF_SIGMA=6: 6σ coprono >99.9999998% della distribuzione
+      - PMF_EXTRA_BUFFER=10: margine extra per overdispersion CMP
+
     Args:
         mu: Tasso atteso (lambda). Se <= 0 restituisce [1.0].
         nu: Parametro di dispersione. 0.92 = overdispersion tipica calcio.
@@ -46,7 +52,10 @@ def cmp_pmf(
         return [1.0]
 
     log_mu = math.log(max(mu, 1e-300))
-    max_k = max(20, int(mu + 6.0 * math.sqrt(max(mu, 1.0)) + 10))
+    max_k = max(
+        POISSON.PMF_MIN_K,
+        int(mu + POISSON.PMF_SIGMA * math.sqrt(max(mu, 1.0)) + POISSON.PMF_EXTRA_BUFFER)
+    )
 
     # Calcolo in log-space per stabilità numerica
     log_pmf: list[float] = []

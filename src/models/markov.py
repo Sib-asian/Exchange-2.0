@@ -17,7 +17,7 @@ Vantaggi:
 
 from __future__ import annotations
 
-from src.config import DECAY
+from src.config import DC, DECAY
 
 
 # Moltiplicatore per l'effetto pressing (coerente con time_decay.py)
@@ -69,7 +69,8 @@ def markov_score_distribution(
     # Fattore correlazione DC: rho_dc < 0 → penalizza i gol simultanei.
     # Si applica solo a punteggi bassi (totale ≤ 1), coerente con la tau-correction DC.
     # Ai punteggi alti il fattore converge a 1.0 (nessuna correzione).
-    dc_corr_low = max(0.7, 1.0 + rho_dc)   # correzione per punteggi bassi (0-0, 1-0, 0-1)
+    # DC_CORR_FLOOR evita correzioni troppo aggressive che rompono la normalizzazione.
+    dc_corr_low = max(DC.DC_CORR_FLOOR, 1.0 + rho_dc)   # correzione per punteggi bassi (0-0, 1-0, 0-1)
 
     # Stato iniziale: (0, 0) gol rimanenti
     states: dict[tuple[int, int], float] = {(0, 0): 1.0}

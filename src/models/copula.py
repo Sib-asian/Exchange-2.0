@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 
-from src.config import POISSON
+from src.config import COPULA, POISSON
 from src.models.cmp import cmp_pmf
 
 
@@ -29,16 +29,20 @@ def _frank_C(u: float, v: float, theta: float) -> float:
     CDF della copula Frank.
 
     Usa expm1 per stabilità numerica con θ piccoli.
+    Fix #1.11: Soglie numeriche dal config invece di hardcoded.
     """
-    if abs(theta) < 1e-8:
-        return u * v  # limite di indipendenza
+    # Se |θ| ≈ 0, la copula degenera in indipendenza: C(u,v) = u*v
+    if abs(theta) < COPULA.THETA_NEAR_ZERO:
+        return u * v
     eu = math.expm1(-theta * u)
     ev = math.expm1(-theta * v)
     et = math.expm1(-theta)
-    if abs(et) < 1e-15:
+    # Se |exp(-θ) - 1| ≈ 0, il denominatore è ~0 → indipendenza
+    if abs(et) < COPULA.INNER_NEAR_ZERO:
         return u * v
     inner = 1.0 + eu * ev / et
     if inner <= 0:
+        # Fallback per casi numerici estremi: Fréchet-Hoeffding bounds
         return max(0.0, min(u + v - 1.0, min(u, v)))
     return -math.log(inner) / theta
 

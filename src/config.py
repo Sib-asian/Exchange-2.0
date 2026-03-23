@@ -33,6 +33,15 @@ class PoissonConfig:
     # Soglia minima per xG (evita divisioni per zero)
     EPS: float = 1e-9
 
+    # PMF truncation: parametri per calcolo max_k
+    # max_k = max(PMF_MIN_K, int(mu + PMF_SIGMA * sqrt(mu) + PMF_EXTRA_BUFFER))
+    # PMF_MIN_K=20: garantisce copertura minima per mu bassi
+    # PMF_SIGMA=6: 6 deviazioni standard coprono >99.9999998% della distribuzione
+    # PMF_EXTRA_BUFFER=10: margine extra per overdispersion e casi limite
+    PMF_MIN_K: int = 20
+    PMF_SIGMA: float = 6.0
+    PMF_EXTRA_BUFFER: int = 10
+
 
 @dataclass(frozen=True)
 class DixonColesConfig:
@@ -56,6 +65,11 @@ class DixonColesConfig:
     RHO_DC_GOAL_DAMPEN: float = 0.15  # riduzione per gol segnati (partita aperta)
     RHO_DC_MIN: float = -0.25         # floor (max correlazione negativa)
     RHO_DC_MAX: float = -0.03         # ceiling (quasi indipendenza)
+
+    # Markov chain DC correction floor
+    # dc_corr_low = max(DC_CORR_FLOOR, 1.0 + rho_dc) per punteggi bassi
+    # DC_CORR_FLOOR=0.70: evita correzioni troppo aggressive che rompono la normalizzazione
+    DC_CORR_FLOOR: float = 0.70
 
 
 @dataclass(frozen=True)
@@ -228,6 +242,15 @@ class BayesianConfig:
     # 4.0 = massimo realistico per una partita con gol/90 elevatissimo:
     #   minuto=0: max=4.0 | minuto=45: max=2.0 | minuto=80: max=0.44
     TOT_TEMPORAL_MAX: float = 4.0
+
+    # Interpolazione AH EV: correzione Hermite per quarter lines
+    # La correzione curvatura riduce l'errore di interpolazione da ±2.5% a ±0.2%
+    # HERMITE_CORRECTION_COEF = 0.05: coefficiente conservativo calibrato empiricamente
+    HERMITE_CORRECTION_COEF: float = 0.05
+
+    # Newton-Raphson per bisection AH
+    NEWTON_MAX_ITER: int = 15
+    NEWTON_H: float = 1e-7  # step per derivata numerica
 
 
 @dataclass(frozen=True)
@@ -463,6 +486,12 @@ class CopulaConfig:
     # Riduzione θ per tempo avanzato
     THETA_TIME_SCALE: float = -0.20
 
+    # Soglie numeriche per stabilità della copula Frank
+    # Se |θ| < THETA_NEAR_ZERO, la copula degenera in indipendenza (C(u,v) = u*v)
+    THETA_NEAR_ZERO: float = 1e-8
+    # Se |exp(-θ) - 1| < INNER_NEAR_ZERO, il denominatore della formula è ~0
+    INNER_NEAR_ZERO: float = 1e-15
+
 
 @dataclass(frozen=True)
 class HawkesConfig:
@@ -474,6 +503,12 @@ class HawkesConfig:
     MAX_BOOST: float = 0.03
     # Tasso gol di riferimento (top-5 leagues: ~2.7/90')
     RATE_REF_PER_90: float = 2.7
+
+    # Minuto minimo per attivare Hawkes boost
+    # Sotto questo minuto il campione è troppo piccolo (rumore).
+    # MIN_MINUTE=15: sotto i 15' anche 2 gol sono rumore (rate = 2/15*90 = 12 gol/90')
+    # Il floor a 15 è calibrato empiricamente: 2 gol al 6' → rate = 30 gol/90' = rumore puro
+    MIN_MINUTE: int = 15
 
 
 @dataclass(frozen=True)
@@ -501,6 +536,14 @@ class ConsensusConfig:
 
     # Calibrazione isotonica
     DRAW_SHRINKAGE: float = 0.97  # riduzione draw (-3%)
+
+    # Logistic sharpening: α > 1 rende le probabilità estreme più estreme
+    # calibrate su dati Poisson vs reali: modello sottostima certezza agli estremi
+    LOGISTIC_ALPHA_OVER: float = 1.03   # sharpening per Over/Under
+    LOGISTIC_ALPHA_BTTS: float = 1.02   # sharpening per BTTS (più conservativo)
+
+    # BTTS clamp epsilon: probabilità entro questa distanza da 0 o 1 sono clampate
+    BTTS_CLAMP_EPSILON: float = 1e-12
 
 
 @dataclass(frozen=True)
@@ -536,6 +579,52 @@ class CleanSheetConfig:
     HIGH_TOTAL_PENALTY: float = 0.03  # -3% per ogni gol sopra 2.5
 
 
+@dataclass(frozen=True)
+class EngineConfig:
+    """Parametri per l'engine di calcolo."""
+
+    # Confidenza prematch (minuto=0, senza tiri)
+    # PREMATCH_SHOTS_CONF=0.35: le linee di mercato sono l'unica fonte, confidenza media
+    # PREMATCH_TIME_CONF=0.35: nessun tempo giocato, ma linee fresche
+    PREMATCH_SHOTS_CONF: float = 0.35
+    PREMATCH_TIME_CONF: float = 0.35
+
+    # Model confidence: prodotto di 5 componenti, radice 5ª per normalizzare
+    # CONFIDENCE_ROOT_POWER=0.20 (= 1/5): radice quinta
+    CONFIDENCE_ROOT_POWER: float = 0.20
+
+    # Confidenza base per linee: varia in base a stato
+    # LINE_CONF_STALE=0.30: linee stantie (non aggiornate da >15')
+    # LINE_CONF_FLAT=0.50: linee piatte (nessun movimento)
+    # LINE_CONF_NORMAL=1.00: linee normali (movimenti rilevati)
+    LINE_CONF_STALE: float = 0.30
+    LINE_CONF_FLAT: float = 0.50
+    LINE_CONF_NORMAL: float = 1.00
+
+    # Blend confidence per line-only analysis
+    BLEND_CONF_STALE: float = 0.20
+    BLEND_CONF_FLAT: float = 0.15
+    BLEND_CONF_NORMAL: float = 0.50
+
+
+@dataclass(frozen=True)
+class InputValidationConfig:
+    """Parametri per la validazione degli input utente."""
+
+    # Validazione tot_cur: se tot_cur > tot_cap * TOT_VALIDATION_MULTIPLIER → ERRORE
+    # TOT_VALIDATION_MULTIPLIER=1.5: permette un 50% di tolleranza prima di bloccare
+    # TOT_VALIDATION_WARNING=1.2: warning al 20% sopra il cap
+    TOT_VALIDATION_MULTIPLIER: float = 1.5
+    TOT_VALIDATION_WARNING: float = 1.2
+
+    # Validazione AH: se |ah_cur| > tot_cur + AH_VALIDATION_BUFFER → ERRORE
+    # AH_VALIDATION_BUFFER=0.5: permette piccolo buffer per errori di arrotondamento
+    AH_VALIDATION_BUFFER: float = 0.5
+
+    # Floor per tot_cur (gol rimanenti minimi plausibili)
+    # Usa BAYES.TOT_BAYES_MIN = 0.20 invece di hardcoded 0.10
+
+
 # Istanze globali immutabili — importare da qui
 POISSON   = PoissonConfig()
 DC        = DixonColesConfig()
@@ -555,3 +644,5 @@ CONSENSUS = ConsensusConfig()
 STALE     = StaleLineConfig()
 CACHE     = CacheConfig()
 CLEAN_SHEET = CleanSheetConfig()
+ENGINE = EngineConfig()
+INPUT_VALIDATION = InputValidationConfig()

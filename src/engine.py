@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from src.config import BAYES, ENGINE
+
 # ---------------------------------------------------------------------------
 # Dataclass di Input
 # ---------------------------------------------------------------------------
@@ -49,16 +51,27 @@ class MatchState:
     comm_rate: float = 0.025   # 2.5%
 
     def __post_init__(self) -> None:
-        """Validazione dei campi."""
-        assert 0 <= self.minuto <= 90, f"Minuto fuori range: {self.minuto}"
-        assert self.gol_casa >= 0, f"Gol casa negativo: {self.gol_casa}"
-        assert self.gol_trasf >= 0, f"Gol trasf negativo: {self.gol_trasf}"
-        assert 0 <= self.rossi_casa <= 4, f"Rossi casa fuori range: {self.rossi_casa}"
-        assert 0 <= self.rossi_trasf <= 4, f"Rossi trasf fuori range: {self.rossi_trasf}"
-        assert self.tot_op > 0, f"Total apertura non valido: {self.tot_op}"
-        assert self.tot_cur > 0, f"Total corrente non valido: {self.tot_cur}"
-        assert self.bankroll > 0, f"Bankroll non valido: {self.bankroll}"
-        assert 0.0 <= self.comm_rate < 1.0, f"Commissione non valida: {self.comm_rate}"
+        """Validazione dei campi con eccezioni proper (Fix #3.6)."""
+        # NOTA: In produzione con -O gli assert vengono disabilitati,
+        # quindi usiamo ValueError per validazione critica
+        if not (0 <= self.minuto <= 90):
+            raise ValueError(f"Minuto fuori range: {self.minuto}")
+        if self.gol_casa < 0:
+            raise ValueError(f"Gol casa negativo: {self.gol_casa}")
+        if self.gol_trasf < 0:
+            raise ValueError(f"Gol trasf negativo: {self.gol_trasf}")
+        if not (0 <= self.rossi_casa <= 4):
+            raise ValueError(f"Rossi casa fuori range: {self.rossi_casa}")
+        if not (0 <= self.rossi_trasf <= 4):
+            raise ValueError(f"Rossi trasf fuori range: {self.rossi_trasf}")
+        if self.tot_op <= 0:
+            raise ValueError(f"Total apertura non valido: {self.tot_op}")
+        if self.tot_cur <= 0:
+            raise ValueError(f"Total corrente non valido: {self.tot_cur}")
+        if self.bankroll <= 0:
+            raise ValueError(f"Bankroll non valido: {self.bankroll}")
+        if not (0.0 <= self.comm_rate < 1.0):
+            raise ValueError(f"Commissione non valida: {self.comm_rate}")
 
 
 @dataclass
@@ -137,6 +150,50 @@ class ProbabilitaModello:
     # Matrici
     joint_ind: dict[tuple[int, int], float] = field(default_factory=dict)
     full_matrix: dict[tuple[int, int], float] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+def _build_consensus_matrix(
+    full_bp: dict[tuple[int, int], float],
+    full_copula: dict[tuple[int, int], float],
+    full_markov: dict[tuple[int, int], float],
+    w_bp: float,
+    w_cop: float,
+    w_mk: float,
+) -> dict[tuple[int, int], float]:
+    """
+    Costruisce la matrice consensus come media pesata delle 3 matrici.
+    
+    Fix #2.7: Funzione helper per evitare duplicazione di codice.
+    Usata per coerenza con le probabilità 1X2/OU/BTTS del consensus.
+    
+    Args:
+        full_bp: Matrice dal modello bivariate Poisson + DC.
+        full_copula: Matrice dal modello CMP + Frank copula.
+        full_markov: Matrice dal Markov chain score-state.
+        w_bp, w_cop, w_mk: Pesi dei modelli (somma = 1).
+    
+    Returns:
+        Matrice consensus normalizzata.
+    """
+    all_keys = set(full_bp.keys()) | set(full_copula.keys()) | set(full_markov.keys())
+    consensus: dict[tuple[int, int], float] = {}
+    
+    for key in all_keys:
+        p = (w_bp * full_bp.get(key, 0.0)
+             + w_cop * full_copula.get(key, 0.0)
+             + w_mk * full_markov.get(key, 0.0))
+        if p > 0:
+            consensus[key] = p
+    
+    total = sum(consensus.values())
+    if total > 0:
+        consensus = {k: v / total for k, v in consensus.items()}
+    
+    return consensus
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +294,17 @@ def analizza(
     stale_line = flat_lines and state.minuto >= STALE.THRESHOLD_MINUTES
 
     # 5. Modello A: Bivariate Poisson + Dixon-Coles (principale)
+    # Fix #2.3: Calcola rho_dc una sola volta e passa ai modelli che lo usano
+    from src.models.poisson import rho_dc_dinamico as _calc_rho_dc
+    _rho_dc_shared = _calc_rho_dc(tot_cur_eff, state.minuto, state.gol_casa + state.gol_trasf)
+    
     joint_ind, full_bp, rho = build_bivariate_matrix(
         xg_h_final, xg_a_final,
         state.minuto,
         tot_cur_eff,
         shot_dom=shot_dom,
         gol_totali=state.gol_casa + state.gol_trasf,
+        rho_dc_preset=_rho_dc_shared,  # Fix #2.4: passa rho_dc precalcolato
     )
 
     # 6. Modello B: CMP + Frank copula (overdispersion + copula archimedea)
@@ -257,13 +319,11 @@ def analizza(
     full_copula = build_copula_matrix(xg_h_final, xg_a_final, copula_theta, nu=nu_dynamic)
 
     # 7. Modello C: Markov chain con correlazione DC (Fix #9)
-    from src.models.poisson import rho_dc_dinamico as _rho_dc_fn
-    _rho_dc_markov = _rho_dc_fn(tot_cur_eff, state.minuto,
-                                 state.gol_casa + state.gol_trasf)
+    # Fix #2.3: Riusa rho_dc precalcolato invece di ricalcolarlo
     full_markov = markov_score_distribution(
         xg_h_final, xg_a_final,
         state.minuto, state.gol_casa, state.gol_trasf,
-        rho_dc=_rho_dc_markov,
+        rho_dc=_rho_dc_shared,  # Usa lo stesso valore del modello principale
     )
 
     # 8. Consensus multi-modello: media pesata
@@ -281,20 +341,9 @@ def analizza(
     )
 
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
-    # Usa la media pesata delle 3 matrici per coerenza con le probabilità 1X2/OU/BTTS.
-    # La matrice consensus è coerente con le probabilità mostrate sopra.
-    w_bp, w_cop, w_mk = CONSENSUS.W_BIVARIATE, CONSENSUS.W_COPULA, CONSENSUS.W_MARKOV
-    all_keys = set(full_bp.keys()) | set(full_copula.keys()) | set(full_markov.keys())
-    full_consensus: dict = {}
-    for key in all_keys:
-        p = (w_bp * full_bp.get(key, 0.0)
-             + w_cop * full_copula.get(key, 0.0)
-             + w_mk * full_markov.get(key, 0.0))
-        if p > 0:
-            full_consensus[key] = p
-    total_fc = sum(full_consensus.values())
-    if total_fc > 0:
-        full_consensus = {k: v / total_fc for k, v in full_consensus.items()}
+    # Fix #2.7: Usa funzione helper per costruire la matrice consensus
+    full_consensus = _build_consensus_matrix(full_bp, full_copula, full_markov,
+                                              CONSENSUS.W_BIVARIATE, CONSENSUS.W_COPULA, CONSENSUS.W_MARKOV)
     full_matrix = full_consensus if full_consensus else full_bp
     top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
 
@@ -309,7 +358,7 @@ def analizza(
     _spreads = [hi - lo for lo, hi in credible_intervals.values() if hi > lo]
     model_agreement = max(0.0, 1.0 - (sum(_spreads) / max(len(_spreads), 1)) * 5.0) if _spreads else 1.0
 
-    # 13. Model confidence score [0, 1] (Fix #3)
+    # 13. Model confidence score [0, 1] (Fix #3, Fix #4.1, Fix #4.5, Fix #6.4)
     # Quando non ci sono tiri, usa la qualità delle linee come proxy del blend.
     # Questo evita la penalizzazione artificiale a minuto 0 con linee fresche.
     if n_shots_tot > 0:
@@ -317,18 +366,20 @@ def analizza(
         _blend_conf = (alpha_t + alpha_d) / 2.0
     else:
         # Baseline line-only: le linee di mercato sono l'unica fonte di informazione.
-        # Un'analisi pre-match con linee efficienti ha confidence media (0.35).
-        _shots_conf = 0.35
-        _blend_conf = max(0.20, (0.3 if stale_line else (0.15 if flat_lines else 0.50)))
-    _line_conf = 0.3 if stale_line else (0.5 if flat_lines else 1.0)
-    _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else 0.35
+        # Fix #4.1/#4.5: Usa parametri dal config invece di hardcoded
+        _shots_conf = ENGINE.PREMATCH_SHOTS_CONF
+        _blend_conf = max(ENGINE.BLEND_CONF_STALE, 
+                          (ENGINE.BLEND_CONF_STALE if stale_line 
+                           else (ENGINE.BLEND_CONF_FLAT if flat_lines 
+                                else ENGINE.BLEND_CONF_NORMAL)))
+    _line_conf = ENGINE.LINE_CONF_STALE if stale_line else (ENGINE.LINE_CONF_FLAT if flat_lines else ENGINE.LINE_CONF_NORMAL)
+    _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else ENGINE.PREMATCH_TIME_CONF
     _agreement_conf = model_agreement
-    # _line_conf ∈ {0.3, 0.5, 1.0}, _blend_conf ≥ 0.15, _time_conf ≥ 0.0:
-    # i max(0.01) sono dead code per i primi tre (non scendono a 0).
     # _agreement_conf può essere 0.0 → il suo guard è necessario.
     _product = max(1e-9, _shots_conf * _line_conf * _blend_conf
                    * _time_conf * max(0.01, _agreement_conf))
-    model_confidence = min(1.0, _product ** 0.20)  # 5th root (5 componenti)
+    # Fix #6.4: Usa parametro dal config per la radice
+    model_confidence = min(1.0, _product ** ENGINE.CONFIDENCE_ROOT_POWER)
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,
