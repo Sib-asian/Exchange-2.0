@@ -33,7 +33,11 @@ def poisson_pmf(mu: float, tail_mass: float = POISSON.TAIL_MASS) -> list[float]:
     Calcola la PMF di Poisson con troncatura adattiva e normalizzazione.
 
     La coda viene troncata quando P(X > k) < tail_mass.
-    max_k = mu + 6*sqrt(mu) garantisce la copertura per qualsiasi mu realistico.
+    max_k = max(PMF_MIN_K, mu + PMF_SIGMA * sqrt(mu) + PMF_EXTRA_BUFFER)
+    garantisce la copertura per qualsiasi mu realistico:
+      - PMF_MIN_K=20: minimo assoluto per mu bassi
+      - PMF_SIGMA=6: 6σ coprono >99.9999998% della distribuzione
+      - PMF_EXTRA_BUFFER=10: margine per overdispersion
 
     Args:
         mu: Tasso atteso (lambda). Se <= 0 restituisce [1.0].
@@ -45,7 +49,10 @@ def poisson_pmf(mu: float, tail_mass: float = POISSON.TAIL_MASS) -> list[float]:
     if mu <= 0:
         return [1.0]
 
-    max_k = max(20, int(mu + 6.0 * math.sqrt(max(mu, 1.0)) + 10))
+    max_k = max(
+        POISSON.PMF_MIN_K,
+        int(mu + POISSON.PMF_SIGMA * math.sqrt(max(mu, 1.0)) + POISSON.PMF_EXTRA_BUFFER)
+    )
     p0 = math.exp(-mu)
     pmf: list[float] = [p0]
     cumsum = p0
@@ -214,6 +221,7 @@ def build_bivariate_matrix(
     tot_cur: float,
     shot_dom: float = 0.0,
     gol_totali: int = 0,
+    rho_dc_preset: float | None = None,
 ) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], float], float]:
     """
     Costruisce la matrice di probabilità bivariata completa.
@@ -237,6 +245,8 @@ def build_bivariate_matrix(
         tot_cur: Linea Total corrente (per il calcolo di rho).
         shot_dom: Indice dominio tiri [0, 1].
         gol_totali: Gol già segnati (per il calcolo di rho).
+        rho_dc_preset: Se fornito, usa questo valore di rho_dc invece di calcolarlo.
+            Fix #2.4: Permette di passare un valore precalcolato per coerenza tra modelli.
 
     Returns:
         Tupla (joint_ind, full, rho_used):
@@ -248,11 +258,17 @@ def build_bivariate_matrix(
     mu_a = max(POISSON.EPS, float(mu_a))
 
     rho = rho_dinamico(tot_cur, minuto, shot_dom, gol_totali)
-    rho_dc_val = rho_dc_dinamico(tot_cur, minuto, gol_totali)
+    # Fix #2.4: Usa rho_dc precalcolato se fornito, altrimenti calcolalo
+    rho_dc_val = rho_dc_preset if rho_dc_preset is not None else rho_dc_dinamico(tot_cur, minuto, gol_totali)
 
-    # lambda0: media geometrica più robusta di min() per partite sbilanciate
+    # lambda0: correlazione tra gol delle due squadre (componente comune Z)
+    # Media geometrica: sqrt(mu_h * mu_a) è più robusta di min() per partite sbilanciate
+    # Cap: lambda0 <= LAMBDA0_CAP_RATIO * min(mu_h, mu_a) (Karlis & Ntzoufras 2003)
+    # Ulteriore sicurezza: lambda0 non può mai superare min(mu_h, mu_a)
     geom_mu = math.sqrt(mu_h * mu_a)
-    lambda0 = max(0.0, min(rho * geom_mu, POISSON.LAMBDA0_CAP_RATIO * min(mu_h, mu_a)))
+    mu_min = min(mu_h, mu_a)
+    lambda0 = min(rho * geom_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
+    lambda0 = max(0.0, lambda0)
 
     mu_h_ind = max(POISSON.EPS, mu_h - lambda0)
     mu_a_ind = max(POISSON.EPS, mu_a - lambda0)

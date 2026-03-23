@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.config import UI
+from src.config import BAYES, INPUT_VALIDATION, UI
 from src.engine import ExchangeQuotes, MatchState
 
 
@@ -124,7 +124,7 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
             gol_diff = gol_casa - gol_trasf
             gol_tot  = gol_casa + gol_trasf
             ah_cur   = ah_cur_raw  + gol_diff
-            tot_cur  = max(0.10, tot_cur_raw - gol_tot)
+            tot_cur  = max(BAYES.TOT_BAYES_MIN, tot_cur_raw - gol_tot)  # Fix #2.8: Usa TOT_BAYES_MIN dal config
 
             if gol_tot > 0:
                 st.caption(
@@ -153,17 +153,16 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
             tot_cur = tot_cur_raw
 
     # ===================== VALIDAZIONE INPUT CRITICA =====================
-    # FIX: Verifica che tot_cur sia plausibile per il minuto corrente.
+    # Fix #3.1, #3.2: Usa parametri dal config invece di hardcoded
+    # Verifica che tot_cur sia plausibile per il minuto corrente.
     # Questo previene risultati sbagliati quando l'utente cambia minuto/punteggio
     # ma dimentica di aggiornare le linee live.
-    TOT_TEMPORAL_MAX = 4.0  # massimo realistico per gol/90'
-    TOT_BAYES_MIN = 0.20    # minimo per calcoli
 
     if minuto > 0:
         mins_rem = max(1, 90 - minuto)
-        tot_cap = max(TOT_BAYES_MIN, mins_rem / 90.0 * TOT_TEMPORAL_MAX)
+        tot_cap = max(BAYES.TOT_BAYES_MIN, mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
 
-        if tot_cur > tot_cap * 1.5:
+        if tot_cur > tot_cap * INPUT_VALIDATION.TOT_VALIDATION_MULTIPLIER:
             # ERRORE BLOCCANTE: tot_cur troppo alto per il minuto
             st.error(
                 f"⛔ **LINEE NON AGGIORNATE!**\n\n"
@@ -178,15 +177,15 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
             # Pulsante auto-correzione
             if st.button("🔧 Auto-correggi Total", help=f"Imposta Total a {tot_cap:.2f} gol rimanenti"):
                 st.rerun()  # Forza refresh - l'utente dovrà inserire il valore corretto
-        elif tot_cur > tot_cap * 1.2:
+        elif tot_cur > tot_cap * INPUT_VALIDATION.TOT_VALIDATION_WARNING:
             # WARNING: tot_cur sospettosamente alto
             st.warning(
                 f"⚠️ **Attenzione**: Total rimanenti ({tot_cur:.2f}) sembra alto per il minuto {minuto}'. "
                 f"Massimo realistico: {tot_cap:.2f} gol. Verifica le linee live."
             )
 
-    # Validazione AH: se |ah_cur| > tot_cur, è geometricamente impossibile
-    if abs(ah_cur) > tot_cur + 0.5:
+    # Fix #3.2: Validazione AH con buffer dal config
+    if abs(ah_cur) > tot_cur + INPUT_VALIDATION.AH_VALIDATION_BUFFER:
         st.error(
             f"⛔ **AH impossibile!**\n\n"
             f"Hai inserito AH = **{ah_cur:+.2f}** con Total = **{tot_cur:.2f}**.\n\n"

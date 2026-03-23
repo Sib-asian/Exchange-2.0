@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import math
 
+from src.config import CONSENSUS
+
 # ---------------------------------------------------------------------------
 # Probabilità dai mercati (riusa la stessa logica del modello principale)
 # ---------------------------------------------------------------------------
@@ -165,10 +167,11 @@ def compute_consensus(
         consensus["p_under"] /= sum_ou
 
     # Clamp BTTS (snap to exact 1.0/0.0 for settled markets)
+    # Fix #6.2: Usa BTTS_CLAMP_EPSILON dal config invece di hardcoded 1e-12
     btts_raw = consensus["p_btts"]
-    if btts_raw > 1.0 - 1e-12:
+    if btts_raw > 1.0 - CONSENSUS.BTTS_CLAMP_EPSILON:
         consensus["p_btts"] = 1.0
-    elif btts_raw < 1e-12:
+    elif btts_raw < CONSENSUS.BTTS_CLAMP_EPSILON:
         consensus["p_btts"] = 0.0
 
     return consensus
@@ -258,10 +261,11 @@ def calibrate_probabilities(
         p2_cal /= sum_1x2
 
     # 2. Logistic sharpening leggero per O/U e BTTS
+    # Fix #1.10: Usa α dal config invece di hardcoded
     # Preserva valori esatti 0.0 / 1.0 per mercati già settled
-    p_over_cal = p_over if p_over in (0.0, 1.0) else _logistic_sharpen(p_over, alpha=1.03)
+    p_over_cal = p_over if p_over in (0.0, 1.0) else _logistic_sharpen(p_over, alpha=CONSENSUS.LOGISTIC_ALPHA_OVER)
     p_under_cal = 1.0 - p_over_cal
-    p_btts_cal = p_btts if p_btts in (0.0, 1.0) else _logistic_sharpen(p_btts, alpha=1.02)
+    p_btts_cal = p_btts if p_btts in (0.0, 1.0) else _logistic_sharpen(p_btts, alpha=CONSENSUS.LOGISTIC_ALPHA_BTTS)
 
     return p1_cal, px_cal, p2_cal, p_over_cal, p_under_cal, p_btts_cal
 

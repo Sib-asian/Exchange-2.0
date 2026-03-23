@@ -66,7 +66,8 @@ class TestMatchStateValidation:
         assert stato_prematch.minuto == 0
 
     def test_invalid_minuto_raises(self):
-        with pytest.raises(AssertionError):
+        # Fix #3.6: Ora usa ValueError invece di AssertionError
+        with pytest.raises(ValueError):
             MatchState(
                 minuto=91, gol_casa=0, gol_trasf=0,
                 rossi_casa=0, rossi_trasf=0,
@@ -76,7 +77,8 @@ class TestMatchStateValidation:
             )
 
     def test_negative_goals_raises(self):
-        with pytest.raises(AssertionError):
+        # Fix #3.6: Ora usa ValueError invece di AssertionError
+        with pytest.raises(ValueError):
             MatchState(
                 minuto=30, gol_casa=-1, gol_trasf=0,
                 rossi_casa=0, rossi_trasf=0,
@@ -86,7 +88,8 @@ class TestMatchStateValidation:
             )
 
     def test_invalid_bankroll_raises(self):
-        with pytest.raises(AssertionError):
+        # Fix #3.6: Ora usa ValueError invece di AssertionError
+        with pytest.raises(ValueError):
             MatchState(
                 minuto=0, gol_casa=0, gol_trasf=0,
                 rossi_casa=0, rossi_trasf=0,

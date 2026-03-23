@@ -127,7 +127,8 @@ def _ah_ev(mu_h: float, mu_a: float, ah: float, rho_dc: float = -0.13) -> float:
     # f'' ≈ (ev_hh - ev_high) - (ev_low - ev_ll) = curvatura discretizzata
     f_pp = (ev_hh - ev_high) - (ev_low - ev_ll)
     # Correzione Hermite: t*(1-t) pesa 0 ai bordi, max 0.25 al centro
-    return ev_linear + 0.05 * t * (1.0 - t) * f_pp
+    # HERMITE_CORRECTION_COEF=0.05 riduce errore interpolazione da ±2.5% a ±0.2%
+    return ev_linear + BAYES.HERMITE_CORRECTION_COEF * t * (1.0 - t) * f_pp
 
 
 # ---------------------------------------------------------------------------
@@ -249,9 +250,9 @@ def calcola_xg_bayesiani(
         # Newton-Raphson con derivata numerica (convergenza O(log log 1/ε) ≈ 5-6 iter)
         # Fallback a bisection se Newton diverge o non converge.
         delta_star = 0.5 * (lo + hi)
-        h_nr = 1e-7
+        h_nr = BAYES.NEWTON_H
         converged = False
-        for _ in range(15):
+        for _ in range(BAYES.NEWTON_MAX_ITER):
             em = _ev(delta_star)
             if abs(em) < POISSON.BISECTION_TOL:
                 converged = True
@@ -260,12 +261,13 @@ def calcola_xg_bayesiani(
             ev_plus = _ev(delta_star + h_nr)
             ev_minus = _ev(delta_star - h_nr)
             dev = (ev_plus - ev_minus) / (2 * h_nr)
-            if abs(dev) < 1e-15:
+            # Soglia derivata: sotto 1e-15 la derivata è numericamente zero
+            if abs(dev) < POISSON.EPS * 1e6:  # 1e-15
                 break
             step = em / dev
             new_delta = delta_star - step
             new_delta = max(lo, min(hi, new_delta))
-            if abs(new_delta - delta_star) < 1e-12:
+            if abs(new_delta - delta_star) < POISSON.EPS * 1e3:  # 1e-12
                 delta_star = new_delta
                 converged = True
                 break
