@@ -9,13 +9,22 @@ Coordina l'intera pipeline:
 
 Tutti i dati di input e output sono tipizzati con dataclass per
 garantire validazione, leggibilità e testabilità.
+
+Performance:
+  - I 3 modelli (Poisson, Copula, Markov) sono eseguiti in parallelo
+  - I risultati sono cached per evitare ricalcoli inutili
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from src.config import BAYES, ENGINE
+from src.config import BAYES, CACHE, ENGINE
+
+if TYPE_CHECKING:
+    from src.models.cache import MatrixCache
 
 # ---------------------------------------------------------------------------
 # Dataclass di Input
@@ -153,6 +162,53 @@ class ProbabilitaModello:
 
 
 # ---------------------------------------------------------------------------
+# Helper functions per parallelizzazione
+# ---------------------------------------------------------------------------
+
+def _compute_bivariate_model(
+    xg_h: float,
+    xg_a: float,
+    minuto: int,
+    tot_cur: float,
+    shot_dom: float,
+    gol_totali: int,
+    rho_dc: float,
+) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], float], float]:
+    """Wrapper per calcolo modello bivariate Poisson (per parallelizzazione)."""
+    from src.models.poisson import build_bivariate_matrix
+    return build_bivariate_matrix(
+        xg_h, xg_a, minuto, tot_cur,
+        shot_dom=shot_dom, gol_totali=gol_totali, rho_dc_preset=rho_dc
+    )
+
+
+def _compute_copula_model(
+    xg_h: float,
+    xg_a: float,
+    copula_theta: float,
+    nu: float,
+) -> dict[tuple[int, int], float]:
+    """Wrapper per calcolo modello CMP + Copula (per parallelizzazione)."""
+    from src.models.copula import build_copula_matrix
+    return build_copula_matrix(xg_h, xg_a, copula_theta, nu=nu)
+
+
+def _compute_markov_model(
+    xg_h: float,
+    xg_a: float,
+    minuto: int,
+    gol_h: int,
+    gol_a: int,
+    rho_dc: float,
+) -> dict[tuple[int, int], float]:
+    """Wrapper per calcolo modello Markov chain (per parallelizzazione)."""
+    from src.models.markov import markov_score_distribution
+    return markov_score_distribution(
+        xg_h, xg_a, minuto, gol_h, gol_a, rho_dc=rho_dc
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
@@ -227,9 +283,6 @@ def analizza(
         compute_consensus,
         compute_model_credible_intervals,
     )
-    from src.models.copula import build_copula_matrix
-    from src.models.markov import markov_score_distribution
-    from src.models.poisson import build_bivariate_matrix
     from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
 
     # Cap temporale: i gol rimanenti non possono superare ~(90-minuto)/90 * 4.0.
@@ -293,38 +346,85 @@ def analizza(
     # di partita, il mercato è potenzialmente illiquido o sospeso.
     stale_line = flat_lines and state.minuto >= STALE.THRESHOLD_MINUTES
 
-    # 5. Modello A: Bivariate Poisson + Dixon-Coles (principale)
-    # Fix #2.3: Calcola rho_dc una sola volta e passa ai modelli che lo usano
+    # 5. Calcola parametri condivisi tra i modelli
     from src.models.poisson import rho_dc_dinamico as _calc_rho_dc
     _rho_dc_shared = _calc_rho_dc(tot_cur_eff, state.minuto, state.gol_casa + state.gol_trasf)
 
-    joint_ind, full_bp, rho = build_bivariate_matrix(
-        xg_h_final, xg_a_final,
-        state.minuto,
-        tot_cur_eff,
-        shot_dom=shot_dom,
-        gol_totali=state.gol_casa + state.gol_trasf,
-        rho_dc_preset=_rho_dc_shared,  # Fix #2.4: passa rho_dc precalcolato
-    )
-
-    # 6. Modello B: CMP + Frank copula (overdispersion + copula archimedea)
+    # Parametri per il modello Copula
     frac_giocata = state.minuto / 90.0
     copula_theta = max(0.1, COPULA.THETA_BASE
                        + COPULA.THETA_TOT_SCALE * max(0.0, tot_cur_eff - COPULA.THETA_TOT_REF)
                        + COPULA.THETA_TIME_SCALE * frac_giocata)
-    # CMP nu dinamico (Fix #8): partite difensive (basso total) → meno overdispersion,
-    # partite aperte (alto total) → più overdispersion.
     nu_dynamic = max(CMP.NU_MIN, min(CMP.NU_MAX,
                                      CMP.NU + CMP.NU_TOT_SCALE * (tot_cur_eff - CMP.NU_TOT_REF)))
-    full_copula = build_copula_matrix(xg_h_final, xg_a_final, copula_theta, nu=nu_dynamic)
 
-    # 7. Modello C: Markov chain con correlazione DC (Fix #9)
-    # Fix #2.3: Riusa rho_dc precalcolato invece di ricalcolarlo
-    full_markov = markov_score_distribution(
-        xg_h_final, xg_a_final,
-        state.minuto, state.gol_casa, state.gol_trasf,
-        rho_dc=_rho_dc_shared,  # Usa lo stesso valore del modello principale
-    )
+    # 6. Esegui i 3 modelli in parallelo per performance
+    # Ogni modello è computazionalmente indipendente → parallelizzazione efficace
+    full_bp: dict[tuple[int, int], float] = {}
+    full_copula: dict[tuple[int, int], float] = {}
+    full_markov: dict[tuple[int, int], float] = {}
+    joint_ind: dict[tuple[int, int], float] = {}
+    rho = 0.0
+
+    if CACHE.ENABLED:
+        # Usa cache se abilitato
+        from src.models.cache import get_matrix_cache
+        cache = get_matrix_cache()
+
+        joint_ind, full_bp, rho = cache.get_or_compute(
+            lambda: _compute_bivariate_model(
+                xg_h_final, xg_a_final, state.minuto, tot_cur_eff,
+                shot_dom, state.gol_casa + state.gol_trasf, _rho_dc_shared
+            ),
+            "bivariate", xg_h_final, xg_a_final, state.minuto, tot_cur_eff
+        )
+        full_copula = cache.get_or_compute(
+            lambda: _compute_copula_model(xg_h_final, xg_a_final, copula_theta, nu_dynamic),
+            "copula", xg_h_final, xg_a_final, copula_theta, nu_dynamic
+        )
+        full_markov = cache.get_or_compute(
+            lambda: _compute_markov_model(
+                xg_h_final, xg_a_final, state.minuto,
+                state.gol_casa, state.gol_trasf, _rho_dc_shared
+            ),
+            "markov", xg_h_final, xg_a_final, state.minuto, state.gol_casa, state.gol_trasf
+        )
+    else:
+        # Esecuzione parallela senza cache
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(
+                    _compute_bivariate_model,
+                    xg_h_final, xg_a_final, state.minuto, tot_cur_eff,
+                    shot_dom, state.gol_casa + state.gol_trasf, _rho_dc_shared
+                ): "bivariate",
+                executor.submit(
+                    _compute_copula_model,
+                    xg_h_final, xg_a_final, copula_theta, nu_dynamic
+                ): "copula",
+                executor.submit(
+                    _compute_markov_model,
+                    xg_h_final, xg_a_final, state.minuto,
+                    state.gol_casa, state.gol_trasf, _rho_dc_shared
+                ): "markov",
+            }
+
+            for future in as_completed(futures):
+                model_name = futures[future]
+                try:
+                    result = future.result()
+                    if model_name == "bivariate":
+                        joint_ind, full_bp, rho = result
+                    elif model_name == "copula":
+                        full_copula = result
+                    else:  # markov
+                        full_markov = result
+                except Exception as e:
+                    # Fallback: se un modello fallisce, usa gli altri
+                    import logging
+                    logging.getLogger("exchange.engine").warning(
+                        f"Model {model_name} failed: {e}"
+                    )
 
     # 8. Consensus multi-modello: media pesata
     consensus_probs = compute_consensus(
