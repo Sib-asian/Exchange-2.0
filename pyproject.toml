@@ -36,6 +36,7 @@ known-first-party = ["src"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/models/markov.py" = ["I001"]
+"tests/test_signals.py" = ["I001"]
 
 [tool.coverage.run]
 source = ["src"]
