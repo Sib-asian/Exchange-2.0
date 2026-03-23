@@ -12,6 +12,8 @@ Centralizza tutta la logica di output dell'interfaccia utente:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import streamlit as st
 
 from src.config import DECAY, SIGNALS, UI
@@ -19,6 +21,9 @@ from src.config import MOMENTUM as MOMENTUM_CFG
 from src.engine import ExchangeQuotes, ProbabilitaModello
 from src.markets.asian_handicap import calcola_asian_handicap
 from src.signals import Signal
+
+if TYPE_CHECKING:
+    from src.engine import MatchState
 
 
 def _q_fair(prob: float) -> float:
@@ -713,3 +718,182 @@ def render_debug(
             st.write(f"Stake factor   = ×{momentum_factor:.2f}")
             st.write(f"Comm           = {comm_pct:.1f}%")
             st.write(f"Confidence     = {risultati.model_confidence:.2f}")
+
+
+# ---------------------------------------------------------------------------
+# Value Bet Detection
+# ---------------------------------------------------------------------------
+
+def render_value_bets(
+    risultati: ProbabilitaModello,
+    quotes: ExchangeQuotes,
+    min_edge: float = 0.03,
+) -> list:
+    """
+    Render automatic value bet detection.
+
+    Args:
+        risultati: Model output.
+        quotes: Exchange quotes.
+        min_edge: Minimum edge threshold.
+
+    Returns:
+        List of detected value bets.
+    """
+    from src.utils.analytics import detect_value_bets
+
+    value_bets = detect_value_bets(risultati, quotes, min_edge=min_edge)
+
+    if not value_bets:
+        if quotes.any_active:
+            st.info("📊 Nessun value bet rilevato — mercato allineato al modello.")
+        return []
+
+    st.subheader("🎯 Value Bet Rilevati")
+
+    for vb in value_bets[:5]:  # Show top 5
+        # Determine color based on quality
+        if vb.quality_score >= 0.7:
+            color = "🟢"
+        elif vb.quality_score >= 0.4:
+            color = "🟡"
+        else:
+            color = "🟠"
+
+        with st.container():
+            st.markdown(f"{color} **{vb.bet_type} {vb.market}** @{vb.odds:.2f}")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Edge", f"+{vb.edge_percentage:.1f}%")
+            col2.metric("EV", f"+{vb.ev_percentage:.1f}%")
+            col3.metric("Kelly", f"{vb.kelly_fraction:.1%}")
+            st.caption(
+                f"Modello: {vb.prob_model:.1%} · Mercato: {vb.prob_market:.1%} · "
+                f"Confidenza: {vb.confidence:.0%} · Quality: {vb.quality_score:.0%}"
+            )
+            st.divider()
+
+    return value_bets
+
+
+# ---------------------------------------------------------------------------
+# Anomaly Detection
+# ---------------------------------------------------------------------------
+
+def render_anomalies(state: MatchState) -> list:
+    """
+    Render anomaly detection warnings.
+
+    Args:
+        state: Match state to analyze.
+
+    Returns:
+        List of detected anomalies.
+    """
+    from src.utils.anomaly import detect_input_anomalies
+
+    anomalies = detect_input_anomalies(state)
+
+    if not anomalies:
+        return []
+
+    # Count by severity
+    errors = [a for a in anomalies if a.severity == "error"]
+    warnings = [a for a in anomalies if a.severity == "warning"]
+    infos = [a for a in anomalies if a.severity == "info"]
+
+    if errors:
+        st.error(f"🔴 **{len(errors)} errore/i critico/i** nei dati inseriti")
+    if warnings:
+        st.warning(f"🟡 **{len(warnings)} warning** — verificare i dati")
+    if infos and (errors or warnings):
+        st.info(f"🔵 {len(infos)} notifiche addizionali")
+
+    # Show details in expander
+    with st.expander("🔍 Dettaglio anomalie", expanded=bool(errors)):
+        for a in anomalies:
+            icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(a.severity, "⚪")
+            st.markdown(f"{icon} **{a.message}**")
+            if a.suggestion:
+                st.caption(f"💡 _{a.suggestion}_")
+
+    return anomalies
+
+
+# ---------------------------------------------------------------------------
+# Risk Metrics
+# ---------------------------------------------------------------------------
+
+def render_risk_metrics(
+    segnali: list,
+    bankroll: float,
+) -> dict:
+    """
+    Render risk metrics for potential bets.
+
+    Args:
+        segnali: List of signals with stake/ev info.
+        bankroll: Current bankroll.
+
+    Returns:
+        Dict with risk metrics.
+    """
+    from src.utils.analytics import calculate_risk_metrics
+
+    if not segnali:
+        return {}
+
+    # Extract expected returns and probabilities
+    expected_returns = []
+    probabilities = []
+
+    for s in segnali:
+        if s.stake > 0:
+            ev_pct = s.ev_euro / s.stake if s.stake > 0 else 0
+            expected_returns.append(ev_pct)
+            probabilities.append(s.prob_mod)
+
+    if not expected_returns:
+        return {}
+
+    metrics = calculate_risk_metrics(expected_returns, probabilities, bankroll)
+
+    # Display
+    with st.expander("📊 Metriche di Rischio"):
+        col1, col2, col3 = st.columns(3)
+        col1.metric("EV Totale", f"€{metrics['total_ev']:.2f}")
+        col2.metric("Rischio (σ)", f"€{metrics['total_risk']:.2f}")
+        col3.metric("Risk/Bankroll", f"{metrics['risk_per_bankroll']:.1%}")
+
+        st.divider()
+
+        col4, col5 = st.columns(2)
+        col4.metric("Diversificazione", f"{metrics['diversification']:.0%}")
+        col5.metric("Max Rischio Singolo", f"€{metrics['max_single_risk']:.2f}")
+
+        # Interpretation
+        if metrics['risk_per_bankroll'] > 0.10:
+            st.warning("⚠️ Rischio totale >10% del bankroll — considera ridurre le stake")
+        elif metrics['diversificazione'] < 0.3:
+            st.info("ℹ️ Bassa diversificazione — gli esiti sono correlati")
+        else:
+            st.success("✅ Profil rischio bilanciato")
+
+    return metrics
+
+
+# ---------------------------------------------------------------------------
+# Session Statistics
+# ---------------------------------------------------------------------------
+
+def render_session_stats() -> None:
+    """Render session statistics including cache performance."""
+    from src.utils.memo import get_cache_stats
+
+    stats = get_cache_stats()
+
+    if stats["size"] > 0:
+        with st.expander("📈 Statistiche Sessione"):
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Cache Hit Rate", f"{stats['hit_rate']:.0%}")
+            col2.metric("Cache Size", f"{stats['size']}/{stats['max_size']}")
+            col3.metric("TTL", f"{stats['ttl_seconds']:.0f}s")

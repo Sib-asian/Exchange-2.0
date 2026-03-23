@@ -24,6 +24,7 @@ from src.ui.inputs import (
 )
 from src.ui.outputs import (
     render_allineamento_mercato,
+    render_anomalies,
     render_asian_handicap,
     render_avvisi_affidabilita,
     render_avvisi_incoerenza,
@@ -37,8 +38,11 @@ from src.ui.outputs import (
     render_momentum,
     render_quote_fair,
     render_red_card_impact,
+    render_risk_metrics,
     render_segnali_avanzati,
     render_segnali_rapidi,
+    render_session_stats,
+    render_value_bets,
 )
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -76,6 +80,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     except AssertionError as e:
         st.error(f"❌ Input non valido: {e}")
         st.stop()
+
+    # ── Anomaly Detection (automatico, nessun input aggiuntivo) ─────────────
+    anomalies = render_anomalies(state)
 
     with st.spinner("Calcolo matrice bivariata..."):
         risultati = analizza(state)
@@ -165,6 +172,15 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     render_segnali_avanzati(segnali_avanzati, quotes.any_active)
     render_allineamento_mercato(risultati, quotes)
 
+    # ── Value Bet Detection (automatico) ────────────────────────────────────
+    if quotes.any_active:
+        st.divider()
+        render_value_bets(risultati, quotes)
+
+    # ── Risk Metrics (automatico) ───────────────────────────────────────────
+    if segnali_avanzati:
+        render_risk_metrics(segnali_avanzati, bankroll)
+
     # Fix #17: calcola e mostra market_divergence se ci sono quote exchange
     if quotes.any_active:
         from src.models.consensus import compute_model_market_divergence
@@ -195,10 +211,11 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         btts_settled=settled.get("btts_si_settled", False),
     )
 
-    # ── Debug ────────────────────────────────────────────────────────────────
+    # ── Debug & Session Stats ──────────────────────────────────────────────
     st.divider()
     soglie = calcola_soglie(state.minuto, linea_ou, gol_attuali)
     render_debug(
         risultati, linea_ou, state.minuto,
         soglie, comm_pct, momentum_factor, n_shots_tot,
     )
+    render_session_stats()
