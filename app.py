@@ -27,6 +27,7 @@ from src.ui.outputs import (
     render_asian_handicap,
     render_avvisi_affidabilita,
     render_avvisi_incoerenza,
+    render_clean_sheet,
     render_coerenza_mercati,
     render_confidence_bands,
     render_correct_score,
