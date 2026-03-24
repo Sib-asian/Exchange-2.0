@@ -343,12 +343,14 @@ def analizza(
     flat_lines = abs(delta_ah) < BAYES.FLAT_LINE_THRESHOLD and abs(delta_tot) < BAYES.FLAT_LINE_THRESHOLD
 
     # 4. Time decay + score effect + rossi + momentum dampening
+    # FIX: Passa delta_ah per evitare doppio conteggio score effect
     xg_h_final, xg_a_final = time_decay_dinamico(
         xg_h_blend, xg_a_blend,
         state.minuto,
         state.gol_casa, state.gol_trasf,
         state.rossi_casa, state.rossi_trasf,
         momentum=momentum,
+        delta_ah=delta_ah,
     )
 
     # 4b. Stale line detection: se le linee non si sono mosse dopo >15 minuti

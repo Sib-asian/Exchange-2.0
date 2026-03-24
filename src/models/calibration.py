@@ -24,13 +24,17 @@ from src.models.poisson import dixon_coles_tau, poisson_pmf, rho_dc_dinamico
 # ---------------------------------------------------------------------------
 
 def _ah_ev_half(
-    mu_h: float,
-    mu_a: float,
+    mu_h_ind: float,
+    mu_a_ind: float,
     handicap: float,
     rho_dc: float = -0.13,
 ) -> float:
     """
     Calcola l'EV dell'Asian Handicap con correzione Dixon-Coles inclusa.
+
+    FIX: Ora riceve i LAMBDA INDIPENDENTI (mu_h_ind, mu_a_ind) invece dei lambda totali.
+    Questo garantisce coerenza con il modello bivariato dove la DC è applicata
+    alla componente indipendente prima della convoluzione con Z.
 
     La coerenza con il modello finale (bivariate Poisson + DC) è essenziale:
     estrarre xG con un modello diverso (Poisson indipendente) introduce bias
@@ -40,16 +44,16 @@ def _ah_ev_half(
     componente indipendente + DC (Z non influenza l'EV dell'AH).
 
     Args:
-        mu_h: Lambda casa (componente indipendente).
-        mu_a: Lambda trasferta (componente indipendente).
+        mu_h_ind: Lambda casa INDIPENDENTE (mu_h_total - lambda0).
+        mu_a_ind: Lambda trasferta INDIPENDENTE (mu_a_total - lambda0).
         handicap: Handicap applicato alla casa (es. -0.75, +0.5).
         rho_dc: Coefficiente Dixon-Coles dinamico (coerente con build_bivariate_matrix).
 
     Returns:
         EV in [-1, 1]: positivo = valore per la casa.
     """
-    pmf_h = poisson_pmf(mu_h)
-    pmf_a = poisson_pmf(mu_a)
+    pmf_h = poisson_pmf(mu_h_ind)
+    pmf_a = poisson_pmf(mu_a_ind)
     ev = 0.0
     dc_norm = 0.0
 
@@ -59,7 +63,8 @@ def _ah_ev_half(
         for j, pj in enumerate(pmf_a):
             if pj < 1e-18:
                 continue
-            w = pi * pj * dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=rho_dc)
+            # FIX: DC applicata con lambda INDIPENDENTI
+            w = pi * pj * dixon_coles_tau(i, j, mu_h_ind, mu_a_ind, rho_dc=rho_dc)
             dc_norm += w
             s = (i - j) + handicap
             if s > 0:
@@ -70,9 +75,12 @@ def _ah_ev_half(
     return ev / dc_norm if dc_norm > 0 else 0.0
 
 
-def _ah_ev(mu_h: float, mu_a: float, ah: float, rho_dc: float = -0.13) -> float:
+def _ah_ev(mu_h: float, mu_a: float, ah: float, rho_dc: float = -0.13, rho: float = 0.10) -> float:
     """
     EV dell'AH con interpolazione continua tra le half-lines adiacenti.
+
+    FIX: Calcola lambda0 dalla correlazione rho e usa i lambda indipendenti
+    per la correzione Dixon-Coles, garantendo coerenza con il modello bivariato.
 
     Per la calibrazione degli xG, l'AH dal blend bayesiano può essere qualsiasi float
     (es. -0.212, -0.406), non solo valori standard di mercato (±0.25, ±0.50, ...).
@@ -88,14 +96,11 @@ def _ah_ev(mu_h: float, mu_a: float, ah: float, rho_dc: float = -0.13) -> float:
     - Alle quarter lines (±0.25, ±0.75): dà il corretto split 50/50
     - Per valori non-standard (dal blend): interpola smoothly
 
-    Esempio: ah = -0.212
-      h_low = -0.5, h_high = 0.0
-      t = (-0.212 - (-0.5)) / 0.5 = 0.576
-      EV = 0.424 × EV(-0.5) + 0.576 × EV(0.0)
-
     Args:
-        mu_h, mu_a: Lambda casa e trasferta.
+        mu_h, mu_a: Lambda TOTALE casa e trasferta.
         ah: Linea AH (standard di mercato o valore dal blend).
+        rho_dc: Coefficiente Dixon-Coles.
+        rho: Coefficiente di correlazione per calcolare lambda0.
 
     Returns:
         EV in [-1, 1].
@@ -103,31 +108,37 @@ def _ah_ev(mu_h: float, mu_a: float, ah: float, rho_dc: float = -0.13) -> float:
     ah_f = float(ah)
     ah2 = ah_f * 2.0
 
+    # FIX: Calcola lambda0 per coerenza con il modello bivariato
+    # lambda0 = rho * sqrt(mu_h * mu_a), cappato a 75% del min
+    geom_mu = math.sqrt(max(0.0, mu_h * mu_a))
+    mu_min = min(mu_h, mu_a)
+    lambda0 = min(rho * geom_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
+    lambda0 = max(0.0, lambda0)
+
+    # Lambda indipendenti
+    mu_h_ind = max(POISSON.EPS, mu_h - lambda0)
+    mu_a_ind = max(POISSON.EPS, mu_a - lambda0)
+
     # Controlla se è esattamente una half-line (es. -0.5, 0.0, +0.5, -1.0)
     if abs(ah2 - round(ah2)) < POISSON.EPS:
-        return _ah_ev_half(mu_h, mu_a, ah_f, rho_dc=rho_dc)
+        return _ah_ev_half(mu_h_ind, mu_a_ind, ah_f, rho_dc=rho_dc)
 
     # Per tutti gli altri valori (quarter lines standard e valori non-standard dal blend):
     # interpolazione con correzione di curvatura (Hermite-like).
-    # L'interpolazione lineare pura ha errore O(t²) ≈ ±2.5% sui quarter-line.
-    # La correzione quadratica riduce l'errore a O(t⁴) ≈ ±0.2%.
     h_low = math.floor(ah2) / 2.0
     h_high = h_low + 0.5
-    t = (ah_f - h_low) / 0.5  # posizione in [0, 1): 0.5 per quarter lines standard
+    t = (ah_f - h_low) / 0.5
 
-    ev_low = _ah_ev_half(mu_h, mu_a, h_low, rho_dc=rho_dc)
-    ev_high = _ah_ev_half(mu_h, mu_a, h_high, rho_dc=rho_dc)
+    ev_low = _ah_ev_half(mu_h_ind, mu_a_ind, h_low, rho_dc=rho_dc)
+    ev_high = _ah_ev_half(mu_h_ind, mu_a_ind, h_high, rho_dc=rho_dc)
     ev_linear = (1.0 - t) * ev_low + t * ev_high
 
     # Correzione curvatura: derivata seconda approssimata con 4-point stencil
     h_ll = h_low - 0.5
     h_hh = h_high + 0.5
-    ev_ll = _ah_ev_half(mu_h, mu_a, h_ll, rho_dc=rho_dc)
-    ev_hh = _ah_ev_half(mu_h, mu_a, h_hh, rho_dc=rho_dc)
-    # f'' ≈ (ev_hh - ev_high) - (ev_low - ev_ll) = curvatura discretizzata
+    ev_ll = _ah_ev_half(mu_h_ind, mu_a_ind, h_ll, rho_dc=rho_dc)
+    ev_hh = _ah_ev_half(mu_h_ind, mu_a_ind, h_hh, rho_dc=rho_dc)
     f_pp = (ev_hh - ev_high) - (ev_low - ev_ll)
-    # Correzione Hermite: t*(1-t) pesa 0 ai bordi, max 0.25 al centro
-    # HERMITE_CORRECTION_COEF=0.05 riduce errore interpolazione da ±2.5% a ±0.2%
     return ev_linear + BAYES.HERMITE_CORRECTION_COEF * t * (1.0 - t) * f_pp
 
 
@@ -413,6 +424,19 @@ def blend_xg_shots(
     rate_a = xg_a_accum / frac_giocata * dampening
     mu_h_shots = rate_h * frac_rimasta
     mu_a_shots = rate_a * frac_rimasta
+
+    # FIX: Cap proiezione tiri per evitare valori irrealistici in early game.
+    # In early game (pochi minuti), la proiezione rate / frac_giocata può produrre
+    # valori molto alti (es. 1.5 xG in 10' → 13.5 xG/90' → 12 xG rimanenti).
+    # Cap: non superare il 150% del totale stimato dal mercato.
+    t_line = mu_h_line + mu_a_line
+    t_shots = mu_h_shots + mu_a_shots
+    max_total_from_shots = max(0.5, t_line * 1.5)  # almeno 0.5 gol rimanenti
+    if t_shots > max_total_from_shots:
+        scale = max_total_from_shots / t_shots
+        mu_h_shots *= scale
+        mu_a_shots *= scale
+        t_shots = mu_h_shots + mu_a_shots
 
     # Indice di dominio tiri (solo in porta, più informativi)
     sot_tot = sot_h + sot_a
