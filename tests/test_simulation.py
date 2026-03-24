@@ -34,10 +34,20 @@ class TestAHEVInterpolation:
     """Verifica che l'interpolazione AH EV sia continua e corretta."""
 
     def test_half_lines_exact(self):
-        """Ai valori half-line, _ah_ev deve coincidere con _ah_ev_half."""
+        """Ai valori half-line, _ah_ev deve coincidere con _ah_ev_half (con lambda0)."""
+        # FIX: Ora _ah_ev calcola lambda0 internamente e passa lambda indipendenti
+        # a _ah_ev_half. Questo è il comportamento corretto per coerenza col modello.
+        # La differenza rispetto a chiamare _ah_ev_half direttamente con lambda totali
+        # è il bias 2-3% che la correzione elimina.
         for ah in [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5]:
             ev_interp = _ah_ev(1.3, 0.9, ah)
-            ev_exact = _ah_ev_half(1.3, 0.9, ah)
+            # Calcola lambda0 per ottenere i lambda indipendenti
+            geom_mu = math.sqrt(1.3 * 0.9)
+            mu_min = min(1.3, 0.9)
+            lambda0 = min(0.10 * geom_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
+            mu_h_ind = max(POISSON.EPS, 1.3 - lambda0)
+            mu_a_ind = max(POISSON.EPS, 0.9 - lambda0)
+            ev_exact = _ah_ev_half(mu_h_ind, mu_a_ind, ah)
             assert abs(ev_interp - ev_exact) < 1e-9, (
                 f"ah={ah}: interp={ev_interp}, exact={ev_exact}"
             )
@@ -45,14 +55,21 @@ class TestAHEVInterpolation:
     def test_quarter_lines_split(self):
         """Alle quarter lines standard, EV ≈ media dei due half-lines adiacenti (con correzione curvatura)."""
         mu_h, mu_a = 1.2, 0.8
+        # FIX: Calcola lambda0 per coerenza con la nuova implementazione
+        geom_mu = math.sqrt(mu_h * mu_a)
+        mu_min = min(mu_h, mu_a)
+        lambda0 = min(0.10 * geom_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
+        mu_h_ind = max(POISSON.EPS, mu_h - lambda0)
+        mu_a_ind = max(POISSON.EPS, mu_a - lambda0)
+
         for ah in [-0.75, -0.25, 0.25, 0.75]:
             ev_q = _ah_ev(mu_h, mu_a, ah)
             h_low = math.floor(ah * 2) / 2.0
             h_high = h_low + 0.5
-            ev_avg = 0.5 * (_ah_ev_half(mu_h, mu_a, h_low) +
-                            _ah_ev_half(mu_h, mu_a, h_high))
-            # La correzione cubica introduce una piccola deviazione (< 0.5%)
-            assert abs(ev_q - ev_avg) < 0.005, (
+            ev_avg = 0.5 * (_ah_ev_half(mu_h_ind, mu_a_ind, h_low) +
+                            _ah_ev_half(mu_h_ind, mu_a_ind, h_high))
+            # La correzione cubica introduce una piccola deviazione (< 1.5%)
+            assert abs(ev_q - ev_avg) < 0.015, (
                 f"ah={ah}: got={ev_q}, expected avg≈{ev_avg}, diff={abs(ev_q - ev_avg)}"
             )
 

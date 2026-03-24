@@ -66,9 +66,13 @@ def time_decay_dinamico(
     rossi_casa: int,
     rossi_trasf: int,
     momentum: float = 0.0,
+    delta_ah: float = 0.0,
 ) -> tuple[float, float]:
     """
     Aggiustamenti tattico-comportamentali sugli xG proiettati al tempo rimanente.
+
+    FIX: Aggiunto parametro delta_ah per rilevare se il mercato ha già reagito
+    al punteggio, evitando così il doppio conteggio dello score effect.
 
     ── Cosa NON fa ───────────────────────────────────────────────────────────
     Il decadimento Weibull (t_remaining/90)^0.85 è stato rimosso.
@@ -77,12 +81,15 @@ def time_decay_dinamico(
     dimezzava le stime rispetto a ciò che il mercato prezzava → bias sistematico.
 
     ── Cosa fa ───────────────────────────────────────────────────────────────
-    1. Score effect RESIDUALE (cap 8%):
+    1. Score effect RESIDUALE (cap 8%), con riduzione per reazione mercato:
        L'AH corrente già incorpora ~80% dell'effetto punteggio.
        Il residuo cattura il comportamento tattico non ancora pienamente prezzato:
        - Pressing disperato (team che perde): xG ↑ ma qualità ↓ (tiri da lontano)
        - Parking the bus (team in vantaggio): xG ↓ ma contropiedismo ↑
        Il residuo scala inversamente col minuto: early-game AH ha latency maggiore.
+
+       FIX: Se il mercato HA GIÀ REAGITO al punteggio (delta_ah significativo),
+       riduci ulteriormente il residuo per evitare doppio conteggio.
 
     2. Cartellini rossi — effetto marginale decrescente (Brechot & Flepp 2020):
        -32% xG per il team ridotto, +28% per l'avversario al primo rosso.
@@ -94,6 +101,8 @@ def time_decay_dinamico(
         minuto: Minuto attuale [0, 90].
         gol_casa, gol_trasf: Gol attuali.
         rossi_casa, rossi_trasf: Cartellini rossi attuali.
+        momentum: Indice momentum mercato.
+        delta_ah: Variazione AH (ah_cur_full - ah_op) per calcolare reazione mercato.
 
     Returns:
         (xg_casa_adj, xg_trasf_adj): xG aggiustati, con floor XG_FLOOR.
@@ -104,13 +113,7 @@ def time_decay_dinamico(
     xg_c = float(xg_casa)
     xg_t = float(xg_trasf)
 
-    # 1. Score effect residuale ASIMMETRICO
-    # La squadra in svantaggio preme con tiri disperati (volume ↑, qualità ↓):
-    #   il boost xG è ridotto (SCORE_DOWN_MULTIPLIER = 0.65).
-    # La squadra in vantaggio controlla possesso e difende in modo organizzato:
-    #   il suo vantaggio difensivo è amplificato (SCORE_UP_MULTIPLIER = 1.15).
-    # In partite ad alto punteggio (3-2, 4-3), l'AH live ha già incorporato
-    #   la volatilità → il residuo va scalato in base ai gol totali.
+    # 1. Score effect residuale ASIMMETRICO con riduzione per reazione mercato
     diff = gol_casa - gol_trasf
     if diff != 0:
         sat = abs(diff) / (DECAY.SCORE_SATURATION + abs(diff))
@@ -123,16 +126,23 @@ def time_decay_dinamico(
         goal_intensity = 1.0 - min(0.60, gol_tot * DECAY.SCORE_GOAL_INTENSITY_SCALE)
         residual_base = min(DECAY.SCORE_EFFECT_MAX, DECAY.SCORE_EFFECT_BASE * sat * minute_scale * goal_intensity)
 
-        # FIX: Usare lo stesso moltiplicatore per entrambe le squadre per evitare xG negativi
-        # La squadra in svantaggio preme (boost ridotto per qualità inferiore)
-        # La squadra in vantaggio difende (riduzione xG)
-        # SCORE_DOWN_MULTIPLIER (0.65) cattura l'asimmetria: pressing = volume alto ma qualità bassa
-        if diff < 0:  # casa in svantaggio
-            xg_c *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)  # casa preme
-            xg_t *= (1.0 - residual_base * DECAY.SCORE_DOWN_MULTIPLIER)  # trasferta difende
-        else:  # casa in vantaggio
-            xg_t *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)  # trasferta preme
-            xg_c *= (1.0 - residual_base * DECAY.SCORE_DOWN_MULTIPLIER)  # casa difende
+        # FIX: Riduci score effect se il mercato ha già reagito al punteggio
+        # delta_ah rappresenta il movimento del mercato AH (in full-game space)
+        # Se casa è in vantaggio di 1, mi aspetto AH che si sposta di ~-1 verso la trasferta
+        expected_movement = -float(diff)
+        actual_movement = delta_ah
+        market_absorption = min(1.0, abs(actual_movement) / max(0.5, abs(expected_movement)))
+        score_effect_mult = 1.0 - market_absorption * 0.80
+        residual_base *= score_effect_mult
+
+        # Applica solo se c'è residuo significativo
+        if residual_base > 0.001:
+            if diff < 0:  # casa in svantaggio
+                xg_c *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
+                xg_t *= (1.0 - residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
+            else:  # casa in vantaggio
+                xg_t *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
+                xg_c *= (1.0 - residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
 
     # 2. Cartellini rossi — effetto marginale decrescente × tempo rimanente
     # Un rosso al 10' (80 minuti restanti) ha effetto pieno: la squadra gioca
