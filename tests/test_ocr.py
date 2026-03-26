@@ -324,6 +324,23 @@ class TestNormalizeLiveStatsKeys:
         assert result["falli_casa"] == 18
         assert result["gialli_casa"] == 1
 
+    def test_nested_dict_flattened(self):
+        """Test strutture annidate tipo {"shots_on_goal": {"home": 4, "away": 2}}."""
+        data = {
+            "minute": 90,
+            "goals": {"home": 2, "away": 1},
+            "corners": {"home": 6, "away": 2},
+            "possession": {"home": 50, "away": 50},
+            "shots_on_goal": {"home": 4, "away": 2},
+            "dangerous_attacks": {"home": 48, "away": 34},
+        }
+        result = _normalize_live_stats_keys(data)
+        assert result["minuto"] == 90
+        assert result.get("gol_casa") == 2
+        assert result.get("corner_casa") == 6
+        assert result.get("tiri_porta_casa") == 4
+        assert result.get("attacchi_pericolosi_casa") == 48
+
     def test_english_response_parsed_end_to_end(self):
         """Test che una risposta con chiavi inglesi viene parsata correttamente."""
         response = json.dumps({

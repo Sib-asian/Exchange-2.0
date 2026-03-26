@@ -686,14 +686,60 @@ _LIVE_STATS_KEY_ALIASES: dict[str, str] = {
     # Falli
     "fouls_home": "falli_casa", "home_fouls": "falli_casa",
     "fouls_away": "falli_trasf", "away_fouls": "falli_trasf",
+    "free_kicks_home": "falli_casa", "home_free_kicks": "falli_casa",
+    "free_kicks_away": "falli_trasf", "away_free_kicks": "falli_trasf",
+    # Tiri totali (Nowgoal "Shots" = tiri totali, non solo in porta)
+    "shots_home": "tiri_totali_casa", "home_shots": "tiri_totali_casa",
+    "shots_away": "tiri_totali_trasf", "away_shots": "tiri_totali_trasf",
 }
 
 
-def _normalize_live_stats_keys(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalizza le chiavi del JSON usando gli alias noti."""
-    normalized: dict[str, Any] = {}
+def _flatten_dict(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """Appiattisce un dict annidato in chiavi piatte.
+
+    Gestisce strutture come:
+      {"shots_on_goal": {"home": 4, "away": 2}}
+      → {"shots_on_goal_home": 4, "shots_on_goal_away": 2}
+
+      {"corner_kicks": [6, 2]}
+      → {"corner_kicks_home": 6, "corner_kicks_away": 2}
+    """
+    flat: dict[str, Any] = {}
     for key, value in data.items():
-        # Prima prova la chiave originale (se è già nel formato atteso)
+        full_key = f"{prefix}_{key}" if prefix else key
+        if isinstance(value, dict):
+            # Annida: {"home": 4, "away": 2} → key_home=4, key_away=2
+            for sub_key, sub_val in value.items():
+                sub_lower = sub_key.lower()
+                if sub_lower in ("home", "casa", "h", "left"):
+                    flat[f"{full_key}_home"] = sub_val
+                elif sub_lower in ("away", "trasf", "trasferta", "a", "right"):
+                    flat[f"{full_key}_away"] = sub_val
+                else:
+                    flat[f"{full_key}_{sub_key}"] = sub_val
+        elif isinstance(value, list) and len(value) == 2:
+            # Lista [home, away]
+            flat[f"{full_key}_home"] = value[0]
+            flat[f"{full_key}_away"] = value[1]
+        else:
+            flat[full_key] = value
+    return flat
+
+
+def _normalize_live_stats_keys(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalizza le chiavi del JSON usando gli alias noti.
+
+    Gestisce:
+    1. Chiavi piatte italiane (tiri_porta_casa) → passano direttamente
+    2. Chiavi piatte inglesi (shots_on_target_home) → mappate via alias
+    3. Strutture annidate ({"shots": {"home": 4}}) → appiattite e mappate
+    """
+    # Step 1: appiattisci strutture annidate
+    flat = _flatten_dict(data)
+
+    # Step 2: mappa le chiavi tramite alias
+    normalized: dict[str, Any] = {}
+    for key, value in flat.items():
         canonical = _LIVE_STATS_KEY_ALIASES.get(key.lower(), key)
         normalized[canonical] = value
     return normalized
@@ -751,6 +797,16 @@ def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
 
         # Normalizza chiavi: Gemini potrebbe usare nomi inglesi o varianti
         data = _normalize_live_stats_keys(data)
+
+        # Deriva tiri fuori = tiri totali - tiri in porta (se mancano)
+        if not data.get("tiri_fuori_casa") and data.get("tiri_totali_casa"):
+            tot = _safe_int(data["tiri_totali_casa"])
+            on = _safe_int(data.get("tiri_porta_casa", 0))
+            data["tiri_fuori_casa"] = max(0, tot - on)
+        if not data.get("tiri_fuori_trasf") and data.get("tiri_totali_trasf"):
+            tot = _safe_int(data["tiri_totali_trasf"])
+            on = _safe_int(data.get("tiri_porta_trasf", 0))
+            data["tiri_fuori_trasf"] = max(0, tot - on)
 
         return LiveStatsExtracted(
             minuto=_safe_int(data.get("minuto")),
