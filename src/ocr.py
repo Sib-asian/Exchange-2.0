@@ -143,6 +143,7 @@ def _get_env_with_path() -> dict[str, str]:
         "/bin",
         "/home/z/.bun/bin",
         os.path.expanduser("~/.bun/bin"),
+        "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist",
     ]
     for p in extra_paths:
         if p not in current_path:
@@ -151,9 +152,59 @@ def _get_env_with_path() -> dict[str, str]:
     return env
 
 
+def _find_zai_command() -> tuple[str | None, list[str] | None]:
+    """
+    Trova il modo di eseguire z-ai CLI.
+    
+    Returns:
+        (executable, args): L'eseguibile e gli argomenti aggiuntivi, o (None, None) se non trovato.
+    """
+    # 1. Prova con shutil.which (cerca nel PATH)
+    zai_path = shutil.which("z-ai")
+    if zai_path:
+        return zai_path, None
+    
+    # 2. Prova percorsi assoluti comuni
+    absolute_paths = [
+        "/usr/local/bin/z-ai",
+        "/usr/bin/z-ai",
+        os.path.expanduser("~/.bun/bin/z-ai"),
+        "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js",
+    ]
+    for path in absolute_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path, None
+    
+    # 3. Prova con bun direttamente
+    bun_path = shutil.which("bun")
+    if bun_path:
+        cli_path = "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"
+        if os.path.isfile(cli_path):
+            return bun_path, [cli_path]
+        # Prova anche in altre posizioni
+        alt_cli = os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js")
+        if os.path.isfile(alt_cli):
+            return bun_path, [alt_cli]
+    
+    # 4. Prova con node
+    node_path = shutil.which("node")
+    if node_path:
+        cli_path = "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"
+        if os.path.isfile(cli_path):
+            return node_path, [cli_path]
+    
+    return None, None
+
+
 def _check_command_available(cmd: str) -> bool:
     """Verifica se un comando è disponibile."""
     return shutil.which(cmd) is not None
+
+
+def _check_zai_available() -> bool:
+    """Verifica se z-ai è disponibile in qualsiasi forma."""
+    executable, _ = _find_zai_command()
+    return executable is not None
 
 
 def extract_from_image_file(image_path: str | Path) -> ExtractedData:
@@ -174,20 +225,25 @@ def extract_from_image_file(image_path: str | Path) -> ExtractedData:
             error_message=f"File non trovato: {image_path}",
         )
 
-    # Verifica se z-ai è disponibile
-    if not _check_command_available("z-ai"):
+    # Trova il modo di eseguire z-ai
+    executable, extra_args = _find_zai_command()
+    if executable is None:
         return ExtractedData(
             extraction_success=False,
             error_message="z-ai non disponibile. Installa z-ai-web-dev-sdk: npm install -g z-ai-web-dev-sdk",
         )
 
+    # Costruisci il comando
+    if extra_args:
+        # Esegui con bun/node: bun cli.js vision -p ... -i ...
+        cmd = [executable] + extra_args + ["vision", "-p", EXTRACTION_PROMPT, "-i", str(image_path)]
+    else:
+        # Esegui direttamente: z-ai vision -p ... -i ...
+        cmd = [executable, "vision", "-p", EXTRACTION_PROMPT, "-i", str(image_path)]
+
     try:
         result = subprocess.run(
-            [
-                "z-ai", "vision",
-                "-p", EXTRACTION_PROMPT,
-                "-i", str(image_path),
-            ],
+            cmd,
             capture_output=True,
             text=True,
             timeout=90,

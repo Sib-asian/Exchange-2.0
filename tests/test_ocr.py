@@ -10,7 +10,9 @@ import pytest
 from src.ocr import (
     ExtractedData,
     _check_command_available,
+    _check_zai_available,
     _fallback_extraction,
+    _find_zai_command,
     _get_env_with_path,
     _parse_vlm_response,
     _safe_float,
@@ -84,6 +86,40 @@ class TestGetEnvWithPath:
         assert "PATH" in env
         assert "/usr/local/bin" in env["PATH"]
         assert "/usr/bin" in env["PATH"]
+
+
+class TestFindZaiCommand:
+    """Test per _find_zai_command."""
+
+    def test_returns_tuple(self):
+        """Verifica che restituisca una tupla."""
+        result = _find_zai_command()
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_found_on_this_system(self):
+        """Verifica che z-ai sia trovato su questo sistema."""
+        executable, extra_args = _find_zai_command()
+        # Su questo sistema z-ai dovrebbe essere disponibile
+        assert executable is not None
+
+    def test_extra_args_none_or_list(self):
+        """Verifica che extra_args sia None o lista."""
+        _, extra_args = _find_zai_command()
+        assert extra_args is None or isinstance(extra_args, list)
+
+
+class TestCheckZaiAvailable:
+    """Test per _check_zai_available."""
+
+    def test_returns_bool(self):
+        """Verifica che restituisca un booleano."""
+        result = _check_zai_available()
+        assert isinstance(result, bool)
+
+    def test_available_on_this_system(self):
+        """Verifica che z-ai sia disponibile su questo sistema."""
+        assert _check_zai_available() is True
 
 
 class TestParseVlmResponse:
@@ -258,8 +294,8 @@ class TestExtractFromImageFile:
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"fake image content")
 
-        with patch("src.ocr._check_command_available") as mock_check:
-            mock_check.return_value = False
+        with patch("src.ocr._find_zai_command") as mock_find:
+            mock_find.return_value = (None, None)
             result = extract_from_image_file(img_path)
             assert result.extraction_success is False
             assert "z-ai" in result.error_message.lower()
@@ -278,9 +314,9 @@ class TestExtractFromImageFile:
             "confidence": "high",
         })
 
-        with patch("src.ocr._check_command_available") as mock_check:
+        with patch("src.ocr._find_zai_command") as mock_find:
             with patch("src.ocr.subprocess.run") as mock_run:
-                mock_check.return_value = True
+                mock_find.return_value = ("/usr/local/bin/z-ai", None)
                 mock_run.return_value = type(
                     "Result",
                     (),
@@ -289,6 +325,37 @@ class TestExtractFromImageFile:
                 result = extract_from_image_file(img_path)
                 assert result.extraction_success is True
                 assert result.squadra_casa == "Roma"
+
+    def test_successful_extraction_with_bun(self, tmp_path):
+        """Verifica estrazione riuscita con bun come runner."""
+        img_path = tmp_path / "test.jpg"
+        img_path.write_bytes(b"fake image content")
+
+        mock_response = json.dumps({
+            "squadra_casa": "Juventus",
+            "squadra_trasf": "Milan",
+            "quota_1": 2.10,
+            "quota_x": 3.40,
+            "quota_2": 3.20,
+            "confidence": "high",
+        })
+
+        with patch("src.ocr._find_zai_command") as mock_find:
+            with patch("src.ocr.subprocess.run") as mock_run:
+                # Simula esecuzione tramite bun
+                mock_find.return_value = ("/usr/local/bin/bun", ["/path/to/cli.js"])
+                mock_run.return_value = type(
+                    "Result",
+                    (),
+                    {"returncode": 0, "stdout": mock_response, "stderr": ""},
+                )()
+                result = extract_from_image_file(img_path)
+                assert result.extraction_success is True
+                assert result.squadra_casa == "Juventus"
+                # Verifica che il comando sia costruito correttamente
+                call_args = mock_run.call_args[0][0]
+                assert "bun" in call_args[0]
+                assert "vision" in call_args
 
 
 class TestExtractFromBytes:
@@ -306,9 +373,9 @@ class TestExtractFromBytes:
             "confidence": "medium",
         })
 
-        with patch("src.ocr._check_command_available") as mock_check:
+        with patch("src.ocr._find_zai_command") as mock_find:
             with patch("src.ocr.subprocess.run") as mock_run:
-                mock_check.return_value = True
+                mock_find.return_value = ("/usr/local/bin/z-ai", None)
                 mock_run.return_value = type(
                     "Result",
                     (),
@@ -336,9 +403,9 @@ class TestExtractFromBase64:
             "confidence": "high",
         })
 
-        with patch("src.ocr._check_command_available") as mock_check:
+        with patch("src.ocr._find_zai_command") as mock_find:
             with patch("src.ocr.subprocess.run") as mock_run:
-                mock_check.return_value = True
+                mock_find.return_value = ("/usr/local/bin/z-ai", None)
                 mock_run.return_value = type(
                     "Result",
                     (),
