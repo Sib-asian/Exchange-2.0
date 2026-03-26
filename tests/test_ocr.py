@@ -319,6 +319,15 @@ class TestParseLiveStatsResponse:
         result = _parse_live_stats_response("")
         assert result.extraction_success is False
 
+    def test_truncated_json_repair(self):
+        # Simula JSON troncato (output tagliato a metà)
+        response = '{\n    "minuto": 90,\n    "gol_casa": 2,\n    "gol_trasf": 1,\n    "corner_casa": 6,\n    "corner_tra'
+        result = _parse_live_stats_response(response)
+        assert result.extraction_success is True
+        assert result.minuto == 90
+        assert result.gol_casa == 2
+        assert result.corner_casa == 6
+
     def test_invalid_json(self):
         result = _parse_live_stats_response("not json at all")
         assert result.extraction_success is False
