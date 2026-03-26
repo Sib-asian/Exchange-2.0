@@ -485,7 +485,7 @@ def _extract_with_openai(image_path: Path) -> ExtractedData:
 # Live Stats Extraction (Nowgoal/simili)
 # ============================================================================
 
-LIVE_STATS_PROMPT = """Estrai le statistiche dallo screenshot. Sinistra=casa, destra=trasferta. HT=45, FT=90. Shots on Target=tiri_porta, Shots off Goal/Target=tiri_fuori, Blocked=tiri_bloccati. Se vedi solo "Shots" totali: tiri_fuori=shots-shots_on_target. Rispondi SOLO con questo JSON compatto (0 se non visibile):
+LIVE_STATS_PROMPT = """Estrai le statistiche dallo screenshot di calcio. Sinistra=casa(h), destra=trasferta(a). MINUTO: se vedi "FT" o "Full Time" → min=90. Se vedi "HT" o "Half Time" → min=45. Se vedi un numero con ' (es "65'") → quel numero. Shots on Target/Goal=sot, Shots off Target/Goal=soff, Blocked=blk. Se vedi solo "Shots" totali: soff=shots-sot. Rispondi SOLO JSON (0 se non visibile):
 {"min":0,"g_h":0,"g_a":0,"r_h":0,"r_a":0,"y_h":0,"y_a":0,"sot_h":0,"sot_a":0,"soff_h":0,"soff_a":0,"blk_h":0,"blk_a":0,"cor_h":0,"cor_a":0,"pos_h":0,"pos_a":0,"att_h":0,"att_a":0,"datt_h":0,"datt_a":0,"fou_h":0,"fou_a":0}"""
 
 

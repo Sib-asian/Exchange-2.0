@@ -312,15 +312,28 @@ _LIVE_WIDGET_KEYS = [
 ]
 
 
-def _clear_live_widget_keys() -> None:
-    """Rimuove le chiavi dei widget live dal session state.
+def _push_live_data_to_session(data: LiveStatsExtracted) -> None:
+    """Scrive i valori estratti direttamente nel session state dei widget.
 
     Streamlit usa il session state come fonte di verità per i widget.
-    Se un widget ha una key già presente, ignora il parametro value=.
-    Rimuovendo le chiavi, forziamo Streamlit a usare i nuovi valori.
+    Scrivendo i valori PRIMA che i widget vengano renderizzati, forziamo
+    Streamlit a mostrare i valori aggiornati.
     """
-    for key in _LIVE_WIDGET_KEYS:
-        st.session_state.pop(key, None)
+    st.session_state["live_minuto"] = min(data.minuto, 90)
+    st.session_state["live_gol_casa"] = data.gol_casa
+    st.session_state["live_gol_trasf"] = data.gol_trasf
+    st.session_state["live_rossi_casa"] = data.rossi_casa
+    st.session_state["live_rossi_trasf"] = data.rossi_trasf
+    st.session_state["live_sot_h"] = data.tiri_porta_casa
+    st.session_state["live_soff_h"] = data.tiri_fuori_casa
+    st.session_state["live_sot_a"] = data.tiri_porta_trasf
+    st.session_state["live_soff_a"] = data.tiri_fuori_trasf
+    st.session_state["live_corner_h"] = data.corner_casa
+    st.session_state["live_corner_a"] = data.corner_trasf
+    st.session_state["live_poss_h"] = data.possesso_casa
+    st.session_state["live_poss_a"] = data.possesso_trasf
+    st.session_state["live_att_per_h"] = data.attacchi_pericolosi_casa
+    st.session_state["live_att_per_a"] = data.attacchi_pericolosi_trasf
 
 
 def render_live_screenshot_upload() -> LiveStatsExtracted | None:
@@ -363,8 +376,10 @@ def render_live_screenshot_upload() -> LiveStatsExtracted | None:
             )
             st.session_state.last_live_file_id = file_id
             st.session_state.live_stats_data = extracted
-            # Resetta i widget per forzare i nuovi valori
-            _clear_live_widget_keys()
+            # Scrivi i valori nei widget e forza re-render
+            if extracted.extraction_success:
+                _push_live_data_to_session(extracted)
+                st.rerun()
             return extracted
         except Exception as e:
             st.error(f"❌ Errore durante l'analisi: {e}")
