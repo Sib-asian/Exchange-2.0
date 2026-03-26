@@ -485,70 +485,8 @@ def _extract_with_openai(image_path: Path) -> ExtractedData:
 # Live Stats Extraction (Nowgoal/simili)
 # ============================================================================
 
-LIVE_STATS_PROMPT = """Analizza questo screenshot di statistiche live di una partita di calcio (da Nowgoal, FlashScore, SofaScore o simili).
-
-Estrai TUTTE le statistiche visibili e restituiscile in formato JSON esattamente come mostrato:
-
-{
-    "minuto": 0,
-    "gol_casa": 0,
-    "gol_trasf": 0,
-    "rossi_casa": 0,
-    "rossi_trasf": 0,
-    "gialli_casa": 0,
-    "gialli_trasf": 0,
-    "tiri_porta_casa": 0,
-    "tiri_porta_trasf": 0,
-    "tiri_fuori_casa": 0,
-    "tiri_fuori_trasf": 0,
-    "tiri_bloccati_casa": 0,
-    "tiri_bloccati_trasf": 0,
-    "corner_casa": 0,
-    "corner_trasf": 0,
-    "possesso_casa": 0.0,
-    "possesso_trasf": 0.0,
-    "attacchi_casa": 0,
-    "attacchi_trasf": 0,
-    "attacchi_pericolosi_casa": 0,
-    "attacchi_pericolosi_trasf": 0,
-    "falli_casa": 0,
-    "falli_trasf": 0,
-    "confidence": "high/medium/low"
-}
-
-REGOLE DI ESTRAZIONE:
-
-1. PUNTEGGIO E MINUTO:
-   - Il punteggio è solitamente in formato "X - Y" al centro dello schermo
-   - Il minuto può essere mostrato come "45'" o "HT" (halftime=45) o "FT" (fulltime=90)
-   - La squadra a SINISTRA è CASA, quella a DESTRA è TRASFERTA
-
-2. STATISTICHE:
-   - Ogni statistica ha due valori: uno per casa (sinistra) e uno per trasferta (destra)
-   - "Shots on Target" / "Tiri in Porta" = tiri_porta
-   - "Shots off Target" / "Tiri Fuori" = tiri_fuori
-   - "Blocked Shots" / "Tiri Bloccati" = tiri_bloccati
-   - "Corners" / "Corner" / "Calci d'angolo" = corner
-   - "Possession" / "Possesso" = possesso (in percentuale, es. 55.0)
-   - "Attacks" / "Attacchi" = attacchi
-   - "Dangerous Attacks" / "Attacchi Pericolosi" = attacchi_pericolosi
-   - "Fouls" / "Falli" = falli
-   - "Yellow Cards" / "Gialli" / "Ammonizioni" = gialli
-   - "Red Cards" / "Rossi" / "Espulsioni" = rossi
-
-3. NOTA SUI TIRI:
-   - Se vedi solo "Total Shots" e "Shots on Target":
-     tiri_fuori = total_shots - shots_on_target
-   - Se vedi "Shots" senza specificare: usa come tiri_porta
-
-4. CONFIDENCE:
-   - "high" = tutti i dati chiaramente visibili
-   - "medium" = alcuni dati mancanti o poco chiari
-   - "low" = immagine sfocata o molti dati non leggibili
-
-SE UN DATO NON È VISIBILE: imposta a 0 (numeri) o 0.0 (percentuali).
-
-IMPORTANTE: Restituisci SOLO il JSON, nessun altro testo."""
+LIVE_STATS_PROMPT = """Estrai le statistiche dallo screenshot. Sinistra=casa, destra=trasferta. HT=45, FT=90. Shots on Target=tiri_porta, Shots off Goal/Target=tiri_fuori, Blocked=tiri_bloccati. Se vedi solo "Shots" totali: tiri_fuori=shots-shots_on_target. Rispondi SOLO con questo JSON compatto (0 se non visibile):
+{"min":0,"g_h":0,"g_a":0,"r_h":0,"r_a":0,"y_h":0,"y_a":0,"sot_h":0,"sot_a":0,"soff_h":0,"soff_a":0,"blk_h":0,"blk_a":0,"cor_h":0,"cor_a":0,"pos_h":0,"pos_a":0,"att_h":0,"att_a":0,"datt_h":0,"datt_a":0,"fou_h":0,"fou_a":0}"""
 
 
 def _extract_live_stats_with_gemini(image_path: Path) -> LiveStatsExtracted:
@@ -691,6 +629,18 @@ _LIVE_STATS_KEY_ALIASES: dict[str, str] = {
     # Tiri totali (Nowgoal "Shots" = tiri totali, non solo in porta)
     "shots_home": "tiri_totali_casa", "home_shots": "tiri_totali_casa",
     "shots_away": "tiri_totali_trasf", "away_shots": "tiri_totali_trasf",
+    # ── Chiavi compatte dal prompt ridotto ──
+    "g_h": "gol_casa", "g_a": "gol_trasf",
+    "r_h": "rossi_casa", "r_a": "rossi_trasf",
+    "y_h": "gialli_casa", "y_a": "gialli_trasf",
+    "sot_h": "tiri_porta_casa", "sot_a": "tiri_porta_trasf",
+    "soff_h": "tiri_fuori_casa", "soff_a": "tiri_fuori_trasf",
+    "blk_h": "tiri_bloccati_casa", "blk_a": "tiri_bloccati_trasf",
+    "cor_h": "corner_casa", "cor_a": "corner_trasf",
+    "pos_h": "possesso_casa", "pos_a": "possesso_trasf",
+    "att_h": "attacchi_casa", "att_a": "attacchi_trasf",
+    "datt_h": "attacchi_pericolosi_casa", "datt_a": "attacchi_pericolosi_trasf",
+    "fou_h": "falli_casa", "fou_a": "falli_trasf",
 }
 
 
