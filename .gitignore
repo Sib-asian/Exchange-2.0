@@ -47,3 +47,6 @@ Thumbs.db
 # Project specific
 .ruff_cache/
 .mypy_cache/
+
+# Secrets
+.streamlit/secrets.toml
