@@ -19,7 +19,13 @@ import streamlit as st
 
 from src.config import BAYES, INPUT_VALIDATION, UI
 from src.engine import ExchangeQuotes, MatchState
-from src.ocr import ExtractedData, extract_from_bytes, validate_extracted_data
+from src.ocr import (
+    ExtractedData,
+    LiveStatsExtracted,
+    extract_from_bytes,
+    extract_live_stats_from_bytes,
+    validate_extracted_data,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -296,27 +302,157 @@ def _get_extension(mime_type: str) -> str:
 # Input Originali
 # ---------------------------------------------------------------------------
 
-def render_match_state() -> dict:
+def render_live_screenshot_upload() -> LiveStatsExtracted | None:
     """
-    Render del blocco "Stato Partita" e raccolta dei valori.
+    Render del widget per caricare screenshot di statistiche live (Nowgoal, ecc.).
 
     Returns:
-        Dict con i valori grezzi (minuto, gol, rossi).
+        LiveStatsExtracted se elaborato, None altrimenti.
     """
-    st.header("1. Stato Partita")
-    minuto = st.slider("Minuto Attuale", 0, 90, 0, 1)
+    uploaded_file = st.file_uploader(
+        "Carica screenshot statistiche live (Nowgoal, FlashScore, SofaScore...)",
+        type=["png", "jpg", "jpeg", "webp"],
+        help=(
+            "Carica uno screenshot dalla pagina delle statistiche live. "
+            "L'AI leggerà automaticamente: punteggio, minuto, tiri, corner, "
+            "possesso, attacchi, cartellini e altro."
+        ),
+        key="live_stats_uploader",
+    )
 
-    col_g1, col_g2 = st.columns(2)
+    if uploaded_file is None:
+        return None
+
+    file_id = f"live_{uploaded_file.name}_{uploaded_file.size}"
+    if (
+        "last_live_file_id" in st.session_state
+        and st.session_state.last_live_file_id == file_id
+    ):
+        return st.session_state.get("live_stats_data")
+
+    with st.spinner("📊 Lettura statistiche live in corso..."):
+        try:
+            image_bytes = uploaded_file.read()
+            mime_type = uploaded_file.type or "image/png"
+            extracted = extract_live_stats_from_bytes(
+                image_bytes, extension=_get_extension(mime_type),
+            )
+            st.session_state.last_live_file_id = file_id
+            st.session_state.live_stats_data = extracted
+            return extracted
+        except Exception as e:
+            st.error(f"❌ Errore durante l'analisi: {e}")
+            return LiveStatsExtracted(
+                extraction_success=False, error_message=str(e),
+            )
+
+
+def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
+    """Mostra le statistiche live estratte con possibilità di modifica."""
+    if not data.extraction_success:
+        st.warning(f"⚠️ Estrazione fallita: {data.error_message}")
+        st.caption("Inserisci i dati manualmente nei campi sottostanti.")
+
+    confidence_icon = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(
+        data.confidence, "⚪",
+    )
+    if data.extraction_success:
+        st.markdown(
+            f"**Affidabilità lettura:** {confidence_icon} {data.confidence.upper()}",
+        )
+    st.divider()
+
+    # Riga 1: Minuto e Punteggio
+    col_min, col_g1, col_g2 = st.columns([1, 1, 1])
+    with col_min:
+        minuto = st.slider("Minuto", 0, 90, min(data.minuto, 90), 1, key="live_minuto")
     with col_g1:
-        gol_casa = st.number_input("Gol CASA", value=0, min_value=0, max_value=20)
+        gol_casa = st.number_input(
+            "Gol CASA", value=data.gol_casa, min_value=0, max_value=20,
+            key="live_gol_casa",
+        )
     with col_g2:
-        gol_trasf = st.number_input("Gol TRASF.", value=0, min_value=0, max_value=20)
+        gol_trasf = st.number_input(
+            "Gol TRASF.", value=data.gol_trasf, min_value=0, max_value=20,
+            key="live_gol_trasf",
+        )
 
+    # Riga 2: Cartellini
     col_r1, col_r2 = st.columns(2)
     with col_r1:
-        rossi_casa = st.number_input("Rossi CASA", value=0, min_value=0, max_value=4)
+        rossi_casa = st.number_input(
+            "🟥 Rossi CASA", value=data.rossi_casa, min_value=0, max_value=4,
+            key="live_rossi_casa",
+        )
     with col_r2:
-        rossi_trasf = st.number_input("Rossi TRASF.", value=0, min_value=0, max_value=4)
+        rossi_trasf = st.number_input(
+            "🟥 Rossi TRASF.", value=data.rossi_trasf, min_value=0, max_value=4,
+            key="live_rossi_trasf",
+        )
+
+    st.divider()
+    st.markdown("**📊 Statistiche Live**")
+
+    # Riga 3: Tiri
+    col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+    with col_t1:
+        sot_h = st.number_input(
+            "Tiri porta 🏠", value=data.tiri_porta_casa, min_value=0,
+            key="live_sot_h",
+        )
+    with col_t2:
+        soff_h = st.number_input(
+            "Tiri fuori 🏠", value=data.tiri_fuori_casa, min_value=0,
+            key="live_soff_h",
+        )
+    with col_t3:
+        sot_a = st.number_input(
+            "Tiri porta ✈️", value=data.tiri_porta_trasf, min_value=0,
+            key="live_sot_a",
+        )
+    with col_t4:
+        soff_a = st.number_input(
+            "Tiri fuori ✈️", value=data.tiri_fuori_trasf, min_value=0,
+            key="live_soff_a",
+        )
+
+    # Riga 4: Corner e Possesso
+    col_c1, col_c2, col_p1, col_p2 = st.columns(4)
+    with col_c1:
+        corner_h = st.number_input(
+            "Corner 🏠", value=data.corner_casa, min_value=0,
+            key="live_corner_h",
+        )
+    with col_c2:
+        corner_a = st.number_input(
+            "Corner ✈️", value=data.corner_trasf, min_value=0,
+            key="live_corner_a",
+        )
+    with col_p1:
+        poss_h = st.number_input(
+            "Possesso% 🏠", value=data.possesso_casa,
+            min_value=0.0, max_value=100.0, step=1.0,
+            key="live_poss_h",
+        )
+    with col_p2:
+        poss_a = st.number_input(
+            "Possesso% ✈️", value=data.possesso_trasf,
+            min_value=0.0, max_value=100.0, step=1.0,
+            key="live_poss_a",
+        )
+
+    # Riga 5: Attacchi pericolosi
+    col_a1, col_a2 = st.columns(2)
+    with col_a1:
+        att_per_h = st.number_input(
+            "Att. Pericolosi 🏠", value=data.attacchi_pericolosi_casa,
+            min_value=0, key="live_att_per_h",
+        )
+    with col_a2:
+        att_per_a = st.number_input(
+            "Att. Pericolosi ✈️", value=data.attacchi_pericolosi_trasf,
+            min_value=0, key="live_att_per_a",
+        )
 
     return {
         "minuto": minuto,
@@ -324,7 +460,46 @@ def render_match_state() -> dict:
         "gol_trasf": gol_trasf,
         "rossi_casa": rossi_casa,
         "rossi_trasf": rossi_trasf,
+        "sot_h": sot_h,
+        "soff_h": soff_h,
+        "sot_a": sot_a,
+        "soff_a": soff_a,
+        "corner_h": corner_h,
+        "corner_a": corner_a,
+        "possesso_h": poss_h,
+        "possesso_a": poss_a,
+        "att_pericolosi_h": att_per_h,
+        "att_pericolosi_a": att_per_a,
     }
+
+
+def render_match_state_live() -> dict:
+    """
+    Render del blocco "Stato Partita Live" con screenshot o input manuale.
+
+    Returns:
+        Dict con tutti i valori live (minuto, gol, rossi, tiri, corner, ecc.).
+    """
+    st.header("1. Stato Partita Live")
+
+    live_data = render_live_screenshot_upload()
+
+    if live_data is not None:
+        return _render_live_stats_panel(live_data)
+
+    # Nessuno screenshot: mostra info e campi manuali vuoti
+    st.info(
+        "📋 **Come funziona:**\n\n"
+        "1. Vai su **Nowgoal**, **FlashScore** o **SofaScore**\n"
+        "2. Apri la pagina della partita con le statistiche live\n"
+        "3. Fai uno screenshot e caricalo qui sopra\n"
+        "4. L'AI leggerà automaticamente tutte le statistiche\n\n"
+        "Puoi anche inserire i dati manualmente qui sotto."
+    )
+
+    # Fallback manuale compatto
+    empty_data = LiveStatsExtracted()
+    return _render_live_stats_panel(empty_data)
 
 
 def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, tot_op: float = 2.5) -> dict:
@@ -580,42 +755,15 @@ def render_shots(minuto: int) -> tuple[int, int, int, int]:
     """
     Render dei widget per i tiri live con validazione.
 
+    DEPRECATO: Mantenuto per compatibilità. Usare render_match_state_live().
+
     Args:
         minuto: Minuto attuale (per validazione).
 
     Returns:
         (sot_h, soff_h, sot_a, soff_a)
     """
-    st.header("3. Tiri (Live)")
-    st.caption("Lascia a 0 per analisi prematch. Live: inserisci i tiri totali da inizio gara.")
-
-    col_t1, col_t2, col_t3, col_t4 = st.columns(4)
-    with col_t1:
-        sot_h = st.number_input("In porta CASA", min_value=0, value=0, step=1)
-    with col_t2:
-        soff_h = st.number_input("Fuori CASA", min_value=0, value=0, step=1)
-    with col_t3:
-        sot_a = st.number_input("In porta TRASF.", min_value=0, value=0, step=1)
-    with col_t4:
-        soff_a = st.number_input("Fuori TRASF.", min_value=0, value=0, step=1)
-
-    # Validazione coerenza tiri / minuto
-    n_tiri = sot_h + soff_h + sot_a + soff_a
-    if n_tiri > 0 and minuto == 0:
-        st.warning(
-            "⚠️ Tiri inseriti ma minuto = 0: per analisi prematch lascia tutti i tiri a 0, "
-            "altrimenti il modello proietta il rate su 90' interi."
-        )
-    elif n_tiri > 0 and minuto > 0:
-        tiri_max = max(UI.TIRI_MIN_BASE, int(minuto * UI.TIRI_PER_MINUTO) + UI.TIRI_WARNING_BUFFER)
-        if n_tiri > tiri_max:
-            st.warning(
-                f"⚠️ {n_tiri} tiri totali al {minuto}' sembra elevato "
-                f"(atteso ≤ ~{tiri_max}) — verifica che siano tiri totali da inizio gara, "
-                "non dell'ultimo periodo."
-            )
-
-    return sot_h, soff_h, sot_a, soff_a
+    return 0, 0, 0, 0
 
 
 def render_exchange_quotes(linea_ou: float) -> ExchangeQuotes:
@@ -659,23 +807,30 @@ def build_match_state(
     linea_ou: float,
     bankroll: float,
     comm_rate: float,
-    shots: tuple[int, int, int, int],
+    shots: tuple[int, int, int, int] | None = None,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
 
     Args:
-        match: Dict con minuto, gol, rossi.
+        match: Dict con minuto, gol, rossi e (opzionale) tiri, corner, possesso, attacchi.
         lines: Dict con linee asiatiche.
         linea_ou: Linea Over/Under.
         bankroll: Capitale.
         comm_rate: Commissione.
-        shots: (sot_h, soff_h, sot_a, soff_a).
+        shots: (sot_h, soff_h, sot_a, soff_a) — legacy, se None usa match dict.
 
     Returns:
         MatchState validato.
     """
-    sot_h, soff_h, sot_a, soff_a = shots
+    if shots is not None:
+        sot_h, soff_h, sot_a, soff_a = shots
+    else:
+        sot_h = match.get("sot_h", 0)
+        soff_h = match.get("soff_h", 0)
+        sot_a = match.get("sot_a", 0)
+        soff_a = match.get("soff_a", 0)
+
     return MatchState(
         minuto=match["minuto"],
         gol_casa=match["gol_casa"],
@@ -689,6 +844,12 @@ def build_match_state(
         linea_ou=linea_ou,
         sot_h=sot_h, soff_h=soff_h,
         sot_a=sot_a, soff_a=soff_a,
+        corner_h=match.get("corner_h", 0),
+        corner_a=match.get("corner_a", 0),
+        possesso_h=match.get("possesso_h", 0.0),
+        possesso_a=match.get("possesso_a", 0.0),
+        att_pericolosi_h=match.get("att_pericolosi_h", 0),
+        att_pericolosi_a=match.get("att_pericolosi_a", 0),
         bankroll=bankroll,
         comm_rate=comm_rate,
     )

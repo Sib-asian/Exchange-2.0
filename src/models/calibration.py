@@ -334,6 +334,13 @@ def blend_xg_shots(
     gol_h: int,
     gol_a: int,
     minuto: int,
+    *,
+    corner_h: int = 0,
+    corner_a: int = 0,
+    possesso_h: float = 0.0,
+    possesso_a: float = 0.0,
+    att_pericolosi_h: int = 0,
+    att_pericolosi_a: int = 0,
 ) -> tuple[float, float, float, float, float, float, float]:
     """
     Integra le stime xG da linee di mercato con le evidenze empiriche dei tiri.
@@ -456,6 +463,49 @@ def blend_xg_shots(
     mu_a_shots = (1.0 - alpha_shrink) * mu_a_shots + alpha_shrink * league_mu_rem
     alpha_t = min(SHOTS.ALPHA_T_MAX, shot_info * frac_giocata * SHOTS.ALPHA_T_RATE)
     alpha_d = min(SHOTS.ALPHA_D_MAX, shot_info * math.sqrt(frac_giocata))
+
+    # ── Integrazione statistiche avanzate (corner, possesso, att. pericolosi) ──
+    # Queste statistiche agiscono come ULTERIORE evidenza empirica di dominio,
+    # modificando il differenziale (D) shot-based. Non toccano il Totale (T)
+    # perché corner e possesso non correlano bene col numero di gol totali,
+    # ma sono ottimi indicatori di QUALE squadra domina.
+    #
+    # Peso massimo: ±8% sul differenziale. Cresce col tempo (campione più grande)
+    # e con la quantità di dati disponibili.
+    _ADV_STATS_MAX_SHIFT = 0.08  # max shift sul differenziale per squadra
+    _has_advanced = (corner_h + corner_a > 0
+                     or (possesso_h > 0 and possesso_a > 0)
+                     or att_pericolosi_h + att_pericolosi_a > 0)
+
+    if _has_advanced and frac_giocata > 0:
+        adv_signals = []  # ciascuno in [-1, +1]: positivo = casa domina
+
+        # Corner: proxy per pressione offensiva (Caley 2015)
+        corner_tot = corner_h + corner_a
+        if corner_tot > 0:
+            corner_dom = (corner_h - corner_a) / corner_tot  # [-1, +1]
+            adv_signals.append(corner_dom * 0.3)  # peso 30%
+
+        # Possesso: proxy per controllo del gioco
+        if possesso_h > 0 and possesso_a > 0:
+            poss_dom = (possesso_h - possesso_a) / 100.0  # [-1, +1]
+            adv_signals.append(poss_dom * 0.25)  # peso 25%
+
+        # Attacchi pericolosi: forte proxy per xG (correlazione ~0.6 con gol)
+        att_tot = att_pericolosi_h + att_pericolosi_a
+        if att_tot > 0:
+            att_dom = (att_pericolosi_h - att_pericolosi_a) / att_tot
+            adv_signals.append(att_dom * 0.45)  # peso 45%
+
+        if adv_signals:
+            # Media pesata dei segnali disponibili, normalizzata
+            adv_dom = sum(adv_signals) / len(adv_signals)
+            # Scale col tempo: early game = poco peso, late game = peso pieno
+            time_scale = min(1.0, frac_giocata * 1.5)
+            # Shift effettivo sul mu per squadra
+            adv_shift = adv_dom * _ADV_STATS_MAX_SHIFT * time_scale * (mu_h_shots + mu_a_shots)
+            mu_h_shots = max(POISSON.EPS, mu_h_shots + adv_shift)
+            mu_a_shots = max(POISSON.EPS, mu_a_shots - adv_shift)
 
     # Blend in spazio T+D
     t_line = mu_h_line + mu_a_line

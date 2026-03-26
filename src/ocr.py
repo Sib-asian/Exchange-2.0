@@ -95,6 +95,86 @@ class ExtractedData:
             "backend_used": self.backend_used,
         }
 
+@dataclass
+class LiveStatsExtracted:
+    """Statistiche live estratte da screenshot Nowgoal/simili."""
+
+    # Stato partita
+    minuto: int = 0
+    gol_casa: int = 0
+    gol_trasf: int = 0
+
+    # Cartellini
+    rossi_casa: int = 0
+    rossi_trasf: int = 0
+    gialli_casa: int = 0
+    gialli_trasf: int = 0
+
+    # Tiri
+    tiri_porta_casa: int = 0  # Shots on target
+    tiri_porta_trasf: int = 0
+    tiri_fuori_casa: int = 0  # Shots off target
+    tiri_fuori_trasf: int = 0
+    tiri_bloccati_casa: int = 0  # Blocked shots
+    tiri_bloccati_trasf: int = 0
+
+    # Corner
+    corner_casa: int = 0
+    corner_trasf: int = 0
+
+    # Possesso
+    possesso_casa: float = 0.0  # Percentuale (0-100)
+    possesso_trasf: float = 0.0
+
+    # Attacchi
+    attacchi_casa: int = 0
+    attacchi_trasf: int = 0
+    attacchi_pericolosi_casa: int = 0  # Dangerous attacks
+    attacchi_pericolosi_trasf: int = 0
+
+    # Falli
+    falli_casa: int = 0
+    falli_trasf: int = 0
+
+    # Metadati
+    raw_response: str = ""
+    extraction_success: bool = False
+    error_message: str = ""
+    confidence: str = "medium"
+    backend_used: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Converte in dizionario."""
+        return {
+            "minuto": self.minuto,
+            "gol_casa": self.gol_casa,
+            "gol_trasf": self.gol_trasf,
+            "rossi_casa": self.rossi_casa,
+            "rossi_trasf": self.rossi_trasf,
+            "gialli_casa": self.gialli_casa,
+            "gialli_trasf": self.gialli_trasf,
+            "tiri_porta_casa": self.tiri_porta_casa,
+            "tiri_porta_trasf": self.tiri_porta_trasf,
+            "tiri_fuori_casa": self.tiri_fuori_casa,
+            "tiri_fuori_trasf": self.tiri_fuori_trasf,
+            "tiri_bloccati_casa": self.tiri_bloccati_casa,
+            "tiri_bloccati_trasf": self.tiri_bloccati_trasf,
+            "corner_casa": self.corner_casa,
+            "corner_trasf": self.corner_trasf,
+            "possesso_casa": self.possesso_casa,
+            "possesso_trasf": self.possesso_trasf,
+            "attacchi_casa": self.attacchi_casa,
+            "attacchi_trasf": self.attacchi_trasf,
+            "attacchi_pericolosi_casa": self.attacchi_pericolosi_casa,
+            "attacchi_pericolosi_trasf": self.attacchi_pericolosi_trasf,
+            "falli_casa": self.falli_casa,
+            "falli_trasf": self.falli_trasf,
+            "extraction_success": self.extraction_success,
+            "confidence": self.confidence,
+            "backend_used": self.backend_used,
+        }
+
+
 # Prompt per l'estrazione dati dallo screenshot
 EXTRACTION_PROMPT = """Analizza questo screenshot di un sito di scommesse o app betting.
 
@@ -402,6 +482,256 @@ def _extract_with_openai(image_path: Path) -> ExtractedData:
         return ExtractedData(extraction_success=False, error_message=f"OpenAI: {e}")
 
 # ============================================================================
+# Live Stats Extraction (Nowgoal/simili)
+# ============================================================================
+
+LIVE_STATS_PROMPT = """Analizza questo screenshot di statistiche live di una partita di calcio (da Nowgoal, FlashScore, SofaScore o simili).
+
+Estrai TUTTE le statistiche visibili e restituiscile in formato JSON esattamente come mostrato:
+
+{
+    "minuto": 0,
+    "gol_casa": 0,
+    "gol_trasf": 0,
+    "rossi_casa": 0,
+    "rossi_trasf": 0,
+    "gialli_casa": 0,
+    "gialli_trasf": 0,
+    "tiri_porta_casa": 0,
+    "tiri_porta_trasf": 0,
+    "tiri_fuori_casa": 0,
+    "tiri_fuori_trasf": 0,
+    "tiri_bloccati_casa": 0,
+    "tiri_bloccati_trasf": 0,
+    "corner_casa": 0,
+    "corner_trasf": 0,
+    "possesso_casa": 0.0,
+    "possesso_trasf": 0.0,
+    "attacchi_casa": 0,
+    "attacchi_trasf": 0,
+    "attacchi_pericolosi_casa": 0,
+    "attacchi_pericolosi_trasf": 0,
+    "falli_casa": 0,
+    "falli_trasf": 0,
+    "confidence": "high/medium/low"
+}
+
+REGOLE DI ESTRAZIONE:
+
+1. PUNTEGGIO E MINUTO:
+   - Il punteggio è solitamente in formato "X - Y" al centro dello schermo
+   - Il minuto può essere mostrato come "45'" o "HT" (halftime=45) o "FT" (fulltime=90)
+   - La squadra a SINISTRA è CASA, quella a DESTRA è TRASFERTA
+
+2. STATISTICHE:
+   - Ogni statistica ha due valori: uno per casa (sinistra) e uno per trasferta (destra)
+   - "Shots on Target" / "Tiri in Porta" = tiri_porta
+   - "Shots off Target" / "Tiri Fuori" = tiri_fuori
+   - "Blocked Shots" / "Tiri Bloccati" = tiri_bloccati
+   - "Corners" / "Corner" / "Calci d'angolo" = corner
+   - "Possession" / "Possesso" = possesso (in percentuale, es. 55.0)
+   - "Attacks" / "Attacchi" = attacchi
+   - "Dangerous Attacks" / "Attacchi Pericolosi" = attacchi_pericolosi
+   - "Fouls" / "Falli" = falli
+   - "Yellow Cards" / "Gialli" / "Ammonizioni" = gialli
+   - "Red Cards" / "Rossi" / "Espulsioni" = rossi
+
+3. NOTA SUI TIRI:
+   - Se vedi solo "Total Shots" e "Shots on Target":
+     tiri_fuori = total_shots - shots_on_target
+   - Se vedi "Shots" senza specificare: usa come tiri_porta
+
+4. CONFIDENCE:
+   - "high" = tutti i dati chiaramente visibili
+   - "medium" = alcuni dati mancanti o poco chiari
+   - "low" = immagine sfocata o molti dati non leggibili
+
+SE UN DATO NON È VISIBILE: imposta a 0 (numeri) o 0.0 (percentuali).
+
+IMPORTANTE: Restituisci SOLO il JSON, nessun altro testo."""
+
+
+def _extract_live_stats_with_gemini(image_path: Path) -> LiveStatsExtracted:
+    """Estrae statistiche live usando Google Gemini API."""
+    import time
+
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return LiveStatsExtracted(
+            extraction_success=False,
+            error_message="Gemini: API key non configurata",
+        )
+
+    try:
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+    except Exception as e:
+        return LiveStatsExtracted(
+            extraction_success=False,
+            error_message=f"Gemini: errore lettura file: {e}",
+        )
+
+    suffix = image_path.suffix.lower()
+    mime_map = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif",
+    }
+    mime_type = mime_map.get(suffix, "image/jpeg")
+
+    request_body = {
+        "contents": [{
+            "parts": [
+                {"inline_data": {"mime_type": mime_type, "data": image_base64}},
+                {"text": LIVE_STATS_PROMPT},
+            ],
+        }],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1024},
+    }
+    payload = json.dumps(request_body).encode("utf-8")
+
+    last_error = ""
+    for model in _GEMINI_MODELS:
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    url, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    response_data = json.loads(response.read().decode("utf-8"))
+
+                if "candidates" in response_data and response_data["candidates"]:
+                    parts = response_data["candidates"][0].get("content", {}).get("parts", [])
+                    if parts:
+                        text_response = parts[0].get("text", "")
+                        if text_response:
+                            parsed = _parse_live_stats_response(text_response)
+                            parsed.backend_used = "gemini"
+                            return parsed
+                last_error = f"Gemini ({model}): risposta vuota"
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                error_detail = ""
+                try:
+                    error_body = e.read().decode("utf-8", errors="replace")
+                    error_json = json.loads(error_body)
+                    error_detail = error_json.get("error", {}).get("message", "")
+                except Exception:
+                    pass
+                detail_suffix = f" - {error_detail}" if error_detail else ""
+                last_error = f"Gemini ({model}): HTTP {e.code}{detail_suffix}"
+                break
+            except Exception as e:
+                last_error = f"Gemini ({model}): {e}"
+                break
+
+    return LiveStatsExtracted(extraction_success=False, error_message=last_error)
+
+
+def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
+    """Parsa la risposta del VLM per le statistiche live."""
+    if not response or not response.strip():
+        return LiveStatsExtracted(
+            extraction_success=False, error_message="Risposta vuota",
+        )
+
+    try:
+        json_str = response.strip()
+
+        # Rimuovi markdown code blocks
+        if "```json" in json_str:
+            json_str = json_str.split("```json")[1]
+            if "```" in json_str:
+                json_str = json_str.split("```")[0]
+        elif "```" in json_str:
+            parts = json_str.split("```")
+            if len(parts) >= 2:
+                json_str = parts[1]
+
+        json_str = json_str.strip()
+
+        # Trova inizio JSON
+        lines = json_str.split("\n")
+        for i, line in enumerate(lines):
+            if line.strip().startswith("{"):
+                json_str = "\n".join(lines[i:])
+                break
+
+        if "```" in json_str:
+            json_str = json_str.split("```")[0]
+
+        data = json.loads(json_str.strip())
+
+        return LiveStatsExtracted(
+            minuto=_safe_int(data.get("minuto")),
+            gol_casa=_safe_int(data.get("gol_casa")),
+            gol_trasf=_safe_int(data.get("gol_trasf")),
+            rossi_casa=_safe_int(data.get("rossi_casa")),
+            rossi_trasf=_safe_int(data.get("rossi_trasf")),
+            gialli_casa=_safe_int(data.get("gialli_casa")),
+            gialli_trasf=_safe_int(data.get("gialli_trasf")),
+            tiri_porta_casa=_safe_int(data.get("tiri_porta_casa")),
+            tiri_porta_trasf=_safe_int(data.get("tiri_porta_trasf")),
+            tiri_fuori_casa=_safe_int(data.get("tiri_fuori_casa")),
+            tiri_fuori_trasf=_safe_int(data.get("tiri_fuori_trasf")),
+            tiri_bloccati_casa=_safe_int(data.get("tiri_bloccati_casa")),
+            tiri_bloccati_trasf=_safe_int(data.get("tiri_bloccati_trasf")),
+            corner_casa=_safe_int(data.get("corner_casa")),
+            corner_trasf=_safe_int(data.get("corner_trasf")),
+            possesso_casa=_safe_float(data.get("possesso_casa")),
+            possesso_trasf=_safe_float(data.get("possesso_trasf")),
+            attacchi_casa=_safe_int(data.get("attacchi_casa")),
+            attacchi_trasf=_safe_int(data.get("attacchi_trasf")),
+            attacchi_pericolosi_casa=_safe_int(data.get("attacchi_pericolosi_casa")),
+            attacchi_pericolosi_trasf=_safe_int(data.get("attacchi_pericolosi_trasf")),
+            falli_casa=_safe_int(data.get("falli_casa")),
+            falli_trasf=_safe_int(data.get("falli_trasf")),
+            confidence=str(data.get("confidence", "medium")).lower(),
+            raw_response=response,
+            extraction_success=True,
+        )
+    except json.JSONDecodeError as e:
+        return LiveStatsExtracted(
+            extraction_success=False,
+            error_message=f"JSON error: {e}",
+            raw_response=response,
+        )
+    except Exception as e:
+        return LiveStatsExtracted(
+            extraction_success=False,
+            error_message=f"Parse error: {e}",
+            raw_response=response,
+        )
+
+
+def extract_live_stats_from_bytes(
+    image_bytes: bytes, extension: str = ".png",
+) -> LiveStatsExtracted:
+    """Estrae statistiche live da bytes di un'immagine."""
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=extension, prefix="live_ocr_",
+        ) as tmp:
+            tmp.write(image_bytes)
+            tmp_path = tmp.name
+        try:
+            return _extract_live_stats_with_gemini(Path(tmp_path))
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+    except Exception as e:
+        return LiveStatsExtracted(
+            extraction_success=False,
+            error_message=f"Errore temp file: {e}",
+        )
+
+
+# ============================================================================
 # Main Extraction Functions
 # ============================================================================
 
@@ -558,6 +888,16 @@ def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
         pass
 
     return data
+
+def _safe_int(value: Any) -> int:
+    """Converte un valore in int in modo sicuro."""
+    if value is None:
+        return 0
+    try:
+        return int(float(str(value).replace(",", ".")))
+    except (ValueError, TypeError):
+        return 0
+
 
 def _safe_float(value: Any) -> float:
     """Converte un valore in float in modo sicuro."""

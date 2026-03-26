@@ -20,9 +20,8 @@ from src.ui.inputs import (
     render_exchange_quotes,
     render_extracted_data_panel,
     render_image_upload,
-    render_match_state,
+    render_match_state_live,
     render_ou_selector,
-    render_shots,
 )
 from src.ui.outputs import (
     render_allineamento_mercato,
@@ -66,7 +65,7 @@ with st.expander("📷 Carica Screenshot Quote (opzionale)", expanded=False):
 st.divider()
 
 # ── Input ────────────────────────────────────────────────────────────────────
-match = render_match_state()
+match = render_match_state_live()
 st.divider()
 
 lines = render_asian_lines(match["gol_casa"], match["gol_trasf"], match["minuto"])
@@ -86,15 +85,12 @@ if lines.get("blocking_errors") and INPUT_VALIDATION.BLOCK_ON_CRITICAL_ERRORS:
     st.stop()
 st.divider()
 
-shots = render_shots(match["minuto"])
-st.divider()
-
 # ── Analisi ──────────────────────────────────────────────────────────────────
 if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     try:
-        state = build_match_state(match, lines, linea_ou, bankroll, comm_rate, shots)
-    except AssertionError as e:
+        state = build_match_state(match, lines, linea_ou, bankroll, comm_rate)
+    except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
         st.stop()
 
@@ -104,6 +100,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     with st.spinner("Calcolo matrice bivariata..."):
         risultati = analizza(state)
 
+    shots = (state.sot_h, state.soff_h, state.sot_a, state.soff_a)
     n_shots_tot = sum(shots)
     gol_attuali = state.gol_casa + state.gol_trasf  # recompute from validated state
 

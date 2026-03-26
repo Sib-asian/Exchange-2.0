@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from src.ocr import (
     ExtractedData,
+    LiveStatsExtracted,
     _check_gemini_available,
     _check_openai_available,
     _check_zai_available,
@@ -18,11 +19,14 @@ from src.ocr import (
     _get_env_with_path,
     _get_gemini_api_key,
     _get_openai_api_key,
+    _parse_live_stats_response,
     _parse_vlm_response,
     _safe_float,
+    _safe_int,
     extract_from_base64,
     extract_from_bytes,
     extract_from_image_file,
+    extract_live_stats_from_bytes,
     validate_extracted_data,
 )
 
@@ -244,3 +248,105 @@ class TestExtractFromBase64:
     def test_invalid_base64(self):
         result = extract_from_base64("not valid!!!")
         assert result.extraction_success is False
+
+
+# ============================================================================
+# Test per LiveStatsExtracted e funzioni correlate
+# ============================================================================
+
+class TestLiveStatsExtracted:
+    def test_default_values(self):
+        data = LiveStatsExtracted()
+        assert data.minuto == 0
+        assert data.gol_casa == 0
+        assert data.corner_casa == 0
+        assert data.possesso_casa == 0.0
+        assert data.extraction_success is False
+
+    def test_to_dict(self):
+        data = LiveStatsExtracted(minuto=45, gol_casa=1, corner_casa=5)
+        d = data.to_dict()
+        assert d["minuto"] == 45
+        assert d["gol_casa"] == 1
+        assert d["corner_casa"] == 5
+
+
+class TestSafeInt:
+    def test_int_conversion(self):
+        assert _safe_int(5) == 5
+        assert _safe_int("3") == 3
+        assert _safe_int(2.7) == 2
+        assert _safe_int("4.9") == 4
+        assert _safe_int(None) == 0
+        assert _safe_int("abc") == 0
+
+
+class TestParseLiveStatsResponse:
+    def test_valid_json(self):
+        response = json.dumps({
+            "minuto": 65,
+            "gol_casa": 2,
+            "gol_trasf": 1,
+            "rossi_casa": 0,
+            "rossi_trasf": 1,
+            "tiri_porta_casa": 7,
+            "tiri_porta_trasf": 3,
+            "tiri_fuori_casa": 5,
+            "tiri_fuori_trasf": 4,
+            "corner_casa": 6,
+            "corner_trasf": 2,
+            "possesso_casa": 58.0,
+            "possesso_trasf": 42.0,
+            "attacchi_pericolosi_casa": 45,
+            "attacchi_pericolosi_trasf": 30,
+            "confidence": "high",
+        })
+        result = _parse_live_stats_response(response)
+        assert result.extraction_success is True
+        assert result.minuto == 65
+        assert result.gol_casa == 2
+        assert result.corner_casa == 6
+        assert result.possesso_casa == 58.0
+        assert result.attacchi_pericolosi_casa == 45
+
+    def test_json_in_markdown(self):
+        response = '```json\n{"minuto": 30, "gol_casa": 0, "gol_trasf": 0}\n```'
+        result = _parse_live_stats_response(response)
+        assert result.extraction_success is True
+        assert result.minuto == 30
+
+    def test_empty_response(self):
+        result = _parse_live_stats_response("")
+        assert result.extraction_success is False
+
+    def test_invalid_json(self):
+        result = _parse_live_stats_response("not json at all")
+        assert result.extraction_success is False
+
+
+class TestExtractLiveStatsFromBytes:
+    def test_creates_temp_file(self):
+        mock_response = {"candidates": [{"content": {"parts": [{"text": json.dumps({
+            "minuto": 45, "gol_casa": 1, "gol_trasf": 0,
+            "tiri_porta_casa": 5, "tiri_porta_trasf": 2,
+            "corner_casa": 4, "corner_trasf": 1,
+        })}]}}]}
+        with (
+            patch("src.ocr._get_gemini_api_key", return_value="test-key"),
+            patch("src.ocr.urllib.request.urlopen") as mock_urlopen,
+        ):
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_response).encode()
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_urlopen.return_value = mock_resp
+            result = extract_live_stats_from_bytes(b"fake image", ".jpg")
+            assert result.extraction_success is True
+            assert result.minuto == 45
+            assert result.backend_used == "gemini"
+
+    def test_no_api_key(self):
+        with patch("src.ocr._get_gemini_api_key", return_value=None):
+            result = extract_live_stats_from_bytes(b"fake image")
+            assert result.extraction_success is False
+            assert "API key" in result.error_message
