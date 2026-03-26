@@ -30,34 +30,51 @@ from pathlib import Path
 from typing import Any
 
 
-def _find_zai_command() -> str:
-    """Trova il percorso del comando z-ai."""
-    # 1. Controlla variabile d'ambiente
-    env_cmd = os.environ.get("ZAI_CMD")
-    if env_cmd and os.path.isfile(env_cmd):
-        return env_cmd
+# Percorsi dove trovare bun e il CLI z-ai
+BUN_PATHS = [
+    "/usr/local/bin/bun",
+    "/usr/bin/bun",
+    "/home/z/.bun/bin/bun",
+    os.path.expanduser("~/.bun/bin/bun"),
+]
 
-    # 2. Cerca nel PATH usando shutil.which
-    which_cmd = shutil.which("z-ai")
-    if which_cmd:
-        return which_cmd
+ZAI_CLI_PATHS = [
+    "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js",
+    "/usr/lib/node_modules/z-ai-web-dev-sdk/dist/cli.js",
+    os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"),
+]
 
-    # 3. Percorsi comuni da controllare
-    common_paths = [
-        "/usr/local/bin/z-ai",
-        "/usr/bin/z-ai",
-        "/home/z/.npm-global/bin/z-ai",
-        os.path.expanduser("~/.npm-global/bin/z-ai"),
-        os.path.expanduser("~/node_modules/.bin/z-ai"),
-        "/root/.npm-global/bin/z-ai",
-        "/usr/lib/node_modules/.bin/z-ai",
-    ]
-    for path in common_paths:
-        if os.path.isfile(path):
+
+def _find_executable(name: str, paths: list[str]) -> str | None:
+    """Trova un eseguibile cercando in percorsi specifici e nel PATH."""
+    # Prima cerca con shutil.which
+    which_result = shutil.which(name)
+    if which_result:
+        return which_result
+
+    # P cerca nei percorsi specificati
+    for path in paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
 
-    # Fallback: assume sia nel PATH
-    return "z-ai"
+    return None
+
+
+def _find_bun() -> str:
+    """Trova il percorso di bun."""
+    bun = _find_executable("bun", BUN_PATHS)
+    if bun:
+        return bun
+    # Fallback
+    return "bun"
+
+
+def _find_zai_cli() -> str | None:
+    """Trova il percorso del CLI z-ai (file .js)."""
+    for path in ZAI_CLI_PATHS:
+        if os.path.isfile(path):
+            return path
+    return None
 
 
 def _get_subprocess_env() -> dict[str, str]:
@@ -69,9 +86,8 @@ def _get_subprocess_env() -> dict[str, str]:
         "/usr/local/bin",
         "/usr/bin",
         "/bin",
-        "/home/z/.npm-global/bin",
-        "/root/.npm-global/bin",
-        "/usr/lib/node_modules/.bin",
+        "/home/z/.bun/bin",
+        "/home/z/.bun/install/global/node_modules/.bin",
     ]
     for p in extra_paths:
         if p not in current_path:
@@ -183,9 +199,45 @@ SE UN DATO NON È PRESENTE O NON È LEGGIBILE:
 IMPORTANTE: Restituisci SOLO il JSON, nessun altro testo prima o dopo."""
 
 
+def _run_vision_command(image_path: str) -> tuple[bool, str, str]:
+    """
+    Esegue il comando vision usando bun direttamente.
+
+    Returns:
+        (success, stdout, stderr)
+    """
+    bun = _find_bun()
+    cli_path = _find_zai_cli()
+
+    if not cli_path:
+        return False, "", "CLI z-ai non trovato. Installa z-ai-web-dev-sdk."
+
+    # Costruisci il comando: bun run <cli.js> vision -p <prompt> -i <image>
+    cmd = [
+        bun, "run", cli_path,
+        "vision",
+        "-p", EXTRACTION_PROMPT,
+        "-i", str(image_path),
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            env=_get_subprocess_env(),
+        )
+        return result.returncode == 0, result.stdout, result.stderr
+    except subprocess.TimeoutExpired:
+        return False, "", "Timeout: l'analisi ha impiegato troppo tempo"
+    except Exception as e:
+        return False, "", f"Errore esecuzione: {e}"
+
+
 def extract_from_image_file(image_path: str | Path) -> ExtractedData:
     """
-    Estrae i dati da un file immagine usando il VLM CLI.
+    Estrae i dati da un file immagine usando il VLM.
 
     Args:
         image_path: Path del file immagine (PNG, JPG, WEBP).
@@ -201,42 +253,23 @@ def extract_from_image_file(image_path: str | Path) -> ExtractedData:
             error_message=f"File non trovato: {image_path}",
         )
 
-    try:
-        # Chiama il CLI z-ai vision
-        # Trova il comando dinamicamente
-        zai_cmd = _find_zai_command()
-        result = subprocess.run(
-            [
-                zai_cmd, "vision",
-                "-p", EXTRACTION_PROMPT,
-                "-i", str(image_path),
-                "-o", "-",  # output to stdout
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,  # 60 secondi timeout
-            env=_get_subprocess_env(),
-        )
+    success, stdout, stderr = _run_vision_command(str(image_path))
 
-        if result.returncode != 0:
-            return ExtractedData(
-                extraction_success=False,
-                error_message=f"Errore CLI: {result.stderr}",
-            )
-
-        # Parsa la risposta
-        return _parse_vlm_response(result.stdout)
-
-    except subprocess.TimeoutExpired:
+    if not success:
+        error_msg = stderr if stderr else "Errore sconosciuto dal VLM"
+        # Se c'è output parziale, prova a parsarlo
+        if stdout:
+            result = _parse_vlm_response(stdout)
+            if result.extraction_success:
+                result.error_message = f"Estrazione parziale: {error_msg}"
+                result.confidence = "low"
+                return result
         return ExtractedData(
             extraction_success=False,
-            error_message="Timeout: l'analisi dell'immagine ha impiegato troppo tempo",
+            error_message=error_msg,
         )
-    except Exception as e:
-        return ExtractedData(
-            extraction_success=False,
-            error_message=f"Errore imprevisto: {e}",
-        )
+
+    return _parse_vlm_response(stdout)
 
 
 def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> ExtractedData:
