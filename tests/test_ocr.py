@@ -96,9 +96,13 @@ class TestFindZaiCommand:
         assert len(result) == 2
 
     def test_found_via_shutil_which(self):
-        """Verifica che trovi z-ai via shutil.which."""
-        with patch("src.ocr.shutil.which") as mock_which:
-            mock_which.return_value = "/usr/local/bin/z-ai"
+        """Verifica che trovi z-ai via shutil.which con PATH esteso."""
+        def mock_which(cmd, path=None):
+            if cmd == "z-ai":
+                return "/usr/local/bin/z-ai"
+            return None
+
+        with patch("src.ocr.shutil.which", side_effect=mock_which):
             executable, extra_args = _find_zai_command()
             assert executable == "/usr/local/bin/z-ai"
             assert extra_args is None
@@ -116,7 +120,7 @@ class TestFindZaiCommand:
 
     def test_found_via_bun_runner(self):
         """Verifica che trovi z-ai via bun come runner."""
-        def mock_which(cmd):
+        def mock_which(cmd, path=None):
             if cmd == "bun":
                 return "/usr/local/bin/bun"
             return None
