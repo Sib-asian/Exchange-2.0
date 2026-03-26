@@ -19,6 +19,7 @@ from src.ocr import (
     _get_env_with_path,
     _get_gemini_api_key,
     _get_openai_api_key,
+    _normalize_live_stats_keys,
     _parse_live_stats_response,
     _parse_vlm_response,
     _safe_float,
@@ -279,6 +280,78 @@ class TestSafeInt:
         assert _safe_int("4.9") == 4
         assert _safe_int(None) == 0
         assert _safe_int("abc") == 0
+
+
+class TestNormalizeLiveStatsKeys:
+    def test_italian_keys_unchanged(self):
+        data = {"minuto": 45, "gol_casa": 1, "corner_casa": 5}
+        result = _normalize_live_stats_keys(data)
+        assert result["minuto"] == 45
+        assert result["gol_casa"] == 1
+        assert result["corner_casa"] == 5
+
+    def test_english_keys_mapped(self):
+        data = {
+            "minute": 65,
+            "goals_home": 2,
+            "goals_away": 1,
+            "shots_on_target_home": 7,
+            "shots_on_target_away": 3,
+            "shots_off_target_home": 5,
+            "shots_off_target_away": 2,
+            "corners_home": 6,
+            "corners_away": 2,
+            "possession_home": 58.0,
+            "possession_away": 42.0,
+            "dangerous_attacks_home": 45,
+            "dangerous_attacks_away": 30,
+            "fouls_home": 18,
+            "fouls_away": 12,
+            "yellow_cards_home": 1,
+            "yellow_cards_away": 3,
+            "red_cards_home": 0,
+            "red_cards_away": 0,
+        }
+        result = _normalize_live_stats_keys(data)
+        assert result["minuto"] == 65
+        assert result["gol_casa"] == 2
+        assert result["gol_trasf"] == 1
+        assert result["tiri_porta_casa"] == 7
+        assert result["tiri_fuori_casa"] == 5
+        assert result["corner_casa"] == 6
+        assert result["possesso_casa"] == 58.0
+        assert result["attacchi_pericolosi_casa"] == 45
+        assert result["falli_casa"] == 18
+        assert result["gialli_casa"] == 1
+
+    def test_english_response_parsed_end_to_end(self):
+        """Test che una risposta con chiavi inglesi viene parsata correttamente."""
+        response = json.dumps({
+            "minute": 90,
+            "goals_home": 2,
+            "goals_away": 1,
+            "shots_on_goal_home": 4,
+            "shots_on_goal_away": 2,
+            "shots_off_goal_home": 7,
+            "shots_off_goal_away": 2,
+            "corners_home": 6,
+            "corners_away": 2,
+            "possession_home": 50,
+            "possession_away": 50,
+            "dangerous_attacks_home": 48,
+            "dangerous_attacks_away": 34,
+            "fouls_home": 18,
+            "fouls_away": 12,
+            "confidence": "high",
+        })
+        result = _parse_live_stats_response(response)
+        assert result.extraction_success is True
+        assert result.minuto == 90
+        assert result.gol_casa == 2
+        assert result.tiri_porta_casa == 4
+        assert result.corner_casa == 6
+        assert result.attacchi_pericolosi_casa == 48
+        assert result.possesso_casa == 50.0
 
 
 class TestParseLiveStatsResponse:
