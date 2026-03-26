@@ -1,0 +1,9 @@
+[run]
+source = src
+omit =
+    src/ui/*
+    src/utils/*
+
+[report]
+show_missing = true
+fail_under = 70
