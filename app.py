@@ -18,6 +18,8 @@ from src.ui.inputs import (
     render_asian_lines,
     render_bankroll,
     render_exchange_quotes,
+    render_extracted_data_panel,
+    render_image_upload,
     render_match_state,
     render_ou_selector,
     render_shots,
@@ -54,6 +56,16 @@ st.set_page_config(
 )
 st.title(f"{UI.PAGE_ICON} {UI.PAGE_TITLE}")
 st.caption(f"v{UI.VERSION} · Modello bivariate Poisson + Dixon-Coles + Kelly frazionato")
+
+# ── Sezione 0: Upload Screenshot (NUOVO) ───────────────────────────────────────
+with st.expander("📷 Carica Screenshot Quote (opzionale)", expanded=False):
+    extracted_data = render_image_upload()
+    if extracted_data is not None:
+        ocr_data = render_extracted_data_panel(extracted_data)
+    else:
+        ocr_data = {}
+
+st.divider()
 
 # ── Input ────────────────────────────────────────────────────────────────────
 match = render_match_state()
