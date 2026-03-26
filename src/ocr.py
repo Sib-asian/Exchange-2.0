@@ -76,7 +76,6 @@ class ExtractedData:
             "confidence": self.confidence,
         }
 
-
 # Prompt per l'estrazione dati dallo screenshot
 EXTRACTION_PROMPT = """Analizza questo screenshot di un sito di scommesse o app betting.
 
@@ -132,7 +131,6 @@ SE UN DATO NON È PRESENTE O NON È LEGGIBILE:
 
 IMPORTANTE: Restituisci SOLO il JSON, nessun altro testo prima o dopo."""
 
-
 def _get_env_with_path() -> dict[str, str]:
     """Restituisce environment con PATH aggiornato."""
     env = os.environ.copy()
@@ -151,11 +149,10 @@ def _get_env_with_path() -> dict[str, str]:
     env["PATH"] = current_path
     return env
 
-
 def _find_zai_command() -> tuple[str | None, list[str] | None]:
     """
     Trova il modo di eseguire z-ai CLI.
-    
+
     Returns:
         (executable, args): L'eseguibile e gli argomenti aggiuntivi, o (None, None) se non trovato.
     """
@@ -163,7 +160,7 @@ def _find_zai_command() -> tuple[str | None, list[str] | None]:
     zai_path = shutil.which("z-ai")
     if zai_path:
         return zai_path, None
-    
+
     # 2. Prova percorsi assoluti comuni
     absolute_paths = [
         "/usr/local/bin/z-ai",
@@ -174,7 +171,7 @@ def _find_zai_command() -> tuple[str | None, list[str] | None]:
     for path in absolute_paths:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path, None
-    
+
     # 3. Prova con bun direttamente
     bun_path = shutil.which("bun")
     if bun_path:
@@ -185,27 +182,24 @@ def _find_zai_command() -> tuple[str | None, list[str] | None]:
         alt_cli = os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js")
         if os.path.isfile(alt_cli):
             return bun_path, [alt_cli]
-    
+
     # 4. Prova con node
     node_path = shutil.which("node")
     if node_path:
         cli_path = "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"
         if os.path.isfile(cli_path):
             return node_path, [cli_path]
-    
-    return None, None
 
+    return None, None
 
 def _check_command_available(cmd: str) -> bool:
     """Verifica se un comando è disponibile."""
     return shutil.which(cmd) is not None
 
-
 def _check_zai_available() -> bool:
     """Verifica se z-ai è disponibile in qualsiasi forma."""
     executable, _ = _find_zai_command()
     return executable is not None
-
 
 def extract_from_image_file(image_path: str | Path) -> ExtractedData:
     """
@@ -270,7 +264,6 @@ def extract_from_image_file(image_path: str | Path) -> ExtractedData:
             error_message=f"Errore imprevisto: {e}",
         )
 
-
 def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> ExtractedData:
     """
     Estrae i dati da bytes di un'immagine.
@@ -303,7 +296,6 @@ def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> Extracted
             error_message=f"Errore salvataggio immagine: {e}",
         )
 
-
 def extract_from_base64(
     base64_data: str,
     mime_type: str = "image/png",
@@ -335,7 +327,6 @@ def extract_from_base64(
             extraction_success=False,
             error_message=f"Errore decodifica base64: {e}",
         )
-
 
 def _parse_vlm_response(response: str) -> ExtractedData:
     """
@@ -421,7 +412,6 @@ def _parse_vlm_response(response: str) -> ExtractedData:
             raw_response=response,
         )
 
-
 def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
     """
     Fallback per estrarre dati quando il JSON parsing fallisce.
@@ -469,7 +459,6 @@ def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
 
     return data
 
-
 def _safe_float(value: Any) -> float:
     """Converte un valore in float in modo sicuro."""
     if value is None:
@@ -480,7 +469,6 @@ def _safe_float(value: Any) -> float:
         return float(value)
     except (ValueError, TypeError):
         return 0.0
-
 
 def validate_extracted_data(data: ExtractedData) -> tuple[bool, list[str]]:
     """
