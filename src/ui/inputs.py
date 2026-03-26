@@ -360,6 +360,10 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
         st.markdown(
             f"**Affidabilità lettura:** {confidence_icon} {data.confidence.upper()}",
         )
+        # Debug: mostra risposta raw per diagnostica
+        if data.raw_response:
+            with st.expander("🔍 Debug: risposta AI raw", expanded=False):
+                st.code(data.raw_response, language="json")
     st.divider()
 
     # Riga 1: Minuto e Punteggio
