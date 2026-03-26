@@ -1,7 +1,12 @@
 """
 ocr.py — Estrazione automatica dati da screenshot di siti scommesse.
 
-Utilizza l'API OpenAI Vision (GPT-4o-mini) per leggere immagini da:
+Supporta multipli backend per l'analisi immagini (in ordine di preferenza):
+  1. z-ai CLI (gratuito, locale)
+  2. Google Gemini API (gratuito 1500 req/giorno)
+  3. OpenAI Vision API (a pagamento, fallback finale)
+
+Utilizza il VLM (Vision Language Model) per leggere immagini da:
   - Siti di scommesse (Bet365, Betfair, Pinnacle, ecc.)
   - App mobili
   - Desktop screenshot
@@ -13,23 +18,34 @@ Estrae automaticamente:
   - Quote BTTS (GG/NG)
 
 Configurazione:
-  - OPENAI_API_KEY: via st.secrets["OPENAI_API_KEY"] o variabile d'ambiente
-  - OPENAI_MODEL: modello vision (default: gpt-4o-mini)
-
+  - GEMINI_API_KEY: via st.secrets o variabile d'ambiente (GRATUITO)
+  - OPENAI_API_KEY: via st.secrets o variabile d'ambiente (a pagamento)
+  
 Il modulo restituisce i dati in formato strutturato per l'uso nell'UI Streamlit.
 """
 
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+# OpenAI import con fallback
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 
 @dataclass
@@ -59,6 +75,7 @@ class ExtractedData:
     extraction_success: bool = False
     error_message: str = ""
     confidence: str = "medium"  # low, medium, high
+    backend_used: str = ""  # zai_cli, gemini, openai
 
     def to_dict(self) -> dict[str, Any]:
         """Converte in dizionario per compatibilità Streamlit."""
@@ -76,6 +93,7 @@ class ExtractedData:
             "extraction_success": self.extraction_success,
             "error_message": self.error_message,
             "confidence": self.confidence,
+            "backend_used": self.backend_used,
         }
 
 
@@ -134,215 +152,321 @@ SE UN DATO NON È PRESENTE O NON È LEGGIBILE:
 
 IMPORTANTE: Restituisci SOLO il JSON, nessun altro testo prima o dopo."""
 
-# Modello OpenAI Vision di default
+
+# ============================================================================
+# Backend: z-ai CLI
+# ============================================================================
+
+def _get_env_with_path() -> dict[str, str]:
+    """Restituisce environment con PATH aggiornato."""
+    env = os.environ.copy()
+    current_path = env.get("PATH", "")
+    extra_paths = [
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/home/z/.bun/bin",
+        os.path.expanduser("~/.bun/bin"),
+    ]
+    for p in extra_paths:
+        if p not in current_path:
+            current_path = f"{p}:{current_path}"
+    env["PATH"] = current_path
+    return env
+
+
+def _find_zai_command() -> tuple[str | None, list[str] | None]:
+    """Trova il modo di eseguire z-ai CLI."""
+    zai_path = shutil.which("z-ai")
+    if zai_path:
+        return zai_path, None
+    
+    absolute_paths = [
+        "/usr/local/bin/z-ai",
+        "/usr/bin/z-ai",
+        os.path.expanduser("~/.bun/bin/z-ai"),
+    ]
+    for path in absolute_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path, None
+    
+    bun_path = shutil.which("bun")
+    if bun_path:
+        cli_path = os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js")
+        if os.path.isfile(cli_path):
+            return bun_path, [cli_path]
+    
+    node_path = shutil.which("node")
+    if node_path:
+        cli_path = os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js")
+        if os.path.isfile(cli_path):
+            return node_path, [cli_path]
+    
+    return None, None
+
+
+def _check_zai_available() -> bool:
+    """Verifica se z-ai è disponibile."""
+    executable, _ = _find_zai_command()
+    return executable is not None
+
+
+def _extract_with_zai_cli(image_path: Path) -> ExtractedData:
+    """Estrae dati usando z-ai CLI."""
+    executable, extra_args = _find_zai_command()
+    if executable is None:
+        return ExtractedData(extraction_success=False, error_message="z-ai CLI non disponibile")
+    
+    if extra_args:
+        cmd = [executable] + extra_args + ["vision", "-p", EXTRACTION_PROMPT, "-i", str(image_path)]
+    else:
+        cmd = [executable, "vision", "-p", EXTRACTION_PROMPT, "-i", str(image_path)]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=90, env=_get_env_with_path())
+        if result.returncode != 0:
+            return ExtractedData(extraction_success=False, error_message=f"z-ai CLI: {result.stderr or 'Errore'}")
+        parsed = _parse_vlm_response(result.stdout)
+        parsed.backend_used = "zai_cli"
+        return parsed
+    except subprocess.TimeoutExpired:
+        return ExtractedData(extraction_success=False, error_message="z-ai CLI: timeout")
+    except Exception as e:
+        return ExtractedData(extraction_success=False, error_message=f"z-ai CLI: {e}")
+
+
+# ============================================================================
+# Backend: Google Gemini API
+# ============================================================================
+
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+
+
+def _get_gemini_api_key() -> str | None:
+    """Ottiene la API key di Gemini da environment o Streamlit secrets."""
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if api_key:
+        return api_key
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+            return st.secrets["GEMINI_API_KEY"]
+    except ImportError:
+        pass
+    return None
+
+
+def _check_gemini_available() -> bool:
+    """Verifica se Gemini API è disponibile."""
+    return _get_gemini_api_key() is not None
+
+
+def _extract_with_gemini(image_path: Path) -> ExtractedData:
+    """Estrae dati usando Google Gemini API."""
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return ExtractedData(extraction_success=False, error_message="Gemini: API key non configurata")
+    
+    try:
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+    except Exception as e:
+        return ExtractedData(extraction_success=False, error_message=f"Gemini: errore lettura file: {e}")
+    
+    suffix = image_path.suffix.lower()
+    mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
+    mime_type = mime_map.get(suffix, "image/jpeg")
+    
+    request_body = {
+        "contents": [{"parts": [{"inline_data": {"mime_type": mime_type, "data": image_base64}}, {"text": EXTRACTION_PROMPT}]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1024}
+    }
+    
+    try:
+        url = f"{GEMINI_API_URL}?key={api_key}"
+        data = json.dumps(request_body).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=60) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+        
+        if "candidates" in response_data and response_data["candidates"]:
+            parts = response_data["candidates"][0].get("content", {}).get("parts", [])
+            if parts:
+                text_response = parts[0].get("text", "")
+                if text_response:
+                    parsed = _parse_vlm_response(text_response)
+                    parsed.backend_used = "gemini"
+                    return parsed
+        return ExtractedData(extraction_success=False, error_message="Gemini: risposta vuota")
+    except urllib.error.HTTPError as e:
+        return ExtractedData(extraction_success=False, error_message=f"Gemini: HTTP {e.code}")
+    except Exception as e:
+        return ExtractedData(extraction_success=False, error_message=f"Gemini: {e}")
+
+
+# ============================================================================
+# Backend: OpenAI Vision API
+# ============================================================================
+
 _DEFAULT_MODEL = "gpt-4o-mini"
 
 
 def _get_openai_api_key() -> str | None:
-    """Recupera l'API key OpenAI da st.secrets o variabile d'ambiente."""
-    # 1. Prova Streamlit secrets
+    """Ottiene la API key OpenAI da environment o Streamlit secrets."""
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        return api_key
     try:
         import streamlit as st
-
         if hasattr(st, "secrets") and "OPENAI_API_KEY" in st.secrets:
             return st.secrets["OPENAI_API_KEY"]
-    except Exception:
+    except ImportError:
         pass
-
-    # 2. Prova variabile d'ambiente
-    return os.environ.get("OPENAI_API_KEY")
+    return None
 
 
 def _get_openai_model() -> str:
-    """Recupera il modello OpenAI da configurare."""
+    """Ottiene il modello OpenAI configurato."""
     try:
         import streamlit as st
-
         if hasattr(st, "secrets") and "OPENAI_MODEL" in st.secrets:
             return st.secrets["OPENAI_MODEL"]
-    except Exception:
+    except ImportError:
         pass
-
     return os.environ.get("OPENAI_MODEL", _DEFAULT_MODEL)
 
 
-def _call_openai_vision(image_b64: str, mime_type: str) -> str:
-    """
-    Chiama l'API OpenAI Vision con l'immagine in base64.
+def _check_openai_available() -> bool:
+    """Verifica se OpenAI è disponibile."""
+    return OPENAI_AVAILABLE and _get_openai_api_key() is not None
 
-    Args:
-        image_b64: Immagine codificata in base64.
-        mime_type: MIME type dell'immagine.
 
-    Returns:
-        Risposta testuale dal modello.
-
-    Raises:
-        RuntimeError: Se l'API key non è configurata o la chiamata fallisce.
-    """
+def _extract_with_openai(image_path: Path) -> ExtractedData:
+    """Estrae dati usando OpenAI Vision API."""
+    if not OPENAI_AVAILABLE:
+        return ExtractedData(extraction_success=False, error_message="OpenAI: libreria non installata")
+    
     api_key = _get_openai_api_key()
     if not api_key:
-        raise RuntimeError(
-            "OPENAI_API_KEY non configurata. "
-            "Aggiungi la chiave in .streamlit/secrets.toml o come variabile d'ambiente."
-        )
-
-    client = OpenAI(api_key=api_key)
-    model = _get_openai_model()
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
+        return ExtractedData(extraction_success=False, error_message="OpenAI: API key non configurata")
+    
+    try:
+        image_bytes = image_path.read_bytes()
+        suffix = image_path.suffix.lower()
+        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
+        mime_type = mime_map.get(suffix, "image/png")
+        image_b64 = base64.b64encode(image_bytes).decode()
+        
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=_get_openai_model(),
+            messages=[{
                 "role": "user",
                 "content": [
                     {"type": "text", "text": EXTRACTION_PROMPT},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{image_b64}",
-                            "detail": "high",
-                        },
-                    },
-                ],
-            }
-        ],
-        max_tokens=1000,
-        temperature=0.1,
-    )
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_b64}", "detail": "high"}}
+                ]
+            }],
+            max_tokens=1000,
+            temperature=0.1
+        )
+        text_response = response.choices[0].message.content or ""
+        parsed = _parse_vlm_response(text_response)
+        parsed.backend_used = "openai"
+        return parsed
+    except Exception as e:
+        return ExtractedData(extraction_success=False, error_message=f"OpenAI: {e}")
 
-    return response.choices[0].message.content or ""
 
+# ============================================================================
+# Main Extraction Functions
+# ============================================================================
 
 def extract_from_image_file(image_path: str | Path) -> ExtractedData:
     """
-    Estrae i dati da un file immagine usando OpenAI Vision.
-
-    Args:
-        image_path: Path del file immagine (PNG, JPG, WEBP).
-
-    Returns:
-        ExtractedData con tutti i dati estratti.
+    Estrae i dati da un file immagine usando il VLM.
+    
+    Prova i backend in ordine:
+    1. z-ai CLI (se disponibile, gratuito)
+    2. Google Gemini API (se configurato, gratuito)
+    3. OpenAI Vision API (se configurato, a pagamento)
     """
     image_path = Path(image_path)
-
     if not image_path.exists():
+        return ExtractedData(extraction_success=False, error_message=f"File non trovato: {image_path}")
+    
+    errors = []
+    
+    # 1. z-ai CLI (gratuito, locale)
+    if _check_zai_available():
+        result = _extract_with_zai_cli(image_path)
+        if result.extraction_success:
+            return result
+        errors.append(result.error_message)
+    
+    # 2. Gemini (gratuito)
+    if _check_gemini_available():
+        result = _extract_with_gemini(image_path)
+        if result.extraction_success:
+            return result
+        errors.append(result.error_message)
+    
+    # 3. OpenAI (a pagamento)
+    if _check_openai_available():
+        result = _extract_with_openai(image_path)
+        if result.extraction_success:
+            return result
+        errors.append(result.error_message)
+    
+    if not errors:
         return ExtractedData(
             extraction_success=False,
-            error_message=f"File non trovato: {image_path}",
+            error_message="Nessun backend VLM configurato. Imposta GEMINI_API_KEY (gratuito) o OPENAI_API_KEY."
         )
-
-    try:
-        image_bytes = image_path.read_bytes()
-        ext = image_path.suffix.lower()
-        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                    ".webp": "image/webp", ".gif": "image/gif"}
-        mime_type = mime_map.get(ext, "image/png")
-
-        image_b64 = base64.b64encode(image_bytes).decode()
-        response_text = _call_openai_vision(image_b64, mime_type)
-        return _parse_vlm_response(response_text)
-
-    except RuntimeError as e:
-        return ExtractedData(
-            extraction_success=False,
-            error_message=str(e),
-        )
-    except Exception as e:
-        return ExtractedData(
-            extraction_success=False,
-            error_message=f"Errore imprevisto: {e}",
-        )
+    
+    return ExtractedData(extraction_success=False, error_message=" | ".join(errors))
 
 
 def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> ExtractedData:
-    """
-    Estrae i dati da bytes di un'immagine.
-
-    Args:
-        image_bytes: Bytes dell'immagine.
-        extension: Estensione del file (.png, .jpg, .webp).
-
-    Returns:
-        ExtractedData con tutti i dati estratti.
-    """
+    """Estrae i dati da bytes di un'immagine."""
     try:
-        ext_to_mime = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".webp": "image/webp",
-            ".gif": "image/gif",
-        }
-        mime_type = ext_to_mime.get(extension, "image/png")
-        image_b64 = base64.b64encode(image_bytes).decode()
-        response_text = _call_openai_vision(image_b64, mime_type)
-        return _parse_vlm_response(response_text)
-
-    except RuntimeError as e:
-        return ExtractedData(
-            extraction_success=False,
-            error_message=str(e),
-        )
+        with tempfile.NamedTemporaryFile(delete=False, suffix=extension, prefix="ocr_") as tmp:
+            tmp.write(image_bytes)
+            tmp_path = tmp.name
+        try:
+            return extract_from_image_file(tmp_path)
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
     except Exception as e:
-        return ExtractedData(
-            extraction_success=False,
-            error_message=f"Errore imprevisto: {e}",
-        )
+        return ExtractedData(extraction_success=False, error_message=f"Errore temp file: {e}")
 
 
-def extract_from_base64(
-    base64_data: str,
-    mime_type: str = "image/png",
-) -> ExtractedData:
-    """
-    Estrae i dati da una stringa base64.
-
-    Args:
-        base64_data: Stringa base64 dell'immagine.
-        mime_type: MIME type dell'immagine.
-
-    Returns:
-        ExtractedData con tutti i dati estratti.
-    """
+def extract_from_base64(base64_data: str, mime_type: str = "image/png") -> ExtractedData:
+    """Estrae i dati da una stringa base64."""
     try:
-        # Verifica che il base64 sia valido
-        base64.b64decode(base64_data)
-        response_text = _call_openai_vision(base64_data, mime_type)
-        return _parse_vlm_response(response_text)
-
-    except RuntimeError as e:
-        return ExtractedData(
-            extraction_success=False,
-            error_message=str(e),
-        )
+        mime_to_ext = {".png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+        extension = mime_to_ext.get(mime_type, ".png")
+        image_bytes = base64.b64decode(base64_data)
+        return extract_from_bytes(image_bytes, extension)
     except Exception as e:
-        return ExtractedData(
-            extraction_success=False,
-            error_message=f"Errore decodifica base64: {e}",
-        )
+        return ExtractedData(extraction_success=False, error_message=f"Errore base64: {e}")
 
+
+# ============================================================================
+# Response Parsing
+# ============================================================================
 
 def _parse_vlm_response(response: str) -> ExtractedData:
-    """
-    Parsa la risposta del VLM e estrae i dati strutturati.
-
-    Args:
-        response: Risposta testuale del VLM.
-
-    Returns:
-        ExtractedData con i dati estratti.
-    """
+    """Parsa la risposta del VLM e estrae i dati strutturati."""
     if not response or not response.strip():
-        return ExtractedData(
-            extraction_success=False,
-            error_message="Risposta vuota dal VLM",
-        )
-
+        return ExtractedData(extraction_success=False, error_message="Risposta vuota")
+    
     try:
         json_str = response.strip()
-
-        # Rimuovi eventuali markdown code blocks PRIMA di cercare il JSON
+        
+        # Rimuovi markdown code blocks
         if "```json" in json_str:
             json_str = json_str.split("```json")[1]
             if "```" in json_str:
@@ -351,108 +475,70 @@ def _parse_vlm_response(response: str) -> ExtractedData:
             parts = json_str.split("```")
             if len(parts) >= 2:
                 json_str = parts[1]
-
+        
         json_str = json_str.strip()
-
-        # Cerca l'inizio del JSON ({ o [)
+        
+        # Trova inizio JSON
         lines = json_str.split("\n")
-        json_start_idx = -1
         for i, line in enumerate(lines):
-            stripped = line.strip()
-            if stripped.startswith("{") or stripped.startswith("["):
-                json_start_idx = i
+            if line.strip().startswith("{"):
+                json_str = "\n".join(lines[i:])
                 break
-
-        if json_start_idx >= 0:
-            json_str = "\n".join(lines[json_start_idx:])
-
-        # Rimuovi eventuali code block di chiusura rimasti
+        
         if "```" in json_str:
             json_str = json_str.split("```")[0]
-
-        json_str = json_str.strip()
-        data = json.loads(json_str)
-
-        # Estrai il contenuto dal formato API response
-        if "choices" in data and len(data["choices"]) > 0:
+        
+        data = json.loads(json_str.strip())
+        
+        # Gestisci formato API response
+        if "choices" in data and data["choices"]:
             content = data["choices"][0].get("message", {}).get("content", "")
-            if content:
-                content = content.strip()
-                if content.startswith("{"):
-                    data = json.loads(content)
-
+            if content and content.strip().startswith("{"):
+                data = json.loads(content)
+        
         return ExtractedData(
             squadra_casa=str(data.get("squadra_casa", "")).strip(),
             squadra_trasf=str(data.get("squadra_trasf", "")).strip(),
-            quota_1=_safe_float(data.get("quota_1", 0)),
-            quota_x=_safe_float(data.get("quota_x", 0)),
-            quota_2=_safe_float(data.get("quota_2", 0)),
-            linea_ou=_safe_float(data.get("linea_ou", 0)),
-            quota_over=_safe_float(data.get("quota_over", 0)),
-            quota_under=_safe_float(data.get("quota_under", 0)),
-            quota_gg=_safe_float(data.get("quota_gg", 0)),
-            quota_ng=_safe_float(data.get("quota_ng", 0)),
+            quota_1=_safe_float(data.get("quota_1")),
+            quota_x=_safe_float(data.get("quota_x")),
+            quota_2=_safe_float(data.get("quota_2")),
+            linea_ou=_safe_float(data.get("linea_ou")),
+            quota_over=_safe_float(data.get("quota_over")),
+            quota_under=_safe_float(data.get("quota_under")),
+            quota_gg=_safe_float(data.get("quota_gg")),
+            quota_ng=_safe_float(data.get("quota_ng")),
             confidence=str(data.get("confidence", "medium")).lower(),
             raw_response=response,
             extraction_success=True,
         )
-
     except json.JSONDecodeError as e:
         return _fallback_extraction(response, str(e))
-
     except Exception as e:
-        return ExtractedData(
-            extraction_success=False,
-            error_message=f"Errore parsing risposta: {e}",
-            raw_response=response,
-        )
+        return ExtractedData(extraction_success=False, error_message=f"Parse error: {e}", raw_response=response)
 
 
 def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
-    """
-    Fallback per estrarre dati quando il JSON parsing fallisce.
-    """
-    data = ExtractedData(
-        extraction_success=False,
-        error_message=f"JSON parsing fallito: {original_error}",
-        raw_response=response,
-    )
-
+    """Fallback per estrarre dati quando il JSON parsing fallisce."""
+    data = ExtractedData(extraction_success=False, error_message=f"JSON error: {original_error}", raw_response=response)
+    
     try:
-        # Cerca nomi squadre
-        match = re.search(
-            r"([A-Za-zÀ-ÿ\s]+)\s+(?:vs|-|–|vs\.)\s+([A-Za-zÀ-ÿ\s]+)",
-            response,
-            re.IGNORECASE,
-        )
+        match = re.search(r"([A-Za-zÀ-ÿ\s]+)\s+(?:vs|-|–)\s+([A-Za-zÀ-ÿ\s]+)", response, re.IGNORECASE)
         if match:
             data.squadra_casa = match.group(1).strip()
             data.squadra_trasf = match.group(2).strip()
-
-        # Cerca quote 1X2
-        quote_pattern = r"(\d+[.,]\d{2,3})"
-        quotes = re.findall(quote_pattern, response)
-
+        
+        quotes = re.findall(r"(\d+[.,]\d{2,3})", response)
         if len(quotes) >= 3:
             data.quota_1 = _safe_float(quotes[0])
             data.quota_x = _safe_float(quotes[1])
             data.quota_2 = _safe_float(quotes[2])
-
-        # Cerca linea Over/Under
-        line_pattern = r"(?:over|under|totale?|total)\s*[.:]?\s*(\d+[.,]?\d*)"
-        match = re.search(line_pattern, response, re.IGNORECASE)
-        if match:
-            data.linea_ou = _safe_float(match.group(1))
-
-        # Se abbiamo estratto qualcosa, consideriamo successo parziale
+        
         if data.squadra_casa or data.quota_1 > 0:
             data.extraction_success = True
             data.confidence = "low"
-            data.error_message = f"Estrazione parziale (fallback): {original_error}"
-
     except Exception:
         pass
-
+    
     return data
 
 
@@ -461,43 +547,30 @@ def _safe_float(value: Any) -> float:
     if value is None:
         return 0.0
     try:
-        if isinstance(value, str):
-            value = value.replace(",", ".")
-        return float(value)
+        return float(str(value).replace(",", "."))
     except (ValueError, TypeError):
         return 0.0
 
 
 def validate_extracted_data(data: ExtractedData) -> tuple[bool, list[str]]:
-    """
-    Valida i dati estratti e restituisce eventuali problemi.
-
-    Returns:
-        (is_valid, warnings): True se i dati sono utilizzabili,
-                              lista di warning per dati mancanti/sospetti.
-    """
+    """Valida i dati estratti e restituisce eventuali problemi."""
     warnings = []
-
+    
     if not data.squadra_casa:
         warnings.append("Squadra casa non rilevata")
     if not data.squadra_trasf:
         warnings.append("Squadra trasferta non rilevata")
-
+    
     if data.quota_1 <= 0 or data.quota_x <= 0 or data.quota_2 <= 0:
-        warnings.append("Quote 1X2 incomplete o non rilevate")
+        warnings.append("Quote 1X2 incomplete")
     else:
         for q, name in [(data.quota_1, "1"), (data.quota_x, "X"), (data.quota_2, "2")]:
             if q < 1.01 or q > 50.0:
-                warnings.append(f"Quota {name}={q} sembra fuori range")
-
+                warnings.append(f"Quota {name} fuori range")
+    
     if data.quota_over <= 0 and data.quota_under <= 0:
-        warnings.append("Quote Over/Under non rilevate")
-    elif data.linea_ou <= 0:
-        warnings.append("Linea Over/Under non rilevata")
-
+        warnings.append("Quote O/U non rilevate")
     if data.quota_gg <= 0 and data.quota_ng <= 0:
-        warnings.append("Quote BTTS (GG/NG) non rilevate")
-
-    is_valid = data.quota_1 > 0 and data.quota_x > 0 and data.quota_2 > 0
-
-    return is_valid, warnings
+        warnings.append("Quote BTTS non rilevate")
+    
+    return data.quota_1 > 0 and data.quota_x > 0 and data.quota_2 > 0, warnings
