@@ -302,6 +302,27 @@ def _get_extension(mime_type: str) -> str:
 # Input Originali
 # ---------------------------------------------------------------------------
 
+_LIVE_WIDGET_KEYS = [
+    "live_minuto", "live_gol_casa", "live_gol_trasf",
+    "live_rossi_casa", "live_rossi_trasf",
+    "live_sot_h", "live_soff_h", "live_sot_a", "live_soff_a",
+    "live_corner_h", "live_corner_a",
+    "live_poss_h", "live_poss_a",
+    "live_att_per_h", "live_att_per_a",
+]
+
+
+def _clear_live_widget_keys() -> None:
+    """Rimuove le chiavi dei widget live dal session state.
+
+    Streamlit usa il session state come fonte di verità per i widget.
+    Se un widget ha una key già presente, ignora il parametro value=.
+    Rimuovendo le chiavi, forziamo Streamlit a usare i nuovi valori.
+    """
+    for key in _LIVE_WIDGET_KEYS:
+        st.session_state.pop(key, None)
+
+
 def render_live_screenshot_upload() -> LiveStatsExtracted | None:
     """
     Render del widget per caricare screenshot di statistiche live (Nowgoal, ecc.).
@@ -324,11 +345,14 @@ def render_live_screenshot_upload() -> LiveStatsExtracted | None:
         return None
 
     file_id = f"live_{uploaded_file.name}_{uploaded_file.size}"
+    cached = st.session_state.get("live_stats_data")
     if (
         "last_live_file_id" in st.session_state
         and st.session_state.last_live_file_id == file_id
+        and cached is not None
+        and cached.extraction_success
     ):
-        return st.session_state.get("live_stats_data")
+        return cached
 
     with st.spinner("📊 Lettura statistiche live in corso..."):
         try:
@@ -339,6 +363,8 @@ def render_live_screenshot_upload() -> LiveStatsExtracted | None:
             )
             st.session_state.last_live_file_id = file_id
             st.session_state.live_stats_data = extracted
+            # Resetta i widget per forzare i nuovi valori
+            _clear_live_widget_keys()
             return extracted
         except Exception as e:
             st.error(f"❌ Errore durante l'analisi: {e}")
