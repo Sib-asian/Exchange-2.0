@@ -51,6 +51,14 @@ class MatchState:
     sot_a: int = 0       # Tiri in porta trasferta
     soff_a: int = 0      # Tiri fuori trasferta
 
+    # Statistiche live avanzate da screenshot (0 = non disponibili)
+    corner_h: int = 0
+    corner_a: int = 0
+    possesso_h: float = 0.0   # Percentuale (0-100)
+    possesso_a: float = 0.0
+    att_pericolosi_h: int = 0  # Dangerous attacks
+    att_pericolosi_a: int = 0
+
     # Bankroll e commissione
     bankroll: float = 1000.0
     comm_rate: float = 0.025   # 2.5%
@@ -312,6 +320,12 @@ def analizza(
             state.sot_a, state.soff_a,
             state.gol_casa, state.gol_trasf,
             state.minuto,
+            corner_h=state.corner_h,
+            corner_a=state.corner_a,
+            possesso_h=state.possesso_h,
+            possesso_a=state.possesso_a,
+            att_pericolosi_h=state.att_pericolosi_h,
+            att_pericolosi_a=state.att_pericolosi_a,
         )
     else:
         xg_h_blend = xg_h_base
