@@ -370,6 +370,31 @@ class TestNormalizeLiveStatsKeys:
         assert result.attacchi_pericolosi_casa == 48
         assert result.possesso_casa == 50.0
 
+    def test_compact_keys_parsed(self):
+        """Test che le chiavi compatte del prompt ridotto vengono parsate."""
+        response = json.dumps({
+            "min": 90, "g_h": 2, "g_a": 1,
+            "r_h": 0, "r_a": 0, "y_h": 1, "y_a": 3,
+            "sot_h": 4, "sot_a": 2, "soff_h": 7, "soff_a": 2,
+            "blk_h": 4, "blk_a": 4,
+            "cor_h": 6, "cor_a": 2,
+            "pos_h": 50, "pos_a": 50,
+            "att_h": 109, "att_a": 72,
+            "datt_h": 48, "datt_a": 34,
+            "fou_h": 18, "fou_a": 12,
+        })
+        result = _parse_live_stats_response(response)
+        assert result.extraction_success is True
+        assert result.minuto == 90
+        assert result.gol_casa == 2
+        assert result.gol_trasf == 1
+        assert result.tiri_porta_casa == 4
+        assert result.tiri_fuori_casa == 7
+        assert result.corner_casa == 6
+        assert result.possesso_casa == 50.0
+        assert result.attacchi_pericolosi_casa == 48
+        assert result.falli_casa == 18
+
 
 class TestParseLiveStatsResponse:
     def test_valid_json(self):
