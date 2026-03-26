@@ -633,6 +633,72 @@ def _extract_live_stats_with_gemini(image_path: Path) -> LiveStatsExtracted:
     return LiveStatsExtracted(extraction_success=False, error_message=last_error)
 
 
+# Mapping flessibile: chiave alternativa → chiave standard
+# Gemini può restituire nomi in inglese, abbreviati o con varianti
+_LIVE_STATS_KEY_ALIASES: dict[str, str] = {
+    # Minuto
+    "minute": "minuto", "min": "minuto", "time": "minuto",
+    # Gol
+    "goals_home": "gol_casa", "gol_home": "gol_casa", "home_goals": "gol_casa",
+    "score_home": "gol_casa", "home_score": "gol_casa",
+    "goals_away": "gol_trasf", "gol_away": "gol_trasf", "away_goals": "gol_trasf",
+    "score_away": "gol_trasf", "away_score": "gol_trasf",
+    # Rossi
+    "red_cards_home": "rossi_casa", "red_home": "rossi_casa", "home_red_cards": "rossi_casa",
+    "red_cards_away": "rossi_trasf", "red_away": "rossi_trasf", "away_red_cards": "rossi_trasf",
+    # Gialli
+    "yellow_cards_home": "gialli_casa", "yellow_home": "gialli_casa",
+    "home_yellow_cards": "gialli_casa",
+    "yellow_cards_away": "gialli_trasf", "yellow_away": "gialli_trasf",
+    "away_yellow_cards": "gialli_trasf",
+    # Tiri in porta
+    "shots_on_target_home": "tiri_porta_casa", "sot_home": "tiri_porta_casa",
+    "shots_on_goal_home": "tiri_porta_casa", "home_shots_on_target": "tiri_porta_casa",
+    "home_shots_on_goal": "tiri_porta_casa",
+    "shots_on_target_away": "tiri_porta_trasf", "sot_away": "tiri_porta_trasf",
+    "shots_on_goal_away": "tiri_porta_trasf", "away_shots_on_target": "tiri_porta_trasf",
+    "away_shots_on_goal": "tiri_porta_trasf",
+    # Tiri fuori
+    "shots_off_target_home": "tiri_fuori_casa", "home_shots_off_target": "tiri_fuori_casa",
+    "shots_off_goal_home": "tiri_fuori_casa", "home_shots_off_goal": "tiri_fuori_casa",
+    "shots_off_target_away": "tiri_fuori_trasf", "away_shots_off_target": "tiri_fuori_trasf",
+    "shots_off_goal_away": "tiri_fuori_trasf", "away_shots_off_goal": "tiri_fuori_trasf",
+    # Tiri bloccati
+    "blocked_shots_home": "tiri_bloccati_casa", "blocked_home": "tiri_bloccati_casa",
+    "home_blocked_shots": "tiri_bloccati_casa", "home_blocked": "tiri_bloccati_casa",
+    "blocked_shots_away": "tiri_bloccati_trasf", "blocked_away": "tiri_bloccati_trasf",
+    "away_blocked_shots": "tiri_bloccati_trasf", "away_blocked": "tiri_bloccati_trasf",
+    # Corner
+    "corners_home": "corner_casa", "home_corners": "corner_casa",
+    "corner_kicks_home": "corner_casa", "home_corner_kicks": "corner_casa",
+    "corners_away": "corner_trasf", "away_corners": "corner_trasf",
+    "corner_kicks_away": "corner_trasf", "away_corner_kicks": "corner_trasf",
+    # Possesso
+    "possession_home": "possesso_casa", "home_possession": "possesso_casa",
+    "possession_away": "possesso_trasf", "away_possession": "possesso_trasf",
+    # Attacchi
+    "attacks_home": "attacchi_casa", "home_attacks": "attacchi_casa",
+    "attacks_away": "attacchi_trasf", "away_attacks": "attacchi_trasf",
+    "dangerous_attacks_home": "attacchi_pericolosi_casa",
+    "home_dangerous_attacks": "attacchi_pericolosi_casa",
+    "dangerous_attacks_away": "attacchi_pericolosi_trasf",
+    "away_dangerous_attacks": "attacchi_pericolosi_trasf",
+    # Falli
+    "fouls_home": "falli_casa", "home_fouls": "falli_casa",
+    "fouls_away": "falli_trasf", "away_fouls": "falli_trasf",
+}
+
+
+def _normalize_live_stats_keys(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalizza le chiavi del JSON usando gli alias noti."""
+    normalized: dict[str, Any] = {}
+    for key, value in data.items():
+        # Prima prova la chiave originale (se è già nel formato atteso)
+        canonical = _LIVE_STATS_KEY_ALIASES.get(key.lower(), key)
+        normalized[canonical] = value
+    return normalized
+
+
 def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
     """Parsa la risposta del VLM per le statistiche live."""
     if not response or not response.strip():
@@ -682,6 +748,9 @@ def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
             if not repaired.rstrip().endswith("}"):
                 repaired += "\n}"
             data = json.loads(repaired)
+
+        # Normalizza chiavi: Gemini potrebbe usare nomi inglesi o varianti
+        data = _normalize_live_stats_keys(data)
 
         return LiveStatsExtracted(
             minuto=_safe_int(data.get("minuto")),
