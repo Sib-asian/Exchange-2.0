@@ -232,7 +232,12 @@ def _extract_with_zai_cli(image_path: Path) -> ExtractedData:
 # Backend: Google Gemini API
 # ============================================================================
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+_GEMINI_MODELS = [
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
+_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 def _get_gemini_api_key() -> str | None:
     """Ottiene la API key di Gemini da environment o Streamlit secrets."""
@@ -252,7 +257,9 @@ def _check_gemini_available() -> bool:
     return _get_gemini_api_key() is not None
 
 def _extract_with_gemini(image_path: Path) -> ExtractedData:
-    """Estrae dati usando Google Gemini API."""
+    """Estrae dati usando Google Gemini API con retry e fallback tra modelli."""
+    import time
+
     api_key = _get_gemini_api_key()
     if not api_key:
         return ExtractedData(extraction_success=False, error_message="Gemini: API key non configurata")
@@ -265,34 +272,60 @@ def _extract_with_gemini(image_path: Path) -> ExtractedData:
         return ExtractedData(extraction_success=False, error_message=f"Gemini: errore lettura file: {e}")
 
     suffix = image_path.suffix.lower()
-    mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
+    mime_map = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif",
+    }
     mime_type = mime_map.get(suffix, "image/jpeg")
 
     request_body = {
-        "contents": [{"parts": [{"inline_data": {"mime_type": mime_type, "data": image_base64}}, {"text": EXTRACTION_PROMPT}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1024}
+        "contents": [{
+            "parts": [
+                {"inline_data": {"mime_type": mime_type, "data": image_base64}},
+                {"text": EXTRACTION_PROMPT},
+            ],
+        }],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1024},
     }
+    payload = json.dumps(request_body).encode("utf-8")
 
-    try:
-        url = f"{GEMINI_API_URL}?key={api_key}"
-        data = json.dumps(request_body).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=60) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
+    last_error = ""
+    for model in _GEMINI_MODELS:
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        # Retry con backoff per rate limit (429)
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    url, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    response_data = json.loads(response.read().decode("utf-8"))
 
-        if "candidates" in response_data and response_data["candidates"]:
-            parts = response_data["candidates"][0].get("content", {}).get("parts", [])
-            if parts:
-                text_response = parts[0].get("text", "")
-                if text_response:
-                    parsed = _parse_vlm_response(text_response)
-                    parsed.backend_used = "gemini"
-                    return parsed
-        return ExtractedData(extraction_success=False, error_message="Gemini: risposta vuota")
-    except urllib.error.HTTPError as e:
-        return ExtractedData(extraction_success=False, error_message=f"Gemini: HTTP {e.code}")
-    except Exception as e:
-        return ExtractedData(extraction_success=False, error_message=f"Gemini: {e}")
+                if "candidates" in response_data and response_data["candidates"]:
+                    parts = response_data["candidates"][0].get("content", {}).get("parts", [])
+                    if parts:
+                        text_response = parts[0].get("text", "")
+                        if text_response:
+                            parsed = _parse_vlm_response(text_response)
+                            parsed.backend_used = "gemini"
+                            return parsed
+                last_error = f"Gemini ({model}): risposta vuota"
+                break  # Risposta vuota, prova prossimo modello
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and attempt < 2:
+                    time.sleep(2 ** attempt)  # 1s, 2s
+                    continue
+                if e.code == 404:
+                    last_error = f"Gemini ({model}): modello non disponibile"
+                    break  # Modello non esiste, prova il prossimo
+                last_error = f"Gemini ({model}): HTTP {e.code}"
+                break
+            except Exception as e:
+                last_error = f"Gemini ({model}): {e}"
+                break
+
+    return ExtractedData(extraction_success=False, error_message=last_error)
 
 # ============================================================================
 # Backend: OpenAI Vision API
