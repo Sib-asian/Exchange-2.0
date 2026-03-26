@@ -22,11 +22,62 @@ import contextlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+def _find_zai_command() -> str:
+    """Trova il percorso del comando z-ai."""
+    # 1. Controlla variabile d'ambiente
+    env_cmd = os.environ.get("ZAI_CMD")
+    if env_cmd and os.path.isfile(env_cmd):
+        return env_cmd
+
+    # 2. Cerca nel PATH usando shutil.which
+    which_cmd = shutil.which("z-ai")
+    if which_cmd:
+        return which_cmd
+
+    # 3. Percorsi comuni da controllare
+    common_paths = [
+        "/usr/local/bin/z-ai",
+        "/usr/bin/z-ai",
+        "/home/z/.npm-global/bin/z-ai",
+        os.path.expanduser("~/.npm-global/bin/z-ai"),
+        os.path.expanduser("~/node_modules/.bin/z-ai"),
+        "/root/.npm-global/bin/z-ai",
+        "/usr/lib/node_modules/.bin/z-ai",
+    ]
+    for path in common_paths:
+        if os.path.isfile(path):
+            return path
+
+    # Fallback: assume sia nel PATH
+    return "z-ai"
+
+
+def _get_subprocess_env() -> dict[str, str]:
+    """Restituisce l'ambiente per subprocess con PATH corretto."""
+    env = os.environ.copy()
+    # Assicurati che i path comuni siano inclusi
+    current_path = env.get("PATH", "")
+    extra_paths = [
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/home/z/.npm-global/bin",
+        "/root/.npm-global/bin",
+        "/usr/lib/node_modules/.bin",
+    ]
+    for p in extra_paths:
+        if p not in current_path:
+            current_path = f"{p}:{current_path}"
+    env["PATH"] = current_path
+    return env
 
 
 @dataclass
@@ -152,8 +203,8 @@ def extract_from_image_file(image_path: str | Path) -> ExtractedData:
 
     try:
         # Chiama il CLI z-ai vision
-        # Usa percorso assoluto per trovare il comando
-        zai_cmd = os.environ.get("ZAI_CMD", "/usr/local/bin/z-ai")
+        # Trova il comando dinamicamente
+        zai_cmd = _find_zai_command()
         result = subprocess.run(
             [
                 zai_cmd, "vision",
@@ -164,6 +215,7 @@ def extract_from_image_file(image_path: str | Path) -> ExtractedData:
             capture_output=True,
             text=True,
             timeout=60,  # 60 secondi timeout
+            env=_get_subprocess_env(),
         )
 
         if result.returncode != 0:
