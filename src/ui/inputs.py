@@ -318,12 +318,22 @@ def _push_live_data_to_session(data: LiveStatsExtracted) -> None:
     Streamlit usa il session state come fonte di verità per i widget.
     Scrivendo i valori PRIMA che i widget vengano renderizzati, forziamo
     Streamlit a mostrare i valori aggiornati.
+
+    NON sovrascrive minuto, gol e rossi se lo screenshot non li contiene
+    (valore 0) — l'utente li inserisce manualmente prima di caricare lo screen.
     """
-    st.session_state["live_minuto"] = min(data.minuto, 90)
-    st.session_state["live_gol_casa"] = data.gol_casa
-    st.session_state["live_gol_trasf"] = data.gol_trasf
-    st.session_state["live_rossi_casa"] = data.rossi_casa
-    st.session_state["live_rossi_trasf"] = data.rossi_trasf
+    # Minuto e gol: sovrascivi solo se lo screenshot li ha letti (>0)
+    if data.minuto > 0:
+        st.session_state["live_minuto"] = min(data.minuto, 90)
+    if data.gol_casa > 0:
+        st.session_state["live_gol_casa"] = data.gol_casa
+    if data.gol_trasf > 0:
+        st.session_state["live_gol_trasf"] = data.gol_trasf
+    if data.rossi_casa > 0:
+        st.session_state["live_rossi_casa"] = data.rossi_casa
+    if data.rossi_trasf > 0:
+        st.session_state["live_rossi_trasf"] = data.rossi_trasf
+    # Statistiche: sovrascivi sempre (sono il motivo principale dello screenshot)
     st.session_state["live_sot_h"] = data.tiri_porta_casa
     st.session_state["live_soff_h"] = data.tiri_fuori_casa
     st.session_state["live_sot_a"] = data.tiri_porta_trasf
@@ -535,11 +545,12 @@ def render_match_state_live() -> dict:
     # Nessuno screenshot: mostra info e campi manuali vuoti
     st.info(
         "📋 **Come funziona:**\n\n"
-        "1. Vai su **Nowgoal**, **FlashScore** o **SofaScore**\n"
-        "2. Apri la pagina della partita con le statistiche live\n"
+        "1. Inserisci **minuto** e **gol** (li vedi dal live)\n"
+        "2. Vai sulla tab **statistiche** di Nowgoal/FlashScore/SofaScore\n"
         "3. Fai uno screenshot e caricalo qui sopra\n"
-        "4. L'AI leggerà automaticamente tutte le statistiche\n\n"
-        "Puoi anche inserire i dati manualmente qui sotto."
+        "4. L'AI leggerà: tiri, corner, possesso, attacchi, cartellini\n"
+        "5. Minuto e gol che hai già inserito NON vengono sovrascritti\n\n"
+        "Puoi anche inserire tutto manualmente qui sotto."
     )
 
     # Fallback manuale compatto
