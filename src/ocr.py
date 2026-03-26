@@ -152,9 +152,11 @@ def extract_from_image_file(image_path: str | Path) -> ExtractedData:
 
     try:
         # Chiama il CLI z-ai vision
+        # Usa percorso assoluto per trovare il comando
+        zai_cmd = os.environ.get("ZAI_CMD", "/usr/local/bin/z-ai")
         result = subprocess.run(
             [
-                "z-ai", "vision",
+                zai_cmd, "vision",
                 "-p", EXTRACTION_PROMPT,
                 "-i", str(image_path),
                 "-o", "-",  # output to stdout
