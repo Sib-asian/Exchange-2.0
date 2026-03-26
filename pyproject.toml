@@ -9,6 +9,7 @@ description = "Motore probabilistico live per il calcio — bivariate Poisson + 
 requires-python = ">=3.11"
 dependencies = [
     "streamlit>=1.35.0",
+    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]

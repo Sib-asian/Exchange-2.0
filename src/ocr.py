@@ -1,7 +1,7 @@
 """
 ocr.py — Estrazione automatica dati da screenshot di siti scommesse.
 
-Utilizza il VLM (Vision Language Model) per leggere immagini da:
+Utilizza l'API OpenAI Vision (GPT-4o-mini) per leggere immagini da:
   - Siti di scommesse (Bet365, Betfair, Pinnacle, ecc.)
   - App mobili
   - Desktop screenshot
@@ -12,22 +12,24 @@ Estrae automaticamente:
   - Quote Over/Under
   - Quote BTTS (GG/NG)
 
+Configurazione:
+  - OPENAI_API_KEY: via st.secrets["OPENAI_API_KEY"] o variabile d'ambiente
+  - OPENAI_MODEL: modello vision (default: gpt-4o-mini)
+
 Il modulo restituisce i dati in formato strutturato per l'uso nell'UI Streamlit.
 """
 
 from __future__ import annotations
 
 import base64
-import contextlib
 import json
 import os
 import re
-import shutil
-import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from openai import OpenAI
 
 
 @dataclass
@@ -75,6 +77,7 @@ class ExtractedData:
             "error_message": self.error_message,
             "confidence": self.confidence,
         }
+
 
 # Prompt per l'estrazione dati dallo screenshot
 EXTRACTION_PROMPT = """Analizza questo screenshot di un sito di scommesse o app betting.
@@ -131,82 +134,89 @@ SE UN DATO NON È PRESENTE O NON È LEGGIBILE:
 
 IMPORTANTE: Restituisci SOLO il JSON, nessun altro testo prima o dopo."""
 
-def _get_env_with_path() -> dict[str, str]:
-    """Restituisce environment con PATH aggiornato."""
-    env = os.environ.copy()
-    current_path = env.get("PATH", "")
-    extra_paths = [
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-        "/home/z/.bun/bin",
-        os.path.expanduser("~/.bun/bin"),
-        "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist",
-    ]
-    for p in extra_paths:
-        if p not in current_path:
-            current_path = f"{p}:{current_path}"
-    env["PATH"] = current_path
-    return env
+# Modello OpenAI Vision di default
+_DEFAULT_MODEL = "gpt-4o-mini"
 
-def _find_zai_command() -> tuple[str | None, list[str] | None]:
+
+def _get_openai_api_key() -> str | None:
+    """Recupera l'API key OpenAI da st.secrets o variabile d'ambiente."""
+    # 1. Prova Streamlit secrets
+    try:
+        import streamlit as st
+
+        if hasattr(st, "secrets") and "OPENAI_API_KEY" in st.secrets:
+            return st.secrets["OPENAI_API_KEY"]
+    except Exception:
+        pass
+
+    # 2. Prova variabile d'ambiente
+    return os.environ.get("OPENAI_API_KEY")
+
+
+def _get_openai_model() -> str:
+    """Recupera il modello OpenAI da configurare."""
+    try:
+        import streamlit as st
+
+        if hasattr(st, "secrets") and "OPENAI_MODEL" in st.secrets:
+            return st.secrets["OPENAI_MODEL"]
+    except Exception:
+        pass
+
+    return os.environ.get("OPENAI_MODEL", _DEFAULT_MODEL)
+
+
+def _call_openai_vision(image_b64: str, mime_type: str) -> str:
     """
-    Trova il modo di eseguire z-ai CLI.
+    Chiama l'API OpenAI Vision con l'immagine in base64.
 
-    Usa il PATH esteso (stesso di _get_env_with_path) per trovare
-    eseguibili anche in ambienti con PATH ridotto (es. Streamlit).
+    Args:
+        image_b64: Immagine codificata in base64.
+        mime_type: MIME type dell'immagine.
 
     Returns:
-        (executable, args): L'eseguibile e gli argomenti aggiuntivi, o (None, None) se non trovato.
+        Risposta testuale dal modello.
+
+    Raises:
+        RuntimeError: Se l'API key non è configurata o la chiamata fallisce.
     """
-    enhanced_path = _get_env_with_path().get("PATH", "")
+    api_key = _get_openai_api_key()
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY non configurata. "
+            "Aggiungi la chiave in .streamlit/secrets.toml o come variabile d'ambiente."
+        )
 
-    # 1. Prova con shutil.which usando il PATH esteso
-    zai_path = shutil.which("z-ai", path=enhanced_path)
-    if zai_path:
-        return zai_path, None
+    client = OpenAI(api_key=api_key)
+    model = _get_openai_model()
 
-    # 2. Prova percorsi assoluti comuni (senza richiedere +x per cli.js)
-    absolute_paths = [
-        "/usr/local/bin/z-ai",
-        "/usr/bin/z-ai",
-        os.path.expanduser("~/.bun/bin/z-ai"),
-    ]
-    for path in absolute_paths:
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path, None
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": EXTRACTION_PROMPT},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{image_b64}",
+                            "detail": "high",
+                        },
+                    },
+                ],
+            }
+        ],
+        max_tokens=1000,
+        temperature=0.1,
+    )
 
-    # 3. Cerca cli.js del SDK e usa bun/node come runner
-    cli_candidates = [
-        "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js",
-        os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"),
-    ]
-    cli_path = next((p for p in cli_candidates if os.path.isfile(p)), None)
+    return response.choices[0].message.content or ""
 
-    if cli_path:
-        # Prova bun (con PATH esteso)
-        bun_path = shutil.which("bun", path=enhanced_path)
-        if bun_path:
-            return bun_path, [cli_path]
-        # Prova node (con PATH esteso)
-        node_path = shutil.which("node", path=enhanced_path)
-        if node_path:
-            return node_path, [cli_path]
-
-    return None, None
-
-def _check_command_available(cmd: str) -> bool:
-    """Verifica se un comando è disponibile."""
-    return shutil.which(cmd) is not None
-
-def _check_zai_available() -> bool:
-    """Verifica se z-ai è disponibile in qualsiasi forma."""
-    executable, _ = _find_zai_command()
-    return executable is not None
 
 def extract_from_image_file(image_path: str | Path) -> ExtractedData:
     """
-    Estrae i dati da un file immagine usando il VLM.
+    Estrae i dati da un file immagine usando OpenAI Vision.
 
     Args:
         image_path: Path del file immagine (PNG, JPG, WEBP).
@@ -222,50 +232,28 @@ def extract_from_image_file(image_path: str | Path) -> ExtractedData:
             error_message=f"File non trovato: {image_path}",
         )
 
-    # Trova il modo di eseguire z-ai
-    executable, extra_args = _find_zai_command()
-    if executable is None:
-        return ExtractedData(
-            extraction_success=False,
-            error_message="z-ai non disponibile. Installa z-ai-web-dev-sdk: npm install -g z-ai-web-dev-sdk",
-        )
-
-    # Costruisci il comando
-    if extra_args:
-        # Esegui con bun/node: bun cli.js vision -p ... -i ...
-        cmd = [executable] + extra_args + ["vision", "-p", EXTRACTION_PROMPT, "-i", str(image_path)]
-    else:
-        # Esegui direttamente: z-ai vision -p ... -i ...
-        cmd = [executable, "vision", "-p", EXTRACTION_PROMPT, "-i", str(image_path)]
-
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=90,
-            env=_get_env_with_path(),
-        )
+        image_bytes = image_path.read_bytes()
+        ext = image_path.suffix.lower()
+        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                    ".webp": "image/webp", ".gif": "image/gif"}
+        mime_type = mime_map.get(ext, "image/png")
 
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() if result.stderr else "Errore sconosciuto"
-            return ExtractedData(
-                extraction_success=False,
-                error_message=f"Errore VLM: {error_msg}",
-            )
+        image_b64 = base64.b64encode(image_bytes).decode()
+        response_text = _call_openai_vision(image_b64, mime_type)
+        return _parse_vlm_response(response_text)
 
-        return _parse_vlm_response(result.stdout)
-
-    except subprocess.TimeoutExpired:
+    except RuntimeError as e:
         return ExtractedData(
             extraction_success=False,
-            error_message="Timeout: l'analisi ha impiegato troppo tempo",
+            error_message=str(e),
         )
     except Exception as e:
         return ExtractedData(
             extraction_success=False,
             error_message=f"Errore imprevisto: {e}",
         )
+
 
 def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> ExtractedData:
     """
@@ -279,25 +267,29 @@ def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> Extracted
         ExtractedData con tutti i dati estratti.
     """
     try:
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=extension,
-            prefix="ocr_match_",
-        ) as tmp_file:
-            tmp_file.write(image_bytes)
-            tmp_path = tmp_file.name
+        ext_to_mime = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+        }
+        mime_type = ext_to_mime.get(extension, "image/png")
+        image_b64 = base64.b64encode(image_bytes).decode()
+        response_text = _call_openai_vision(image_b64, mime_type)
+        return _parse_vlm_response(response_text)
 
-        try:
-            return extract_from_image_file(tmp_path)
-        finally:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
-
+    except RuntimeError as e:
+        return ExtractedData(
+            extraction_success=False,
+            error_message=str(e),
+        )
     except Exception as e:
         return ExtractedData(
             extraction_success=False,
-            error_message=f"Errore salvataggio immagine: {e}",
+            error_message=f"Errore imprevisto: {e}",
         )
+
 
 def extract_from_base64(
     base64_data: str,
@@ -314,22 +306,22 @@ def extract_from_base64(
         ExtractedData con tutti i dati estratti.
     """
     try:
-        mime_to_ext = {
-            "image/png": ".png",
-            "image/jpeg": ".jpg",
-            "image/jpg": ".jpg",
-            "image/webp": ".webp",
-            "image/gif": ".gif",
-        }
-        extension = mime_to_ext.get(mime_type, ".png")
-        image_bytes = base64.b64decode(base64_data)
-        return extract_from_bytes(image_bytes, extension)
+        # Verifica che il base64 sia valido
+        base64.b64decode(base64_data)
+        response_text = _call_openai_vision(base64_data, mime_type)
+        return _parse_vlm_response(response_text)
 
+    except RuntimeError as e:
+        return ExtractedData(
+            extraction_success=False,
+            error_message=str(e),
+        )
     except Exception as e:
         return ExtractedData(
             extraction_success=False,
             error_message=f"Errore decodifica base64: {e}",
         )
+
 
 def _parse_vlm_response(response: str) -> ExtractedData:
     """
@@ -415,6 +407,7 @@ def _parse_vlm_response(response: str) -> ExtractedData:
             raw_response=response,
         )
 
+
 def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
     """
     Fallback per estrarre dati quando il JSON parsing fallisce.
@@ -462,6 +455,7 @@ def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
 
     return data
 
+
 def _safe_float(value: Any) -> float:
     """Converte un valore in float in modo sicuro."""
     if value is None:
@@ -472,6 +466,7 @@ def _safe_float(value: Any) -> float:
         return float(value)
     except (ValueError, TypeError):
         return 0.0
+
 
 def validate_extracted_data(data: ExtractedData) -> tuple[bool, list[str]]:
     """
