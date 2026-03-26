@@ -322,17 +322,9 @@ def _push_live_data_to_session(data: LiveStatsExtracted) -> None:
     NON sovrascrive minuto, gol e rossi se lo screenshot non li contiene
     (valore 0) — l'utente li inserisce manualmente prima di caricare lo screen.
     """
-    # Minuto e gol: sovrascivi solo se lo screenshot li ha letti (>0)
-    if data.minuto > 0:
-        st.session_state["live_minuto"] = min(data.minuto, 90)
-    if data.gol_casa > 0:
-        st.session_state["live_gol_casa"] = data.gol_casa
-    if data.gol_trasf > 0:
-        st.session_state["live_gol_trasf"] = data.gol_trasf
-    if data.rossi_casa > 0:
-        st.session_state["live_rossi_casa"] = data.rossi_casa
-    if data.rossi_trasf > 0:
-        st.session_state["live_rossi_trasf"] = data.rossi_trasf
+    # Minuto e gol: NON sovrascrivere mai dallo screenshot.
+    # La tab statistiche di Nowgoal mostra "FT"/"HT" che non corrisponde
+    # al minuto reale della partita live. L'utente li imposta manualmente.
     # Statistiche: sovrascivi sempre (sono il motivo principale dello screenshot)
     st.session_state["live_sot_h"] = data.tiri_porta_casa
     st.session_state["live_soff_h"] = data.tiri_fuori_casa
@@ -417,31 +409,31 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
                 st.code(data.raw_response, language="json")
     st.divider()
 
-    # Riga 1: Minuto e Punteggio
+    # Riga 1: Minuto e Punteggio (sempre manuali, lo screenshot non li contiene)
     col_min, col_g1, col_g2 = st.columns([1, 1, 1])
     with col_min:
-        minuto = st.slider("Minuto", 0, 90, min(data.minuto, 90), 1, key="live_minuto")
+        minuto = st.slider("Minuto", 0, 90, 0, 1, key="live_minuto")
     with col_g1:
         gol_casa = st.number_input(
-            "Gol CASA", value=data.gol_casa, min_value=0, max_value=20,
+            "Gol CASA", min_value=0, max_value=20,
             key="live_gol_casa",
         )
     with col_g2:
         gol_trasf = st.number_input(
-            "Gol TRASF.", value=data.gol_trasf, min_value=0, max_value=20,
+            "Gol TRASF.", min_value=0, max_value=20,
             key="live_gol_trasf",
         )
 
-    # Riga 2: Cartellini
+    # Riga 2: Cartellini (manuali)
     col_r1, col_r2 = st.columns(2)
     with col_r1:
         rossi_casa = st.number_input(
-            "🟥 Rossi CASA", value=data.rossi_casa, min_value=0, max_value=4,
+            "🟥 Rossi CASA", min_value=0, max_value=4,
             key="live_rossi_casa",
         )
     with col_r2:
         rossi_trasf = st.number_input(
-            "🟥 Rossi TRASF.", value=data.rossi_trasf, min_value=0, max_value=4,
+            "🟥 Rossi TRASF.", min_value=0, max_value=4,
             key="live_rossi_trasf",
         )
 
