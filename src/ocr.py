@@ -233,7 +233,6 @@ def _extract_with_zai_cli(image_path: Path) -> ExtractedData:
 # ============================================================================
 
 _GEMINI_MODELS = [
-    "gemini-2.0-flash-lite",
     "gemini-2.0-flash",
     "gemini-1.5-flash",
 ]
@@ -316,11 +315,17 @@ def _extract_with_gemini(image_path: Path) -> ExtractedData:
                 if e.code == 429 and attempt < 2:
                     time.sleep(2 ** attempt)  # 1s, 2s
                     continue
-                if e.code == 404:
-                    last_error = f"Gemini ({model}): modello non disponibile"
-                    break  # Modello non esiste, prova il prossimo
-                last_error = f"Gemini ({model}): HTTP {e.code}"
-                break
+                # Leggi dettagli errore per diagnostica
+                error_detail = ""
+                try:
+                    error_body = e.read().decode("utf-8", errors="replace")
+                    error_json = json.loads(error_body)
+                    error_detail = error_json.get("error", {}).get("message", "")
+                except Exception:
+                    pass
+                detail_suffix = f" - {error_detail}" if error_detail else ""
+                last_error = f"Gemini ({model}): HTTP {e.code}{detail_suffix}"
+                break  # Prova il prossimo modello
             except Exception as e:
                 last_error = f"Gemini ({model}): {e}"
                 break
