@@ -153,41 +153,44 @@ def _find_zai_command() -> tuple[str | None, list[str] | None]:
     """
     Trova il modo di eseguire z-ai CLI.
 
+    Usa il PATH esteso (stesso di _get_env_with_path) per trovare
+    eseguibili anche in ambienti con PATH ridotto (es. Streamlit).
+
     Returns:
         (executable, args): L'eseguibile e gli argomenti aggiuntivi, o (None, None) se non trovato.
     """
-    # 1. Prova con shutil.which (cerca nel PATH)
-    zai_path = shutil.which("z-ai")
+    enhanced_path = _get_env_with_path().get("PATH", "")
+
+    # 1. Prova con shutil.which usando il PATH esteso
+    zai_path = shutil.which("z-ai", path=enhanced_path)
     if zai_path:
         return zai_path, None
 
-    # 2. Prova percorsi assoluti comuni
+    # 2. Prova percorsi assoluti comuni (senza richiedere +x per cli.js)
     absolute_paths = [
         "/usr/local/bin/z-ai",
         "/usr/bin/z-ai",
         os.path.expanduser("~/.bun/bin/z-ai"),
-        "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js",
     ]
     for path in absolute_paths:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path, None
 
-    # 3. Prova con bun direttamente
-    bun_path = shutil.which("bun")
-    if bun_path:
-        cli_path = "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"
-        if os.path.isfile(cli_path):
-            return bun_path, [cli_path]
-        # Prova anche in altre posizioni
-        alt_cli = os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js")
-        if os.path.isfile(alt_cli):
-            return bun_path, [alt_cli]
+    # 3. Cerca cli.js del SDK e usa bun/node come runner
+    cli_candidates = [
+        "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js",
+        os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"),
+    ]
+    cli_path = next((p for p in cli_candidates if os.path.isfile(p)), None)
 
-    # 4. Prova con node
-    node_path = shutil.which("node")
-    if node_path:
-        cli_path = "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"
-        if os.path.isfile(cli_path):
+    if cli_path:
+        # Prova bun (con PATH esteso)
+        bun_path = shutil.which("bun", path=enhanced_path)
+        if bun_path:
+            return bun_path, [cli_path]
+        # Prova node (con PATH esteso)
+        node_path = shutil.which("node", path=enhanced_path)
+        if node_path:
             return node_path, [cli_path]
 
     return None, None
