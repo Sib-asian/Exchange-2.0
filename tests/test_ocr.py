@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.ocr import (
     ExtractedData,
     _check_gemini_available,
@@ -33,7 +31,6 @@ class TestExtractedData:
     """Test per la dataclass ExtractedData."""
 
     def test_default_values(self):
-        """Verifica valori di default."""
         data = ExtractedData()
         assert data.squadra_casa == ""
         assert data.squadra_trasf == ""
@@ -42,7 +39,6 @@ class TestExtractedData:
         assert data.backend_used == ""
 
     def test_to_dict(self):
-        """Verifica conversione in dizionario."""
         data = ExtractedData(
             squadra_casa="Juventus",
             squadra_trasf="Milan",
@@ -55,8 +51,6 @@ class TestExtractedData:
 
 
 class TestGetEnvWithPath:
-    """Test per _get_env_with_path."""
-
     def test_includes_common_paths(self):
         env = _get_env_with_path()
         assert "PATH" in env
@@ -64,8 +58,6 @@ class TestGetEnvWithPath:
 
 
 class TestFindZaiCommand:
-    """Test per _find_zai_command."""
-
     def test_returns_tuple(self):
         result = _find_zai_command()
         assert isinstance(result, tuple)
@@ -73,16 +65,12 @@ class TestFindZaiCommand:
 
 
 class TestCheckZaiAvailable:
-    """Test per _check_zai_available."""
-
     def test_returns_bool(self):
         result = _check_zai_available()
         assert isinstance(result, bool)
 
 
 class TestGetGeminiApiKey:
-    """Test per _get_gemini_api_key."""
-
     def test_from_environment(self, monkeypatch):
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
         result = _get_gemini_api_key()
@@ -90,16 +78,12 @@ class TestGetGeminiApiKey:
 
 
 class TestCheckGeminiAvailable:
-    """Test per _check_gemini_available."""
-
     def test_available_with_key(self, monkeypatch):
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
         assert _check_gemini_available() is True
 
 
 class TestGetOpenaiApiKey:
-    """Test per _get_openai_api_key."""
-
     def test_from_environment(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
         result = _get_openai_api_key()
@@ -107,8 +91,6 @@ class TestGetOpenaiApiKey:
 
 
 class TestCheckOpenaiAvailable:
-    """Test per _check_openai_available."""
-
     def test_not_available_without_key(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         with patch("src.ocr._get_openai_api_key", return_value=None):
@@ -116,8 +98,6 @@ class TestCheckOpenaiAvailable:
 
 
 class TestExtractWithZaiCli:
-    """Test per _extract_with_zai_cli."""
-
     def test_zai_not_available(self, tmp_path):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"fake image")
@@ -129,18 +109,18 @@ class TestExtractWithZaiCli:
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"fake image")
         mock_response = json.dumps({"squadra_casa": "Roma", "squadra_trasf": "Lazio", "quota_1": 1.85})
-        
-        with patch("src.ocr._find_zai_command", return_value=("/usr/local/bin/z-ai", None)):
-            with patch("src.ocr.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0, stdout=mock_response, stderr="")
-                result = _extract_with_zai_cli(img_path)
-                assert result.extraction_success is True
-                assert result.backend_used == "zai_cli"
+
+        with (
+            patch("src.ocr._find_zai_command", return_value=("/usr/local/bin/z-ai", None)),
+            patch("src.ocr.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=mock_response, stderr="")
+            result = _extract_with_zai_cli(img_path)
+            assert result.extraction_success is True
+            assert result.backend_used == "zai_cli"
 
 
 class TestExtractWithGemini:
-    """Test per _extract_with_gemini."""
-
     def test_no_api_key(self, tmp_path):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"fake image")
@@ -152,22 +132,22 @@ class TestExtractWithGemini:
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"fake image")
         mock_response = {"candidates": [{"content": {"parts": [{"text": '{"squadra_casa": "Inter", "quota_1": 2.0}'}]}}]}
-        
-        with patch("src.ocr._get_gemini_api_key", return_value="test-key"):
-            with patch("src.ocr.urllib.request.urlopen") as mock_urlopen:
-                mock_resp = MagicMock()
-                mock_resp.read.return_value = json.dumps(mock_response).encode()
-                mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-                mock_resp.__exit__ = MagicMock(return_value=False)
-                mock_urlopen.return_value = mock_resp
-                result = _extract_with_gemini(img_path)
-                assert result.extraction_success is True
-                assert result.backend_used == "gemini"
+
+        with (
+            patch("src.ocr._get_gemini_api_key", return_value="test-key"),
+            patch("src.ocr.urllib.request.urlopen") as mock_urlopen,
+        ):
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(mock_response).encode()
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_urlopen.return_value = mock_resp
+            result = _extract_with_gemini(img_path)
+            assert result.extraction_success is True
+            assert result.backend_used == "gemini"
 
 
 class TestExtractWithOpenai:
-    """Test per _extract_with_openai."""
-
     def test_no_api_key(self, tmp_path):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"fake image")
@@ -177,8 +157,6 @@ class TestExtractWithOpenai:
 
 
 class TestParseVlmResponse:
-    """Test per _parse_vlm_response."""
-
     def test_parse_valid_json(self):
         response = json.dumps({"squadra_casa": "Roma", "quota_1": 1.85})
         result = _parse_vlm_response(response)
@@ -196,16 +174,12 @@ class TestParseVlmResponse:
 
 
 class TestFallbackExtraction:
-    """Test per _fallback_extraction."""
-
     def test_extract_teams(self):
         result = _fallback_extraction("Roma vs Lazio", "test")
         assert "Roma" in result.squadra_casa
 
 
 class TestSafeFloat:
-    """Test per _safe_float."""
-
     def test_float_conversion(self):
         assert _safe_float(3.14) == 3.14
         assert _safe_float("2.50") == 2.50
@@ -215,8 +189,6 @@ class TestSafeFloat:
 
 
 class TestValidateExtractedData:
-    """Test per validate_extracted_data."""
-
     def test_valid_data(self):
         data = ExtractedData(quota_1=2.0, quota_x=3.3, quota_2=3.5)
         is_valid, warnings = validate_extracted_data(data)
@@ -229,8 +201,6 @@ class TestValidateExtractedData:
 
 
 class TestExtractFromImageFile:
-    """Test per extract_from_image_file."""
-
     def test_file_not_found(self):
         result = extract_from_image_file("/nonexistent.jpg")
         assert result.extraction_success is False
@@ -238,36 +208,38 @@ class TestExtractFromImageFile:
     def test_no_backend_available(self, tmp_path):
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"fake image")
-        with patch("src.ocr._check_zai_available", return_value=False):
-            with patch("src.ocr._check_gemini_available", return_value=False):
-                with patch("src.ocr._check_openai_available", return_value=False):
-                    result = extract_from_image_file(img_path)
-                    assert result.extraction_success is False
-                    assert "Nessun backend" in result.error_message
+        with (
+            patch("src.ocr._check_zai_available", return_value=False),
+            patch("src.ocr._check_gemini_available", return_value=False),
+            patch("src.ocr._check_openai_available", return_value=False),
+        ):
+            result = extract_from_image_file(img_path)
+            assert result.extraction_success is False
+            assert "Nessun backend" in result.error_message
 
 
 class TestExtractFromBytes:
-    """Test per extract_from_bytes."""
-
     def test_creates_temp_file(self):
-        with patch("src.ocr._check_zai_available", return_value=True):
-            with patch("src.ocr._extract_with_zai_cli") as mock:
-                mock.return_value = ExtractedData(extraction_success=True, backend_used="zai_cli")
-                result = extract_from_bytes(b"fake", ".jpg")
-                assert result.extraction_success is True
+        with (
+            patch("src.ocr._check_zai_available", return_value=True),
+            patch("src.ocr._extract_with_zai_cli") as mock,
+        ):
+            mock.return_value = ExtractedData(extraction_success=True, backend_used="zai_cli")
+            result = extract_from_bytes(b"fake", ".jpg")
+            assert result.extraction_success is True
 
 
 class TestExtractFromBase64:
-    """Test per extract_from_base64."""
-
     def test_valid_base64(self):
         import base64
         b64 = base64.b64encode(b"fake").decode()
-        with patch("src.ocr._check_zai_available", return_value=True):
-            with patch("src.ocr._extract_with_zai_cli") as mock:
-                mock.return_value = ExtractedData(extraction_success=True)
-                result = extract_from_base64(b64)
-                assert result.extraction_success is True
+        with (
+            patch("src.ocr._check_zai_available", return_value=True),
+            patch("src.ocr._extract_with_zai_cli") as mock,
+        ):
+            mock.return_value = ExtractedData(extraction_success=True)
+            result = extract_from_base64(b64)
+            assert result.extraction_success is True
 
     def test_invalid_base64(self):
         result = extract_from_base64("not valid!!!")
