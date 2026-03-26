@@ -233,8 +233,8 @@ def _extract_with_zai_cli(image_path: Path) -> ExtractedData:
 # ============================================================================
 
 _GEMINI_MODELS = [
+    "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-1.5-flash",
 ]
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
