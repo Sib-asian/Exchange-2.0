@@ -300,18 +300,44 @@ def _parse_vlm_response(response: str) -> ExtractedData:
     try:
         json_str = response.strip()
 
-        # Rimuovi eventuali markdown code blocks
+        # Rimuovi eventuali markdown code blocks PRIMA di cercare il JSON
         if "```json" in json_str:
             json_str = json_str.split("```json")[1]
             if "```" in json_str:
                 json_str = json_str.split("```")[0]
         elif "```" in json_str:
-            json_str = json_str.split("```")[1]
-            if "```" in json_str:
-                json_str = json_str.split("```")[0]
+            parts = json_str.split("```")
+            if len(parts) >= 2:
+                json_str = parts[1]
+
+        json_str = json_str.strip()
+
+        # Cerca l'inizio del JSON ({ o [)
+        lines = json_str.split("\n")
+        json_start_idx = -1
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                json_start_idx = i
+                break
+
+        if json_start_idx >= 0:
+            json_str = "\n".join(lines[json_start_idx:])
+
+        # Rimuovi eventuali code block di chiusura rimasti
+        if "```" in json_str:
+            json_str = json_str.split("```")[0]
 
         json_str = json_str.strip()
         data = json.loads(json_str)
+
+        # Estrai il contenuto dal formato API response
+        if "choices" in data and len(data["choices"]) > 0:
+            content = data["choices"][0].get("message", {}).get("content", "")
+            if content:
+                content = content.strip()
+                if content.startswith("{"):
+                    data = json.loads(content)
 
         return ExtractedData(
             squadra_casa=str(data.get("squadra_casa", "")).strip(),
