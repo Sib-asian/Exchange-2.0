@@ -2,8 +2,13 @@
 source = src
 omit =
     src/ui/*
+    src/ui/**
     src/utils/*
+    src/utils/**
 
 [report]
 show_missing = true
 fail_under = 70
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
