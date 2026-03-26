@@ -18,11 +18,13 @@ Il modulo restituisce i dati in formato strutturato per l'uso nell'UI Streamlit.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
+import re
 import subprocess
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -208,10 +210,8 @@ def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> Extracted
             return extract_from_image_file(tmp_path)
         finally:
             # Cleanup file temporaneo
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
 
     except Exception as e:
         return ExtractedData(
@@ -327,8 +327,6 @@ def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
 
     Cerca pattern comuni nella risposta testuale.
     """
-    import re
-
     data = ExtractedData(
         extraction_success=False,
         error_message=f"JSON parsing fallito: {original_error}",

@@ -61,9 +61,7 @@ st.caption(f"v{UI.VERSION} · Modello bivariate Poisson + Dixon-Coles + Kelly fr
 with st.expander("📷 Carica Screenshot Quote (opzionale)", expanded=False):
     extracted_data = render_image_upload()
     if extracted_data is not None:
-        ocr_data = render_extracted_data_panel(extracted_data)
-    else:
-        ocr_data = {}
+        _ocr_data = render_extracted_data_panel(extracted_data)  # noqa: F841
 
 st.divider()
 

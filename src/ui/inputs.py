@@ -119,9 +119,9 @@ def render_extracted_data_panel(data: ExtractedData) -> dict:
     st.markdown(f"**Affidabilità estrazione:** {confidence_icon} {data.confidence.upper()}")
 
     # Valida i dati
-    is_valid, warnings = validate_extracted_data(data)
-    if warnings:
-        for w in warnings:
+    _is_valid, validation_warnings = validate_extracted_data(data)
+    if validation_warnings:
+        for w in validation_warnings:
             st.caption(f"⚠️ {w}")
 
     st.divider()
