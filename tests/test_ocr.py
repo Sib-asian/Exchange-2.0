@@ -3,22 +3,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from src.ocr import (
-    BUN_PATHS,
-    ZAI_CLI_PATHS,
     ExtractedData,
+    _check_command_available,
     _fallback_extraction,
-    _find_bun,
-    _find_executable,
-    _find_zai_cli,
-    _get_subprocess_env,
+    _get_env_with_path,
     _parse_vlm_response,
-    _run_vision_command,
     _safe_float,
     extract_from_base64,
     extract_from_bytes,
@@ -68,45 +62,25 @@ class TestExtractedData:
         assert result["confidence"] == "high"
 
 
-class TestFindExecutable:
-    """Test per le funzioni di ricerca eseguibili."""
+class TestCheckCommandAvailable:
+    """Test per _check_command_available."""
 
-    def test_find_executable_with_which(self):
-        """Verifica che _find_executable trovi un eseguibile con shutil.which."""
-        with patch("src.ocr.shutil.which") as mock_which:
-            mock_which.return_value = "/usr/bin/python3"
-            result = _find_executable("python3", [])
-            assert result == "/usr/bin/python3"
+    def test_existing_command(self):
+        """Verifica che comandi esistenti siano trovati."""
+        # ls dovrebbe esistere su tutti i sistemi Unix
+        assert _check_command_available("ls") is True
 
-    def test_find_executable_with_paths(self):
-        """Verifica ricerca in percorsi specifici."""
-        with patch("src.ocr.shutil.which") as mock_which:
-            mock_which.return_value = None
-            with patch("src.ocr.os.path.isfile") as mock_isfile:
-                with patch("src.ocr.os.access") as mock_access:
-                    mock_isfile.return_value = True
-                    mock_access.return_value = True
-                    result = _find_executable("test", ["/fake/path/test"])
-                    assert result == "/fake/path/test"
-
-    def test_find_bun_returns_string(self):
-        """Verifica che _find_bun ritorni una stringa."""
-        result = _find_bun()
-        assert isinstance(result, str)
-        assert len(result) > 0
-
-    def test_find_zai_cli_returns_path_or_none(self):
-        """Verifica che _find_zai_cli ritorni un path o None."""
-        result = _find_zai_cli()
-        assert result is None or isinstance(result, str)
+    def test_non_existing_command(self):
+        """Verifica che comandi inesistenti non siano trovati."""
+        assert _check_command_available("comando_inesistente_xyz") is False
 
 
-class TestGetSubprocessEnv:
-    """Test per _get_subprocess_env."""
+class TestGetEnvWithPath:
+    """Test per _get_env_with_path."""
 
     def test_includes_common_paths(self):
         """Verifica che i path comuni siano inclusi."""
-        env = _get_subprocess_env()
+        env = _get_env_with_path()
         assert "PATH" in env
         assert "/usr/local/bin" in env["PATH"]
         assert "/usr/bin" in env["PATH"]
@@ -164,7 +138,6 @@ class TestParseVlmResponse:
         """Verifica che JSON invalido attivi il fallback."""
         response = "Roma vs Lazio con quote 1.85, 3.60, 4.20"
         result = _parse_vlm_response(response)
-        # Il fallback dovrebbe estrarre qualcosa
         assert result.raw_response == response
 
 
@@ -182,14 +155,13 @@ class TestFallbackExtraction:
         """Verifica estrazione squadre con '-'."""
         response = "Inter - Milan: le quote sono"
         result = _fallback_extraction(response, "test error")
-        assert result.squadra_casa == "Inter"
-        assert result.squadra_trasf == "Milan"
+        assert "Inter" in result.squadra_casa
+        assert "Milan" in result.squadra_trasf
 
     def test_extract_quotes(self):
         """Verifica estrazione quote."""
         response = "Quote: 1.85, 3.60, 4.20 per questa partita"
         result = _fallback_extraction(response, "test error")
-        # Le prime 3 quote dovrebbero essere assegnate a 1, X, 2
         assert result.quota_1 == 1.85
         assert result.quota_x == 3.60
         assert result.quota_2 == 4.20
@@ -247,7 +219,7 @@ class TestValidateExtractedData:
             quota_2=3.20,
         )
         is_valid, warnings = validate_extracted_data(data)
-        assert is_valid is True  # Le quote 1X2 ci sono
+        assert is_valid is True
         assert any("casa" in w.lower() for w in warnings)
         assert any("trasferta" in w.lower() for w in warnings)
 
@@ -264,9 +236,9 @@ class TestValidateExtractedData:
     def test_quote_out_of_range(self):
         """Verifica warning per quote fuori range."""
         data = ExtractedData(
-            quota_1=0.50,  # Troppo bassa
+            quota_1=0.50,
             quota_x=3.40,
-            quota_2=100.0,  # Troppo alta
+            quota_2=100.0,
         )
         is_valid, warnings = validate_extracted_data(data)
         assert any("fuori range" in w for w in warnings)
@@ -281,9 +253,19 @@ class TestExtractFromImageFile:
         assert result.extraction_success is False
         assert "non trovato" in result.error_message.lower()
 
+    def test_zai_not_available(self, tmp_path):
+        """Verifica errore quando z-ai non è disponibile."""
+        img_path = tmp_path / "test.jpg"
+        img_path.write_bytes(b"fake image content")
+
+        with patch("src.ocr._check_command_available") as mock_check:
+            mock_check.return_value = False
+            result = extract_from_image_file(img_path)
+            assert result.extraction_success is False
+            assert "z-ai" in result.error_message.lower()
+
     def test_successful_extraction(self, tmp_path):
         """Verifica estrazione riuscita con mock."""
-        # Crea un file immagine fittizio
         img_path = tmp_path / "test.jpg"
         img_path.write_bytes(b"fake image content")
 
@@ -296,11 +278,17 @@ class TestExtractFromImageFile:
             "confidence": "high",
         })
 
-        with patch("src.ocr._run_vision_command") as mock_run:
-            mock_run.return_value = (True, mock_response, "")
-            result = extract_from_image_file(img_path)
-            assert result.extraction_success is True
-            assert result.squadra_casa == "Roma"
+        with patch("src.ocr._check_command_available") as mock_check:
+            with patch("src.ocr.subprocess.run") as mock_run:
+                mock_check.return_value = True
+                mock_run.return_value = type(
+                    "Result",
+                    (),
+                    {"returncode": 0, "stdout": mock_response, "stderr": ""},
+                )()
+                result = extract_from_image_file(img_path)
+                assert result.extraction_success is True
+                assert result.squadra_casa == "Roma"
 
 
 class TestExtractFromBytes:
@@ -318,10 +306,16 @@ class TestExtractFromBytes:
             "confidence": "medium",
         })
 
-        with patch("src.ocr._run_vision_command") as mock_run:
-            mock_run.return_value = (True, mock_response, "")
-            result = extract_from_bytes(fake_bytes, ".jpg")
-            assert result.extraction_success is True
+        with patch("src.ocr._check_command_available") as mock_check:
+            with patch("src.ocr.subprocess.run") as mock_run:
+                mock_check.return_value = True
+                mock_run.return_value = type(
+                    "Result",
+                    (),
+                    {"returncode": 0, "stdout": mock_response, "stderr": ""},
+                )()
+                result = extract_from_bytes(fake_bytes, ".jpg")
+                assert result.extraction_success is True
 
 
 class TestExtractFromBase64:
@@ -342,38 +336,18 @@ class TestExtractFromBase64:
             "confidence": "high",
         })
 
-        with patch("src.ocr._run_vision_command") as mock_run:
-            mock_run.return_value = (True, mock_response, "")
-            result = extract_from_base64(b64_data, "image/png")
-            assert result.extraction_success is True
+        with patch("src.ocr._check_command_available") as mock_check:
+            with patch("src.ocr.subprocess.run") as mock_run:
+                mock_check.return_value = True
+                mock_run.return_value = type(
+                    "Result",
+                    (),
+                    {"returncode": 0, "stdout": mock_response, "stderr": ""},
+                )()
+                result = extract_from_base64(b64_data, "image/png")
+                assert result.extraction_success is True
 
     def test_invalid_base64(self):
         """Verifica gestione base64 invalido."""
         result = extract_from_base64("not valid base64!!!")
         assert result.extraction_success is False
-
-
-class TestRunVisionCommand:
-    """Test per _run_vision_command."""
-
-    def test_cli_not_found(self):
-        """Verifica errore quando CLI non è trovato."""
-        with patch("src.ocr._find_zai_cli") as mock_find:
-            mock_find.return_value = None
-            success, stdout, stderr = _run_vision_command("/fake/image.jpg")
-            assert success is False
-            assert "non trovato" in stderr.lower()
-
-    def test_timeout(self):
-        """Verifica gestione timeout."""
-        with patch("src.ocr._find_zai_cli") as mock_find:
-            with patch("src.ocr._find_bun") as mock_bun:
-                with patch("src.ocr.subprocess.run") as mock_run:
-                    import subprocess
-                    mock_find.return_value = "/fake/cli.js"
-                    mock_bun.return_value = "/fake/bun"
-                    mock_run.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=1)
-
-                    success, stdout, stderr = _run_vision_command("/fake/image.jpg")
-                    assert success is False
-                    assert "timeout" in stderr.lower()

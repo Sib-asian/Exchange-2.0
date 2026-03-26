@@ -30,72 +30,6 @@ from pathlib import Path
 from typing import Any
 
 
-# Percorsi dove trovare bun e il CLI z-ai
-BUN_PATHS = [
-    "/usr/local/bin/bun",
-    "/usr/bin/bun",
-    "/home/z/.bun/bin/bun",
-    os.path.expanduser("~/.bun/bin/bun"),
-]
-
-ZAI_CLI_PATHS = [
-    "/home/z/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js",
-    "/usr/lib/node_modules/z-ai-web-dev-sdk/dist/cli.js",
-    os.path.expanduser("~/.bun/install/global/node_modules/z-ai-web-dev-sdk/dist/cli.js"),
-]
-
-
-def _find_executable(name: str, paths: list[str]) -> str | None:
-    """Trova un eseguibile cercando in percorsi specifici e nel PATH."""
-    # Prima cerca con shutil.which
-    which_result = shutil.which(name)
-    if which_result:
-        return which_result
-
-    # P cerca nei percorsi specificati
-    for path in paths:
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
-
-    return None
-
-
-def _find_bun() -> str:
-    """Trova il percorso di bun."""
-    bun = _find_executable("bun", BUN_PATHS)
-    if bun:
-        return bun
-    # Fallback
-    return "bun"
-
-
-def _find_zai_cli() -> str | None:
-    """Trova il percorso del CLI z-ai (file .js)."""
-    for path in ZAI_CLI_PATHS:
-        if os.path.isfile(path):
-            return path
-    return None
-
-
-def _get_subprocess_env() -> dict[str, str]:
-    """Restituisce l'ambiente per subprocess con PATH corretto."""
-    env = os.environ.copy()
-    # Assicurati che i path comuni siano inclusi
-    current_path = env.get("PATH", "")
-    extra_paths = [
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-        "/home/z/.bun/bin",
-        "/home/z/.bun/install/global/node_modules/.bin",
-    ]
-    for p in extra_paths:
-        if p not in current_path:
-            current_path = f"{p}:{current_path}"
-    env["PATH"] = current_path
-    return env
-
-
 @dataclass
 class ExtractedData:
     """Dati estratti da uno screenshot di scommesse."""
@@ -199,40 +133,27 @@ SE UN DATO NON È PRESENTE O NON È LEGGIBILE:
 IMPORTANTE: Restituisci SOLO il JSON, nessun altro testo prima o dopo."""
 
 
-def _run_vision_command(image_path: str) -> tuple[bool, str, str]:
-    """
-    Esegue il comando vision usando bun direttamente.
-
-    Returns:
-        (success, stdout, stderr)
-    """
-    bun = _find_bun()
-    cli_path = _find_zai_cli()
-
-    if not cli_path:
-        return False, "", "CLI z-ai non trovato. Installa z-ai-web-dev-sdk."
-
-    # Costruisci il comando: bun run <cli.js> vision -p <prompt> -i <image>
-    cmd = [
-        bun, "run", cli_path,
-        "vision",
-        "-p", EXTRACTION_PROMPT,
-        "-i", str(image_path),
+def _get_env_with_path() -> dict[str, str]:
+    """Restituisce environment con PATH aggiornato."""
+    env = os.environ.copy()
+    current_path = env.get("PATH", "")
+    extra_paths = [
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/home/z/.bun/bin",
+        os.path.expanduser("~/.bun/bin"),
     ]
+    for p in extra_paths:
+        if p not in current_path:
+            current_path = f"{p}:{current_path}"
+    env["PATH"] = current_path
+    return env
 
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=90,
-            env=_get_subprocess_env(),
-        )
-        return result.returncode == 0, result.stdout, result.stderr
-    except subprocess.TimeoutExpired:
-        return False, "", "Timeout: l'analisi ha impiegato troppo tempo"
-    except Exception as e:
-        return False, "", f"Errore esecuzione: {e}"
+
+def _check_command_available(cmd: str) -> bool:
+    """Verifica se un comando è disponibile."""
+    return shutil.which(cmd) is not None
 
 
 def extract_from_image_file(image_path: str | Path) -> ExtractedData:
@@ -253,23 +174,45 @@ def extract_from_image_file(image_path: str | Path) -> ExtractedData:
             error_message=f"File non trovato: {image_path}",
         )
 
-    success, stdout, stderr = _run_vision_command(str(image_path))
-
-    if not success:
-        error_msg = stderr if stderr else "Errore sconosciuto dal VLM"
-        # Se c'è output parziale, prova a parsarlo
-        if stdout:
-            result = _parse_vlm_response(stdout)
-            if result.extraction_success:
-                result.error_message = f"Estrazione parziale: {error_msg}"
-                result.confidence = "low"
-                return result
+    # Verifica se z-ai è disponibile
+    if not _check_command_available("z-ai"):
         return ExtractedData(
             extraction_success=False,
-            error_message=error_msg,
+            error_message="z-ai non disponibile. Installa z-ai-web-dev-sdk: npm install -g z-ai-web-dev-sdk",
         )
 
-    return _parse_vlm_response(stdout)
+    try:
+        result = subprocess.run(
+            [
+                "z-ai", "vision",
+                "-p", EXTRACTION_PROMPT,
+                "-i", str(image_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            env=_get_env_with_path(),
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() if result.stderr else "Errore sconosciuto"
+            return ExtractedData(
+                extraction_success=False,
+                error_message=f"Errore VLM: {error_msg}",
+            )
+
+        return _parse_vlm_response(result.stdout)
+
+    except subprocess.TimeoutExpired:
+        return ExtractedData(
+            extraction_success=False,
+            error_message="Timeout: l'analisi ha impiegato troppo tempo",
+        )
+    except Exception as e:
+        return ExtractedData(
+            extraction_success=False,
+            error_message=f"Errore imprevisto: {e}",
+        )
 
 
 def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> ExtractedData:
@@ -284,7 +227,6 @@ def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> Extracted
         ExtractedData con tutti i dati estratti.
     """
     try:
-        # Crea un file temporaneo
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=extension,
@@ -296,7 +238,6 @@ def extract_from_bytes(image_bytes: bytes, extension: str = ".png") -> Extracted
         try:
             return extract_from_image_file(tmp_path)
         finally:
-            # Cleanup file temporaneo
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
 
@@ -322,7 +263,6 @@ def extract_from_base64(
         ExtractedData con tutti i dati estratti.
     """
     try:
-        # Determina l'estensione dal MIME type
         mime_to_ext = {
             "image/png": ".png",
             "image/jpeg": ".jpg",
@@ -331,10 +271,7 @@ def extract_from_base64(
             "image/gif": ".gif",
         }
         extension = mime_to_ext.get(mime_type, ".png")
-
-        # Decodifica base64
         image_bytes = base64.b64decode(base64_data)
-
         return extract_from_bytes(image_bytes, extension)
 
     except Exception as e:
@@ -361,25 +298,47 @@ def _parse_vlm_response(response: str) -> ExtractedData:
         )
 
     try:
-        # Cerca JSON nella risposta (potrebbe essere racchiuso in ```json ... ```)
         json_str = response.strip()
 
-        # Rimuovi eventuali markdown code blocks
+        # Rimuovi eventuali markdown code blocks PRIMA di cercare il JSON
         if "```json" in json_str:
             json_str = json_str.split("```json")[1]
             if "```" in json_str:
                 json_str = json_str.split("```")[0]
         elif "```" in json_str:
-            json_str = json_str.split("```")[1]
-            if "```" in json_str:
-                json_str = json_str.split("```")[0]
+            parts = json_str.split("```")
+            if len(parts) >= 2:
+                json_str = parts[1]
 
         json_str = json_str.strip()
 
-        # Parsa JSON
+        # Cerca l'inizio del JSON ({ o [)
+        lines = json_str.split("\n")
+        json_start_idx = -1
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                json_start_idx = i
+                break
+
+        if json_start_idx >= 0:
+            json_str = "\n".join(lines[json_start_idx:])
+
+        # Rimuovi eventuali code block di chiusura rimasti
+        if "```" in json_str:
+            json_str = json_str.split("```")[0]
+
+        json_str = json_str.strip()
         data = json.loads(json_str)
 
-        # Crea ExtractedData con valori di default per campi mancanti
+        # Estrai il contenuto dal formato API response
+        if "choices" in data and len(data["choices"]) > 0:
+            content = data["choices"][0].get("message", {}).get("content", "")
+            if content:
+                content = content.strip()
+                if content.startswith("{"):
+                    data = json.loads(content)
+
         return ExtractedData(
             squadra_casa=str(data.get("squadra_casa", "")).strip(),
             squadra_trasf=str(data.get("squadra_trasf", "")).strip(),
@@ -397,7 +356,6 @@ def _parse_vlm_response(response: str) -> ExtractedData:
         )
 
     except json.JSONDecodeError as e:
-        # Tenta estrazione con regex come fallback
         return _fallback_extraction(response, str(e))
 
     except Exception as e:
@@ -411,8 +369,6 @@ def _parse_vlm_response(response: str) -> ExtractedData:
 def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
     """
     Fallback per estrarre dati quando il JSON parsing fallisce.
-
-    Cerca pattern comuni nella risposta testuale.
     """
     data = ExtractedData(
         extraction_success=False,
@@ -421,8 +377,12 @@ def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
     )
 
     try:
-        # Cerca nomi squadre (pattern: "Squadra A vs Squadra B" o simili)
-        match = re.search(r"([A-Za-zÀ-ÿ\s]+)\s+(?:vs|-|–|vs\.)\s+([A-Za-zÀ-ÿ\s]+)", response, re.IGNORECASE)
+        # Cerca nomi squadre
+        match = re.search(
+            r"([A-Za-zÀ-ÿ\s]+)\s+(?:vs|-|–|vs\.)\s+([A-Za-zÀ-ÿ\s]+)",
+            response,
+            re.IGNORECASE,
+        )
         if match:
             data.squadra_casa = match.group(1).strip()
             data.squadra_trasf = match.group(2).strip()
@@ -432,7 +392,6 @@ def _fallback_extraction(response: str, original_error: str) -> ExtractedData:
         quotes = re.findall(quote_pattern, response)
 
         if len(quotes) >= 3:
-            # Assume le prime tre quote siano 1, X, 2
             data.quota_1 = _safe_float(quotes[0])
             data.quota_x = _safe_float(quotes[1])
             data.quota_2 = _safe_float(quotes[2])
@@ -461,14 +420,12 @@ def _safe_float(value: Any) -> float:
         return 0.0
     try:
         if isinstance(value, str):
-            # Gestisce virgola come separatore decimale
             value = value.replace(",", ".")
         return float(value)
     except (ValueError, TypeError):
         return 0.0
 
 
-# Funzione di utilità per validare i dati estratti
 def validate_extracted_data(data: ExtractedData) -> tuple[bool, list[str]]:
     """
     Valida i dati estratti e restituisce eventuali problemi.
@@ -479,32 +436,26 @@ def validate_extracted_data(data: ExtractedData) -> tuple[bool, list[str]]:
     """
     warnings = []
 
-    # Controlla squadre
     if not data.squadra_casa:
         warnings.append("Squadra casa non rilevata")
     if not data.squadra_trasf:
         warnings.append("Squadra trasferta non rilevata")
 
-    # Controlla quote 1X2
     if data.quota_1 <= 0 or data.quota_x <= 0 or data.quota_2 <= 0:
         warnings.append("Quote 1X2 incomplete o non rilevate")
     else:
-        # Verifica che le quote siano in range plausibile
         for q, name in [(data.quota_1, "1"), (data.quota_x, "X"), (data.quota_2, "2")]:
             if q < 1.01 or q > 50.0:
                 warnings.append(f"Quota {name}={q} sembra fuori range")
 
-    # Controlla Over/Under
     if data.quota_over <= 0 and data.quota_under <= 0:
         warnings.append("Quote Over/Under non rilevate")
     elif data.linea_ou <= 0:
         warnings.append("Linea Over/Under non rilevata")
 
-    # Controlla BTTS
     if data.quota_gg <= 0 and data.quota_ng <= 0:
         warnings.append("Quote BTTS (GG/NG) non rilevate")
 
-    # Dati utilizzabili se abbiamo almeno le quote 1X2
     is_valid = data.quota_1 > 0 and data.quota_x > 0 and data.quota_2 > 0
 
     return is_valid, warnings
