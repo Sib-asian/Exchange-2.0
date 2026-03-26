@@ -586,7 +586,7 @@ def _extract_live_stats_with_gemini(image_path: Path) -> LiveStatsExtracted:
                 {"text": LIVE_STATS_PROMPT},
             ],
         }],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1024},
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
     }
     payload = json.dumps(request_body).encode("utf-8")
 
@@ -665,7 +665,23 @@ def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
         if "```" in json_str:
             json_str = json_str.split("```")[0]
 
-        data = json.loads(json_str.strip())
+        json_str = json_str.strip()
+
+        # Tentativo di riparare JSON troncato (output troppo lungo → tagliato)
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            # Rimuovi l'ultima riga incompleta e chiudi il JSON
+            json_lines = json_str.rstrip().split("\n")
+            while json_lines and not json_lines[-1].strip().endswith((",", "}", ":")):
+                json_lines.pop()
+            # Rimuovi trailing comma dall'ultima riga valida
+            if json_lines:
+                json_lines[-1] = json_lines[-1].rstrip().rstrip(",")
+            repaired = "\n".join(json_lines)
+            if not repaired.rstrip().endswith("}"):
+                repaired += "\n}"
+            data = json.loads(repaired)
 
         return LiveStatsExtracted(
             minuto=_safe_int(data.get("minuto")),
