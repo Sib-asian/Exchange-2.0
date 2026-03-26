@@ -2,6 +2,7 @@
 inputs.py — Widget di input Streamlit per Radar Pro Live.
 
 Centralizza tutta la logica di input dell'interfaccia utente:
+  - Upload screenshot con estrazione automatica dati (VLM)
   - Stato partita (minuto, gol, cartellini)
   - Linee asiatiche (apertura + corrente)
   - Selezione linea Over/Under
@@ -18,7 +19,282 @@ import streamlit as st
 
 from src.config import BAYES, INPUT_VALIDATION, UI
 from src.engine import ExchangeQuotes, MatchState
+from src.ocr import ExtractedData, extract_from_bytes, validate_extracted_data
 
+
+# ---------------------------------------------------------------------------
+# Upload Screenshot con estrazione automatica
+# ---------------------------------------------------------------------------
+
+def render_image_upload() -> ExtractedData | None:
+    """
+    Render del widget per caricare screenshot da siti di scommesse.
+
+    L'immagine viene analizzata automaticamente dal VLM per estrarre:
+      - Nomi delle squadre
+      - Quote 1X2
+      - Quote Over/Under
+      - Quote BTTS (GG/NG)
+
+    Returns:
+        ExtractedData se l'immagine è stata caricata ed elaborata,
+        None altrimenti.
+    """
+    st.markdown("### 📷 Lettura Automatica da Screenshot")
+
+    # File uploader
+    uploaded_file = st.file_uploader(
+        "Carica uno screenshot da sito di scommesse o app",
+        type=["png", "jpg", "jpeg", "webp"],
+        help=(
+            "Accetta screenshot da: Bet365, Betfair, Pinnacle, William Hill, "
+            "e altre app/siti di scommesse. L'AI estrarrà automaticamente "
+            "quote e nomi delle squadre."
+        ),
+        key="screenshot_uploader",
+    )
+
+    if uploaded_file is None:
+        # Mostra istruzioni
+        st.info(
+            "📋 **Come funziona:**\n\n"
+            "1. Fai uno screenshot delle quote dal tuo sito/app di scommesse\n"
+            "2. Carica l'immagine qui sopra\n"
+            "3. L'AI estrarrà automaticamente: squadre, quote 1X2, Over/Under, BTTS\n"
+            "4. Dovrai inserire manualmente le **linee asiatiche** (AH e Total)\n\n"
+            "⚡ L'analisi è automatica al caricamento!"
+        )
+        return None
+
+    # Verifica se abbiamo già elaborato questa immagine
+    file_id = f"ocr_{uploaded_file.name}_{uploaded_file.size}"
+
+    if "last_ocr_file_id" in st.session_state and st.session_state.last_ocr_file_id == file_id:
+        # Restituisci i dati già elaborati
+        return st.session_state.get("extracted_data")
+
+    # Mostra spinner durante l'elaborazione
+    with st.spinner("🔍 Analisi immagine in corso..."):
+        try:
+            # Leggi i bytes del file
+            image_bytes = uploaded_file.read()
+
+            # Determina il tipo MIME
+            mime_type = uploaded_file.type or "image/png"
+
+            # Estrai i dati
+            extracted = extract_from_bytes(image_bytes, extension=_get_extension(mime_type))
+
+            # Salva in session state
+            st.session_state.last_ocr_file_id = file_id
+            st.session_state.extracted_data = extracted
+
+            return extracted
+
+        except Exception as e:
+            st.error(f"❌ Errore durante l'analisi dell'immagine: {e}")
+            return ExtractedData(
+                extraction_success=False,
+                error_message=str(e),
+            )
+
+
+def render_extracted_data_panel(data: ExtractedData) -> dict:
+    """
+    Mostra i dati estratti in un pannello con possibilità di modifica.
+
+    Args:
+        data: Dati estratti dall'immagine.
+
+    Returns:
+        Dict con i dati (eventualmente modificati dall'utente).
+    """
+    if not data.extraction_success:
+        st.warning(f"⚠️ Estrazione parziale o fallita: {data.error_message}")
+        st.caption("Puoi inserire i dati manualmente nei campi sottostanti.")
+        return {}
+
+    # Mostra confidence
+    confidence_icon = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(data.confidence, "⚪")
+    st.markdown(f"**Affidabilità estrazione:** {confidence_icon} {data.confidence.upper()}")
+
+    # Valida i dati
+    _is_valid, validation_warnings = validate_extracted_data(data)
+    if validation_warnings:
+        for w in validation_warnings:
+            st.caption(f"⚠️ {w}")
+
+    st.divider()
+
+    # Form con dati estratti (modificabili)
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**🏟️ Partita**")
+        squadra_casa = st.text_input(
+            "Squadra Casa",
+            value=data.squadra_casa,
+            key="ocr_squadra_casa",
+        )
+        squadra_trasf = st.text_input(
+            "Squadra Trasferta",
+            value=data.squadra_trasf,
+            key="ocr_squadra_trasf",
+        )
+
+    with col2:
+        st.markdown("**📊 Quote 1X2**")
+        q1, qx, q2 = st.columns(3)
+        with q1:
+            quota_1 = st.number_input(
+                "Quota 1",
+                value=data.quota_1,
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="ocr_quota_1",
+            )
+        with qx:
+            quota_x = st.number_input(
+                "Quota X",
+                value=data.quota_x,
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="ocr_quota_x",
+            )
+        with q2:
+            quota_2 = st.number_input(
+                "Quota 2",
+                value=data.quota_2,
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="ocr_quota_2",
+            )
+
+    st.divider()
+
+    # Quote Over/Under e BTTS
+    col_ou, col_btts = st.columns(2)
+
+    with col_ou:
+        st.markdown("**📈 Over/Under**")
+        ou_linee = [0.5, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]
+
+        # Trova la linea più vicina a quella estratta
+        if data.linea_ou > 0:
+            default_linea_idx = min(
+                range(len(ou_linee)),
+                key=lambda i: abs(ou_linee[i] - data.linea_ou),
+            )
+        else:
+            default_linea_idx = ou_linee.index(2.5)  # Default a 2.5
+
+        linea_ou = st.selectbox(
+            "Linea O/U",
+            ou_linee,
+            index=default_linea_idx,
+            key="ocr_linea_ou",
+        )
+
+        qo, qu = st.columns(2)
+        with qo:
+            quota_over = st.number_input(
+                f"Quota Over {linea_ou}",
+                value=data.quota_over,
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="ocr_quota_over",
+            )
+        with qu:
+            quota_under = st.number_input(
+                f"Quota Under {linea_ou}",
+                value=data.quota_under,
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="ocr_quota_under",
+            )
+
+    with col_btts:
+        st.markdown("**⚽ BTTS (Goal/No Goal)**")
+        qgg, qng = st.columns(2)
+        with qgg:
+            quota_gg = st.number_input(
+                "Quota GG (Sì)",
+                value=data.quota_gg,
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="ocr_quota_gg",
+                help="Entrambe le squadre segnano",
+            )
+        with qng:
+            quota_ng = st.number_input(
+                "Quota NG (No)",
+                value=data.quota_ng,
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="ocr_quota_ng",
+                help="Almeno una squadra non segna",
+            )
+
+    # Calcola probabilità implicite per mostrare allineamento
+    if quota_1 > 1 and quota_x > 1 and quota_2 > 1:
+        st.divider()
+        st.markdown("**📉 Probabilità Implicite di Mercato**")
+
+        # Margin del bookmaker
+        overround = (1/quota_1 + 1/quota_x + 1/quota_2 - 1) * 100
+
+        # Probabilità implicite normalizzate
+        total_implied = 1/quota_1 + 1/quota_x + 1/quota_2
+        p1_imp = (1/quota_1) / total_implied * 100
+        px_imp = (1/quota_x) / total_implied * 100
+        p2_imp = (1/quota_2) / total_implied * 100
+
+        c1, cx, c2, cm = st.columns(4)
+        with c1:
+            st.metric("1 (Casa)", f"{p1_imp:.1f}%")
+        with cx:
+            st.metric("X (Pareggio)", f"{px_imp:.1f}%")
+        with c2:
+            st.metric("2 (Trasferta)", f"{p2_imp:.1f}%")
+        with cm:
+            st.metric("Margin", f"+{overround:.1f}%", delta_color="inverse")
+
+    return {
+        "squadra_casa": squadra_casa,
+        "squadra_trasf": squadra_trasf,
+        "quota_1": quota_1,
+        "quota_x": quota_x,
+        "quota_2": quota_2,
+        "linea_ou": linea_ou,
+        "quota_over": quota_over,
+        "quota_under": quota_under,
+        "quota_gg": quota_gg,
+        "quota_ng": quota_ng,
+    }
+
+
+def _get_extension(mime_type: str) -> str:
+    """Converte MIME type in estensione file."""
+    mime_map = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }
+    return mime_map.get(mime_type, ".png")
+
+
+# ---------------------------------------------------------------------------
+# Input Originali
+# ---------------------------------------------------------------------------
 
 def render_match_state() -> dict:
     """

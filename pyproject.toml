@@ -36,6 +36,7 @@ known-first-party = ["src"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/models/markov.py" = ["I001"]
+"src/ui/inputs.py" = ["I001"]
 "tests/test_signals.py" = ["I001"]
 "simulazioni.py" = ["ALL"]  # File di test esterno, non parte del package
 
