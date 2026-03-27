@@ -67,6 +67,11 @@ def time_decay_dinamico(
     rossi_trasf: int,
     momentum: float = 0.0,
     delta_ah: float = 0.0,
+    *,
+    gialli_casa: int = 0,
+    gialli_trasf: int = 0,
+    falli_casa: int = 0,
+    falli_trasf: int = 0,
 ) -> tuple[float, float]:
     """
     Aggiustamenti tattico-comportamentali sugli xG proiettati al tempo rimanente.
@@ -112,6 +117,16 @@ def time_decay_dinamico(
 
     xg_c = float(xg_casa)
     xg_t = float(xg_trasf)
+
+    # #8: In prematch (minuto=0) non c'è né punteggio né dati live:
+    # bypassa score effect e tutti gli aggiustamenti tattici tranne il momentum.
+    if minuto == 0:
+        if momentum > DECAY.MOMENTUM_XG_THRESHOLD:
+            excess = momentum - DECAY.MOMENTUM_XG_THRESHOLD
+            damp = 1.0 - min(DECAY.MOMENTUM_XG_DAMP_MAX, excess * DECAY.MOMENTUM_XG_DAMP_RATE)
+            xg_c *= damp
+            xg_t *= damp
+        return max(DECAY.XG_FLOOR, xg_c), max(DECAY.XG_FLOOR, xg_t)
 
     # 1. Score effect residuale ASIMMETRICO con riduzione per reazione mercato
     diff = gol_casa - gol_trasf
@@ -204,6 +219,29 @@ def time_decay_dinamico(
         hawkes_boost = 1.0 + min(HAWKES.MAX_BOOST, excess * HAWKES.ALPHA)
         xg_c *= hawkes_boost
         xg_t *= hawkes_boost
+
+    # #4: Ritmo spezzato da cartellini gialli.
+    # Molti gialli → partita più fisica, più pause, meno continuità offensiva.
+    # Effetto leggero: max -10% con molti cartellini totali (soglia=6, floor=0.90).
+    gialli_tot = gialli_casa + gialli_trasf
+    if gialli_tot > DECAY.YELLOW_RHYTHM_THRESHOLD:
+        yellow_factor = max(
+            DECAY.YELLOW_RHYTHM_MIN,
+            1.0 - (gialli_tot - DECAY.YELLOW_RHYTHM_THRESHOLD) * DECAY.YELLOW_RHYTHM_RATE,
+        )
+        xg_c *= yellow_factor
+        xg_t *= yellow_factor
+
+    # #5: Ritmo spezzato dai falli.
+    # Molti falli → gioco spezzettato → meno azioni offensive continue → max -5%.
+    falli_tot = falli_casa + falli_trasf
+    if falli_tot > DECAY.FOUL_RHYTHM_THRESHOLD:
+        foul_factor = max(
+            DECAY.FOUL_RHYTHM_MIN,
+            1.0 - (falli_tot - DECAY.FOUL_RHYTHM_THRESHOLD) * DECAY.FOUL_RHYTHM_RATE,
+        )
+        xg_c *= foul_factor
+        xg_t *= foul_factor
 
     # 5. Smorzamento xG per momentum estremo
     # Mercati molto volatili (momentum > 2.5) segnalano informazione non catturata

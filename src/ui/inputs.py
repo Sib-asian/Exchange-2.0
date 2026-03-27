@@ -305,10 +305,14 @@ def _get_extension(mime_type: str) -> str:
 _LIVE_WIDGET_KEYS = [
     "live_minuto", "live_gol_casa", "live_gol_trasf",
     "live_rossi_casa", "live_rossi_trasf",
+    "live_gialli_casa", "live_gialli_trasf",
     "live_sot_h", "live_soff_h", "live_sot_a", "live_soff_a",
+    "live_blk_h", "live_blk_a",
     "live_corner_h", "live_corner_a",
     "live_poss_h", "live_poss_a",
     "live_att_per_h", "live_att_per_a",
+    "live_att_h", "live_att_a",
+    "live_falli_casa", "live_falli_trasf",
 ]
 
 
@@ -330,12 +334,20 @@ def _push_live_data_to_session(data: LiveStatsExtracted) -> None:
     st.session_state["live_soff_h"] = data.tiri_fuori_casa
     st.session_state["live_sot_a"] = data.tiri_porta_trasf
     st.session_state["live_soff_a"] = data.tiri_fuori_trasf
+    st.session_state["live_blk_h"] = data.tiri_bloccati_casa
+    st.session_state["live_blk_a"] = data.tiri_bloccati_trasf
     st.session_state["live_corner_h"] = data.corner_casa
     st.session_state["live_corner_a"] = data.corner_trasf
     st.session_state["live_poss_h"] = data.possesso_casa
     st.session_state["live_poss_a"] = data.possesso_trasf
     st.session_state["live_att_per_h"] = data.attacchi_pericolosi_casa
     st.session_state["live_att_per_a"] = data.attacchi_pericolosi_trasf
+    st.session_state["live_att_h"] = data.attacchi_casa
+    st.session_state["live_att_a"] = data.attacchi_trasf
+    st.session_state["live_gialli_casa"] = data.gialli_casa
+    st.session_state["live_gialli_trasf"] = data.gialli_trasf
+    st.session_state["live_falli_casa"] = data.falli_casa
+    st.session_state["live_falli_trasf"] = data.falli_trasf
 
 
 def render_live_screenshot_upload() -> LiveStatsExtracted | None:
@@ -424,8 +436,8 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
             key="live_gol_trasf",
         )
 
-    # Riga 2: Cartellini (manuali)
-    col_r1, col_r2 = st.columns(2)
+    # Riga 2: Cartellini (manuali — rossi sempre manuali, gialli da OCR o manuali)
+    col_r1, col_r2, col_y1, col_y2 = st.columns(4)
     with col_r1:
         rossi_casa = st.number_input(
             "🟥 Rossi CASA", min_value=0, max_value=4,
@@ -435,6 +447,16 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
         rossi_trasf = st.number_input(
             "🟥 Rossi TRASF.", min_value=0, max_value=4,
             key="live_rossi_trasf",
+        )
+    with col_y1:
+        gialli_casa = st.number_input(
+            "🟨 Gialli CASA", min_value=0, max_value=20,
+            key="live_gialli_casa",
+        )
+    with col_y2:
+        gialli_trasf = st.number_input(
+            "🟨 Gialli TRASF.", min_value=0, max_value=20,
+            key="live_gialli_trasf",
         )
 
     st.divider()
@@ -463,6 +485,19 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
             key="live_soff_a",
         )
 
+    # Riga 3b: Tiri bloccati
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        blk_h = st.number_input(
+            "Bloccati 🏠", min_value=0,
+            key="live_blk_h",
+        )
+    with col_b2:
+        blk_a = st.number_input(
+            "Bloccati ✈️", min_value=0,
+            key="live_blk_a",
+        )
+
     # Riga 4: Corner e Possesso
     col_c1, col_c2, col_p1, col_p2 = st.columns(4)
     with col_c1:
@@ -488,17 +523,40 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
             key="live_poss_a",
         )
 
-    # Riga 5: Attacchi pericolosi
-    col_a1, col_a2 = st.columns(2)
+    # Riga 5: Attacchi (pericolosi + totali)
+    col_a1, col_a2, col_at1, col_at2 = st.columns(4)
     with col_a1:
         att_per_h = st.number_input(
-            "Att. Pericolosi 🏠",
+            "Att. Peric. 🏠",
             min_value=0, key="live_att_per_h",
         )
     with col_a2:
         att_per_a = st.number_input(
-            "Att. Pericolosi ✈️",
+            "Att. Peric. ✈️",
             min_value=0, key="live_att_per_a",
+        )
+    with col_at1:
+        att_h = st.number_input(
+            "Att. Totali 🏠",
+            min_value=0, key="live_att_h",
+        )
+    with col_at2:
+        att_a = st.number_input(
+            "Att. Totali ✈️",
+            min_value=0, key="live_att_a",
+        )
+
+    # Riga 6: Falli
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        falli_casa = st.number_input(
+            "Falli CASA", min_value=0,
+            key="live_falli_casa",
+        )
+    with col_f2:
+        falli_trasf = st.number_input(
+            "Falli TRASF.", min_value=0,
+            key="live_falli_trasf",
         )
 
     return {
@@ -507,16 +565,24 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
         "gol_trasf": gol_trasf,
         "rossi_casa": rossi_casa,
         "rossi_trasf": rossi_trasf,
+        "gialli_casa": gialli_casa,
+        "gialli_trasf": gialli_trasf,
         "sot_h": sot_h,
         "soff_h": soff_h,
         "sot_a": sot_a,
         "soff_a": soff_a,
+        "blk_h": blk_h,
+        "blk_a": blk_a,
         "corner_h": corner_h,
         "corner_a": corner_a,
         "possesso_h": poss_h,
         "possesso_a": poss_a,
         "att_pericolosi_h": att_per_h,
         "att_pericolosi_a": att_per_a,
+        "att_h": att_h,
+        "att_a": att_a,
+        "falli_casa": falli_casa,
+        "falli_trasf": falli_trasf,
     }
 
 
@@ -856,6 +922,7 @@ def build_match_state(
     bankroll: float,
     comm_rate: float,
     shots: tuple[int, int, int, int] | None = None,
+    ocr_imp_total: float = 0.0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -898,6 +965,15 @@ def build_match_state(
         possesso_a=match.get("possesso_a", 0.0),
         att_pericolosi_h=match.get("att_pericolosi_h", 0),
         att_pericolosi_a=match.get("att_pericolosi_a", 0),
+        gialli_casa=match.get("gialli_casa", 0),
+        gialli_trasf=match.get("gialli_trasf", 0),
+        blk_h=match.get("blk_h", 0),
+        blk_a=match.get("blk_a", 0),
+        att_h=match.get("att_h", 0),
+        att_a=match.get("att_a", 0),
+        falli_casa=match.get("falli_casa", 0),
+        falli_trasf=match.get("falli_trasf", 0),
+        ocr_imp_total=ocr_imp_total,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )

@@ -892,6 +892,90 @@ def render_risk_metrics(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# OCR Market Divergence Warning (#12)
+# ---------------------------------------------------------------------------
+
+_OCR_DIVERGENCE_THRESHOLD = 0.15  # 15% di scarto per mostrare warning
+
+
+def render_ocr_market_divergence(
+    risultati: ProbabilitaModello,
+    ocr_quota_1: float,
+    ocr_quota_x: float,
+    ocr_quota_2: float,
+    ocr_quota_over: float,
+    ocr_quota_under: float,
+) -> None:
+    """
+    Mostra un warning se le quote OCR divergono >15% dalle probabilità del modello.
+
+    Le quote OCR sono quelle estratte dallo screenshot del sito di scommesse.
+    Il modello stima le probabilità dalle linee AH/Total.
+    Una divergenza >15% indica:
+      - Possibile errore nell'inserimento manuale AH/Total
+      - Quote OCR da mercato diverso (es. European 1X2 vs Asian)
+      - Vera inefficienza di mercato da investigare
+
+    Args:
+        risultati: Probabilità calcolate dal modello.
+        ocr_quota_*: Quote estratte dall'OCR (0 = non disponibile).
+    """
+    divergences: list[str] = []
+
+    # Controlla mercato 1X2
+    if ocr_quota_1 > 1.0 and ocr_quota_x > 1.0 and ocr_quota_2 > 1.0:
+        inv1 = 1.0 / ocr_quota_1
+        invx = 1.0 / ocr_quota_x
+        inv2 = 1.0 / ocr_quota_2
+        tot = inv1 + invx + inv2
+        if tot > 0:
+            ocr_p1 = inv1 / tot
+            ocr_px = invx / tot
+            ocr_p2 = inv2 / tot
+            if abs(risultati.p1 - ocr_p1) > _OCR_DIVERGENCE_THRESHOLD:
+                divergences.append(
+                    f"**1 (Casa)**: modello {risultati.p1:.1%} · mercato OCR {ocr_p1:.1%} "
+                    f"(Δ {abs(risultati.p1 - ocr_p1):.1%})"
+                )
+            if abs(risultati.px - ocr_px) > _OCR_DIVERGENCE_THRESHOLD:
+                divergences.append(
+                    f"**X (Pareggio)**: modello {risultati.px:.1%} · mercato OCR {ocr_px:.1%} "
+                    f"(Δ {abs(risultati.px - ocr_px):.1%})"
+                )
+            if abs(risultati.p2 - ocr_p2) > _OCR_DIVERGENCE_THRESHOLD:
+                divergences.append(
+                    f"**2 (Trasf.)**: modello {risultati.p2:.1%} · mercato OCR {ocr_p2:.1%} "
+                    f"(Δ {abs(risultati.p2 - ocr_p2):.1%})"
+                )
+
+    # Controlla mercato O/U
+    if ocr_quota_over > 1.0 and ocr_quota_under > 1.0:
+        inv_o = 1.0 / ocr_quota_over
+        inv_u = 1.0 / ocr_quota_under
+        tot_ou = inv_o + inv_u
+        if tot_ou > 0:
+            ocr_p_over = inv_o / tot_ou
+            if abs(risultati.p_over - ocr_p_over) > _OCR_DIVERGENCE_THRESHOLD:
+                divergences.append(
+                    f"**Over**: modello {risultati.p_over:.1%} · mercato OCR {ocr_p_over:.1%} "
+                    f"(Δ {abs(risultati.p_over - ocr_p_over):.1%})"
+                )
+
+    if not divergences:
+        return
+
+    with st.expander("⚠️ Divergenza modello–mercato OCR", expanded=True):
+        st.warning(
+            "Le quote OCR estratte dallo screenshot divergono dal modello. "
+            "Possibili cause: AH/Total inseriti non coerenti con le quote, "
+            "mercato diverso (European vs Asian), o vera opportunità di value."
+        )
+        for d in divergences:
+            st.markdown(f"• {d}")
+
+
+# ---------------------------------------------------------------------------
 # Session Statistics
 # ---------------------------------------------------------------------------
 

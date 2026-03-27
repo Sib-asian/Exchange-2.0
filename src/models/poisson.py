@@ -132,6 +132,8 @@ def rho_dc_dinamico(
     tot_cur: float,
     minuto: int,
     gol_totali: int = 0,
+    *,
+    gialli_totali: int = 0,
 ) -> float:
     """
     Coefficiente Dixon-Coles dinamico, contestualizzato alla partita.
@@ -159,6 +161,16 @@ def rho_dc_dinamico(
 
     rho_dc = DC.RHO_DC_BASE + DC.RHO_DC_TOT_SCALE * tot_factor * goal_factor \
         + DC.RHO_DC_TIME_SCALE * time_factor
+
+    # #9: Partita tesa (molti gialli) → struttura difensiva → rho_DC più negativo.
+    # Shift: -0.010 per ogni giallo sopra soglia (6), cap -0.04.
+    if gialli_totali > DC.RHO_DC_YELLOW_THRESHOLD:
+        yellow_shift = min(
+            DC.RHO_DC_YELLOW_MAX,
+            (gialli_totali - DC.RHO_DC_YELLOW_THRESHOLD) * DC.RHO_DC_YELLOW_SCALE,
+        )
+        rho_dc -= yellow_shift
+
     return max(DC.RHO_DC_MIN, min(DC.RHO_DC_MAX, rho_dc))
 
 
