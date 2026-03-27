@@ -282,6 +282,9 @@ def calcola_xg_bayesiani(
     ocr_delta_quotes: float = 0.0,
     ocr_overround_ou: float = 0.0,
     ocr_overround_1x2: float = 0.0,
+    fixture_historical_total: float = 0.0,
+    movement_quality: float = 1.0,
+    ocr_confidence_scale: float = 1.0,
 ) -> tuple[float, float]:
     """
     Estrae gli xG impliciti dal blend Bayesiano delle linee di mercato.
@@ -331,6 +334,13 @@ def calcola_xg_bayesiani(
     w_op = max(1.0 - BAYES.W_CUR_MAX, min(1.0 - BAYES.W_CUR_MIN, w_op_raw))
     w_cur = 1.0 - w_op
 
+    # Qualità movimento linee (da Gemini): scala w_cur verso la linea corrente se il
+    # movimento è "sharp" (notizie/sharp money) o lo riduce se è rumore/pubblico.
+    # Applicato solo se le linee si sono mosse (altrimenti w_cur non cambia il blend).
+    _mq_clamped = max(BAYES.MOVEMENT_QUALITY_MIN, min(BAYES.MOVEMENT_QUALITY_MAX, movement_quality))
+    w_cur = max(1.0 - BAYES.W_CUR_MAX, min(BAYES.W_CUR_MAX, w_cur * _mq_clamped))
+    w_op = 1.0 - w_cur
+
     # Rilevamento linee flat: confronto in full-game space per non confondere il
     # movimento del mercato con l'effetto meccanico del punteggio.
     # Se il mercato non si è mosso e il punteggio è gol_diff/gol_tot:
@@ -342,12 +352,15 @@ def calcola_xg_bayesiani(
     delta_tot_inner = abs(tot_cur - expected_tot_cur)
     flat = delta_ah_inner < BAYES.FLAT_LINE_THRESHOLD and delta_tot_inner < BAYES.FLAT_LINE_THRESHOLD
 
+    # Clamp ocr_confidence_scale: riduce i pesi OCR se le quote appaiono anomale (da validatore Gemini).
+    _ocr_cs = max(0.70, min(1.0, ocr_confidence_scale))
+
     # #1: Se quote OCR disponibili e siamo in prematch, blenda tot_op con la linea OCR.
     # Peso conservativo 15%: l'OCR potrebbe aver letto un mercato leggermente diverso
     # (es. Asian Total vs European O/U) o avere margine incorporato.
     # Disabilitato in live (minuto > 0): i tiri diventano la fonte primaria.
     if ocr_imp_total > 0.5 and minuto == 0:
-        tot_op = (1.0 - BAYES.OCR_PRIOR_WEIGHT) * tot_op + BAYES.OCR_PRIOR_WEIGHT * ocr_imp_total
+        tot_op = (1.0 - BAYES.OCR_PRIOR_WEIGHT * _ocr_cs) * tot_op + BAYES.OCR_PRIOR_WEIGHT * _ocr_cs * ocr_imp_total
 
     # Blend con total implicito dalle quote O/U bookmaker (più preciso della linea grezza).
     # #3: Peso scalato per qualità: overround basso → più informativo → peso maggiore.
@@ -356,9 +369,9 @@ def calcola_xg_bayesiani(
         if ocr_overround_ou > 1.0:
             _quality_ou = 1.0 - min(OCR_QUOTES.TOTAL_QUALITY_MAX_PENALTY,
                                     max(0.0, (ocr_overround_ou - 1.0) * OCR_QUOTES.TOTAL_QUALITY_OVERROUND_RATE))
-            _total_w = OCR_QUOTES.TOTAL_WEIGHT * _quality_ou
+            _total_w = OCR_QUOTES.TOTAL_WEIGHT * _quality_ou * _ocr_cs
         else:
-            _total_w = OCR_QUOTES.TOTAL_WEIGHT
+            _total_w = OCR_QUOTES.TOTAL_WEIGHT * _ocr_cs
         tot_op = (1.0 - _total_w) * tot_op + _total_w * ocr_total_quotes
 
     # Blend con delta implicito dalle quote 1X2 → aggiusta ah_op.
@@ -369,11 +382,18 @@ def calcola_xg_bayesiani(
         if ocr_overround_1x2 > 1.0:
             _quality_1x2 = 1.0 - min(OCR_QUOTES.DELTA_QUALITY_MAX_PENALTY,
                                       max(0.0, (ocr_overround_1x2 - 1.0) * OCR_QUOTES.DELTA_QUALITY_OVERROUND_RATE))
-            _delta_w = OCR_QUOTES.DELTA_WEIGHT * _quality_1x2
+            _delta_w = OCR_QUOTES.DELTA_WEIGHT * _quality_1x2 * _ocr_cs
         else:
-            _delta_w = OCR_QUOTES.DELTA_WEIGHT
+            _delta_w = OCR_QUOTES.DELTA_WEIGHT * _ocr_cs
         ocr_ah_implied = -ocr_delta_quotes
         ah_op = (1.0 - _delta_w) * ah_op + _delta_w * ocr_ah_implied
+
+    # Prior storico H2H (da Gemini): blenda tot_op con la media gol storica di questa fixture.
+    # Solo in prematch (minuto=0) e se il valore è plausibile (1.0 < x < 6.0).
+    # Conservativo 10%: i dati storici catturano tendenze strutturali ma non il contesto attuale.
+    if fixture_historical_total > 1.0 and minuto == 0:
+        _hist_total = max(1.0, min(6.0, fixture_historical_total))
+        tot_op = (1.0 - BAYES.FIXTURE_PRIOR_WEIGHT) * tot_op + BAYES.FIXTURE_PRIOR_WEIGHT * _hist_total
 
     # FIX: Cap temporale SEMPRE applicato per evitare xG insensati a fine partita.
     # I gol rimanenti non possono superare ~(90-minuto)/90 * TOT_TEMPORAL_MAX.

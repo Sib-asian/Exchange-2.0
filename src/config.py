@@ -305,6 +305,17 @@ class BayesianConfig:
     # Conservativo: l'OCR può avere margine o leggere un mercato leggermente diverso.
     OCR_PRIOR_WEIGHT: float = 0.15
 
+    # Peso del prior storico H2H (da Gemini) nel blend del totale atteso.
+    # Solo in prematch (minuto=0): contributo conservativo 10%.
+    # I dati H2H storici sono informativi ma possono riflettere formazioni passate.
+    FIXTURE_PRIOR_WEIGHT: float = 0.10
+
+    # Clamp del moltiplicatore qualità movimento linee (da Gemini).
+    # < 1.0 = movimento non affidabile (rumore/pubblico) → meno fiducia sulla linea corrente.
+    # > 1.0 = movimento affidabile (sharp/notizie) → più fiducia sulla linea corrente.
+    MOVEMENT_QUALITY_MIN: float = 0.80
+    MOVEMENT_QUALITY_MAX: float = 1.30
+
 
 @dataclass(frozen=True)
 class MomentumConfig:

@@ -110,6 +110,130 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     _ocr_qgg   = extracted_data.quota_gg   if extracted_data is not None and extracted_data.extraction_success else 0.0
     _ocr_qng   = extracted_data.quota_ng   if extracted_data is not None and extracted_data.extraction_success else 0.0
 
+    # ── Arricchimento Gemini (3 call in parallelo) ────────────────────────────
+    # Eseguite automaticamente se:
+    #   1. C'è uno screenshot OCR con nomi squadre riconosciuti
+    #   2. La partita è in prematch (minuto == 0): dati H2H e validazione quote sono prematch-only
+    #   3. C'è almeno un movimento di linea (per interpreta_movimento) oppure quote OCR (per valida/prior)
+    # I risultati sono cachati in session_state per evitare re-chiamate se l'utente
+    # preme ANALIZZA più volte senza cambiare screenshot o linee.
+    _fixture_prior = 0.0
+    _movement_quality = 1.0
+    _ocr_confidence_scale = 1.0
+
+    _has_ocr_teams = (
+        extracted_data is not None
+        and extracted_data.extraction_success
+        and bool(extracted_data.squadra_casa)
+        and bool(extracted_data.squadra_trasf)
+    )
+    _is_prematch = _live_min == 0
+
+    if _has_ocr_teams:
+        from concurrent.futures import ThreadPoolExecutor
+        from src.research import (
+            cerca_prior_storico,
+            interpreta_movimento_linee,
+            valida_quote_ocr,
+        )
+        from src.research import _get_gemini_api_key as _check_key
+
+        _squadra_casa = extracted_data.squadra_casa
+        _squadra_trasf = extracted_data.squadra_trasf
+
+        # Delta AH puro: rimuove l'offset meccanico del punteggio
+        _gol_diff_live = _live_gh - _live_ga
+        _gol_tot_live  = _live_gh + _live_ga
+        _ah_cur_full   = lines["ah_cur"] - _gol_diff_live  # back to full-game
+        _delta_ah_pure = _ah_cur_full - lines["ah_op"]
+        _delta_tot_pure = lines["tot_cur_raw"] - lines["tot_op"]  # già in full-game
+
+        # Cache key: si ricalcola solo se squadre, linee o screenshot cambiano
+        _gemini_cache_key = (
+            _squadra_casa, _squadra_trasf,
+            round(_delta_ah_pure, 2), round(_delta_tot_pure, 2),
+            st.session_state.get("last_ocr_file_id", ""),
+        )
+        _cached = st.session_state.get("gemini_enrichment")
+
+        if _cached is None or _cached.get("_key") != _gemini_cache_key:
+            if _check_key():
+                with st.spinner("Gemini analizza il contesto partita..."):
+                    try:
+                        with ThreadPoolExecutor(max_workers=3) as _executor:
+                            # A: validatore quote OCR (solo se ci sono quote e prematch)
+                            if _is_prematch and (_ocr_q1 > 1.0 or _ocr_qover > 1.0):
+                                _f_ocr = _executor.submit(
+                                    valida_quote_ocr,
+                                    _squadra_casa, _squadra_trasf,
+                                    _ocr_q1, _ocr_qx, _ocr_q2,
+                                    _ocr_qover, _ocr_qund,
+                                    linea_ou,
+                                )
+                            else:
+                                _f_ocr = None
+
+                            # B: prior storico H2H (solo prematch)
+                            if _is_prematch:
+                                _f_prior = _executor.submit(
+                                    cerca_prior_storico,
+                                    _squadra_casa, _squadra_trasf,
+                                )
+                            else:
+                                _f_prior = None
+
+                            # C: interpretazione movimento linee (se c'è movimento)
+                            if abs(_delta_ah_pure) >= 0.15 or abs(_delta_tot_pure) >= 0.15:
+                                _f_mov = _executor.submit(
+                                    interpreta_movimento_linee,
+                                    _squadra_casa, _squadra_trasf,
+                                    _delta_ah_pure, _delta_tot_pure,
+                                )
+                            else:
+                                _f_mov = None
+
+                        # Raccogli risultati
+                        _ocr_val = _f_ocr.result() if _f_ocr else {"confidence_scale": 1.0, "flags": []}
+                        _fix_val = _f_prior.result() if _f_prior else 0.0
+                        _mov_val = _f_mov.result() if _f_mov else 1.0
+
+                        _new_cache = {
+                            "_key": _gemini_cache_key,
+                            "ocr_confidence_scale": _ocr_val["confidence_scale"],
+                            "ocr_flags": _ocr_val["flags"],
+                            "fixture_prior": _fix_val,
+                            "movement_quality": _mov_val,
+                        }
+                        st.session_state["gemini_enrichment"] = _new_cache
+                    except Exception:
+                        _new_cache = {
+                            "_key": _gemini_cache_key,
+                            "ocr_confidence_scale": 1.0,
+                            "ocr_flags": [],
+                            "fixture_prior": 0.0,
+                            "movement_quality": 1.0,
+                        }
+                        st.session_state["gemini_enrichment"] = _new_cache
+
+        _cached = st.session_state.get("gemini_enrichment", {})
+        _ocr_confidence_scale = _cached.get("ocr_confidence_scale", 1.0)
+        _fixture_prior = _cached.get("fixture_prior", 0.0)
+        _movement_quality = _cached.get("movement_quality", 1.0)
+
+        # Mostra avvisi Gemini se rilevanti
+        _ocr_flags = _cached.get("ocr_flags", [])
+        if _ocr_flags:
+            st.warning(
+                "⚠️ **Gemini: anomalie quote OCR** — "
+                + " | ".join(_ocr_flags[:3])
+                + f" (confidenza ridotta: {_ocr_confidence_scale:.0%})"
+            )
+        if _fixture_prior > 0.5:
+            st.info(f"📊 **Prior H2H Gemini**: media storica {_fixture_prior:.1f} gol/partita blendato nel modello.")
+        if abs(_movement_quality - 1.0) > 0.05:
+            _mov_desc = "sharp/notizie" if _movement_quality > 1.0 else "rumore/pubblico"
+            st.info(f"📈 **Movimento linee Gemini**: segnale {_mov_desc} (qualità: {_movement_quality:.2f}×).")
+
     try:
         state = build_match_state(
             match, lines, linea_ou, bankroll, comm_rate,
@@ -121,6 +245,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
             ocr_quota_under=_ocr_qund,
             ocr_quota_gg=_ocr_qgg,
             ocr_quota_ng=_ocr_qng,
+            fixture_historical_total=_fixture_prior,
+            movement_quality=_movement_quality,
+            ocr_confidence_scale=_ocr_confidence_scale,
         )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
