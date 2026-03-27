@@ -712,6 +712,32 @@ class InputValidationConfig:
     BLOCK_ON_CRITICAL_ERRORS: bool = True
 
 
+@dataclass(frozen=True)
+class OcrQuotesConfig:
+    """Parametri per l'integrazione delle quote bookmaker estratte da OCR prematch."""
+
+    # Peso del total implicito dalle quote O/U nel blend di tot_op.
+    # Le quote O/U sono efficienti: il bookmaker ha già digerito formazioni/meteo.
+    # Leggermente superiore a OCR_PRIOR_WEIGHT (linea grezza) perché le probabilità
+    # fair da devigging sono più precise della linea tabellare.
+    TOTAL_WEIGHT: float = 0.20
+
+    # Peso del delta implicito dalle quote 1X2 nel blend di ah_op.
+    # Conservativo: il 1X2 include vig elevato e la conversione delta→AH
+    # introduce approssimazioni (Dixon-Coles non applicato qui).
+    DELTA_WEIGHT: float = 0.12
+
+    # Peso prior BTTS dalla quota GG/NG (solo prematch, mercato due vie).
+    # BTTS è efficiente ma ha vig 5-8%: peso conservativo.
+    BTTS_PRIOR_WEIGHT: float = 0.20
+
+    # Massimo overround accettabile per considerare le quote valide.
+    # >1.30 su 1X2 (30% di vig) → OCR ha probabilmente letto male le quote.
+    # >1.12 su mercati a due vie → vig eccessivo.
+    MAX_OVERROUND_3WAY: float = 1.30
+    MAX_OVERROUND_2WAY: float = 1.12
+
+
 # Istanze globali immutabili — importare da qui
 POISSON   = PoissonConfig()
 DC        = DixonColesConfig()
@@ -733,3 +759,4 @@ CACHE     = CacheConfig()
 CLEAN_SHEET = CleanSheetConfig()
 ENGINE = EngineConfig()
 INPUT_VALIDATION = InputValidationConfig()
+OCR_QUOTES = OcrQuotesConfig()
