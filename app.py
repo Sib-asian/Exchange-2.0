@@ -102,9 +102,26 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         if extracted_data.linea_ou > 0.5:
             _ocr_total = extracted_data.linea_ou
 
+    _ocr_q1    = extracted_data.quota_1    if extracted_data is not None and extracted_data.extraction_success else 0.0
+    _ocr_qx    = extracted_data.quota_x    if extracted_data is not None and extracted_data.extraction_success else 0.0
+    _ocr_q2    = extracted_data.quota_2    if extracted_data is not None and extracted_data.extraction_success else 0.0
+    _ocr_qover = extracted_data.quota_over if extracted_data is not None and extracted_data.extraction_success else 0.0
+    _ocr_qund  = extracted_data.quota_under if extracted_data is not None and extracted_data.extraction_success else 0.0
+    _ocr_qgg   = extracted_data.quota_gg   if extracted_data is not None and extracted_data.extraction_success else 0.0
+    _ocr_qng   = extracted_data.quota_ng   if extracted_data is not None and extracted_data.extraction_success else 0.0
+
     try:
-        state = build_match_state(match, lines, linea_ou, bankroll, comm_rate,
-                                   ocr_imp_total=_ocr_total)
+        state = build_match_state(
+            match, lines, linea_ou, bankroll, comm_rate,
+            ocr_imp_total=_ocr_total,
+            ocr_quota_1=_ocr_q1,
+            ocr_quota_x=_ocr_qx,
+            ocr_quota_2=_ocr_q2,
+            ocr_quota_over=_ocr_qover,
+            ocr_quota_under=_ocr_qund,
+            ocr_quota_gg=_ocr_qgg,
+            ocr_quota_ng=_ocr_qng,
+        )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
         st.stop()

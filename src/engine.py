@@ -73,6 +73,16 @@ class MatchState:
     # Usata come soft prior per la calibrazione Bayesiana in prematch.
     ocr_imp_total: float = 0.0
 
+    # Quote bookmaker prematch estratte da OCR (0.0 = non disponibili).
+    # Usate come prior addizionali per la calibrazione Bayesiana in prematch.
+    ocr_quota_1: float = 0.0
+    ocr_quota_x: float = 0.0
+    ocr_quota_2: float = 0.0
+    ocr_quota_over: float = 0.0
+    ocr_quota_under: float = 0.0
+    ocr_quota_gg: float = 0.0
+    ocr_quota_ng: float = 0.0
+
     # Bankroll e commissione
     bankroll: float = 1000.0
     comm_rate: float = 0.025   # 2.5%
@@ -316,6 +326,17 @@ def analizza(
     _tot_cap = max(BAYES.TOT_BAYES_MIN, _mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
     tot_cur_eff = min(state.tot_cur, _tot_cap)
 
+    # 0. Segnali OCR da quote bookmaker (solo prematch, minuto == 0)
+    from src.models.calibration import estrai_segnali_ocr_da_quote
+    _ocr_total_quotes = 0.0
+    _ocr_delta_quotes = 0.0
+    if state.minuto == 0:
+        _ocr_total_quotes, _ocr_delta_quotes = estrai_segnali_ocr_da_quote(
+            state.ocr_quota_1, state.ocr_quota_x, state.ocr_quota_2,
+            state.ocr_quota_over, state.ocr_quota_under,
+            state.linea_ou,
+        )
+
     # 1. xG da linee (prior bayesiano)
     xg_h_base, xg_a_base = calcola_xg_bayesiani(
         state.ah_op, state.tot_op,
@@ -324,6 +345,8 @@ def analizza(
         gol_diff=state.gol_casa - state.gol_trasf,
         gol_tot=state.gol_casa + state.gol_trasf,
         ocr_imp_total=state.ocr_imp_total,
+        ocr_total_quotes=_ocr_total_quotes,
+        ocr_delta_quotes=_ocr_delta_quotes,
     )
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
@@ -511,6 +534,18 @@ def analizza(
         consensus_probs["p_over"], consensus_probs["p_under"], consensus_probs["p_btts"],
         draw_shrinkage=CONSENSUS.DRAW_SHRINKAGE,
     )
+
+    # 9b. Prior BTTS da quote OCR (solo prematch): nudge conservativo.
+    # Le quote GG/NG contengono informazione su formazioni e stile di gioco
+    # non catturata dalle linee AH/Total.
+    if state.minuto == 0 and state.ocr_quota_gg > 1.0 and state.ocr_quota_ng > 1.0:
+        from src.models.calibration import _devig_two_way
+        from src.config import OCR_QUOTES
+        _overround_btts = 1.0 / state.ocr_quota_gg + 1.0 / state.ocr_quota_ng
+        if _overround_btts <= OCR_QUOTES.MAX_OVERROUND_2WAY:
+            _p_gg_ocr = _devig_two_way(state.ocr_quota_gg, state.ocr_quota_ng)
+            _w_btts = OCR_QUOTES.BTTS_PRIOR_WEIGHT
+            p_btts = (1.0 - _w_btts) * p_btts + _w_btts * _p_gg_ocr
 
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
     # Fix #2.7: Usa funzione helper per costruire la matrice consensus

@@ -143,6 +143,128 @@ def _ah_ev(mu_h: float, mu_a: float, ah: float, rho_dc: float = -0.13, rho: floa
 
 
 # ---------------------------------------------------------------------------
+# OCR Quote helpers: devigging e stima segnali impliciti
+# ---------------------------------------------------------------------------
+
+def _devig_two_way(q1: float, q2: float) -> float:
+    """Rimuove il margine bookmaker da un mercato a due esiti. Ritorna P(esito 1)."""
+    if q1 <= 1.0 or q2 <= 1.0:
+        return 0.5
+    raw1, raw2 = 1.0 / q1, 1.0 / q2
+    return raw1 / (raw1 + raw2)
+
+
+def _devig_three_way(q1: float, qx: float, q2: float) -> tuple[float, float, float]:
+    """Rimuove il margine bookmaker da 1X2 via normalizzazione semplice."""
+    if q1 <= 1.0 or qx <= 1.0 or q2 <= 1.0:
+        return (1 / 3, 1 / 3, 1 / 3)
+    raw = [1.0 / q1, 1.0 / qx, 1.0 / q2]
+    total = sum(raw)
+    return (raw[0] / total, raw[1] / total, raw[2] / total)
+
+
+def _poisson_pmf_k(mu: float, k: int) -> float:
+    """P(Poisson(mu) = k) via log-gamma per stabilità numerica."""
+    if mu <= 0:
+        return 1.0 if k == 0 else 0.0
+    return math.exp(-mu + k * math.log(mu) - math.lgamma(k + 1))
+
+
+def _p_home_win_simple(mu_h: float, mu_a: float, max_goals: int = 14) -> float:
+    """P(Poisson indipendente: casa segna più della trasferta)."""
+    # Precalcola CDF trasferta: cdf_a[i] = P(away <= i-1)
+    cdf_a = [sum(_poisson_pmf_k(mu_a, j) for j in range(i)) for i in range(max_goals + 1)]
+    p = 0.0
+    for i in range(1, max_goals + 1):
+        p_i = _poisson_pmf_k(mu_h, i)
+        if p_i < 1e-15:
+            break
+        p += p_i * cdf_a[i]
+    return p
+
+
+def estrai_segnali_ocr_da_quote(
+    quota_1: float,
+    quota_x: float,
+    quota_2: float,
+    quota_over: float,
+    quota_under: float,
+    linea_ou: float,
+) -> tuple[float, float]:
+    """
+    Estrae (mu_total_ocr, ocr_delta) dalle quote bookmaker prematch.
+
+    Usa devigging via normalizzazione per ottenere probabilità fair, poi
+    bisection per trovare total e delta impliciti nel modello Poisson.
+
+    ── Total da O/U ───────────────────────────────────────────────────────
+    Le quote O/U → p_over_fair → bisection su Poisson per trovare mu_total.
+    Per linee half (2.5): P(X >= 3) = p_over_fair.
+    Per linee intere (3.0): P(X >= 4) = p_over_fair (esclude il push).
+
+    ── Delta da 1X2 ───────────────────────────────────────────────────────
+    Le quote 1X2 → p1_fair → bisection su delta = (mu_h - mu_a) tale che
+    P(casa vince | Poisson indipendente) = p1_fair.
+    Poi ocr_ah_implied = -ocr_delta (convenzione AH: negativo = casa favorita).
+
+    Args:
+        quota_1/x/2: Quote 1X2 del bookmaker (> 1.0 se disponibili).
+        quota_over/under: Quote O/U (> 1.0 se disponibili).
+        linea_ou: Linea O/U (es. 2.5, 3.0).
+
+    Returns:
+        (mu_total_ocr, ocr_delta):
+            mu_total_ocr: Total implicito (0.0 se non disponibile o quote invalide).
+            ocr_delta: mu_h - mu_a implicito (0.0 se non disponibile o quote invalide).
+    """
+    from src.config import OCR_QUOTES
+
+    mu_total_ocr = 0.0
+    ocr_delta = 0.0
+
+    # ── Total da quote O/U ─────────────────────────────────────────────────────
+    if quota_over > 1.0 and quota_under > 1.0:
+        overround_ou = 1.0 / quota_over + 1.0 / quota_under
+        if overround_ou <= OCR_QUOTES.MAX_OVERROUND_2WAY:
+            p_over_fair = _devig_two_way(quota_over, quota_under)
+
+            # k_thr: primo intero che conta come "over" sulla linea.
+            half_line = linea_ou - math.floor(linea_ou)
+            k_thr = math.ceil(linea_ou) if half_line > 0.1 else int(linea_ou) + 1
+
+            lo_mu, hi_mu = 0.2, 8.0
+            for _ in range(40):
+                mid_mu = (lo_mu + hi_mu) / 2.0
+                p_model = 1.0 - sum(_poisson_pmf_k(mid_mu, k) for k in range(k_thr))
+                if p_model > p_over_fair:
+                    hi_mu = mid_mu
+                else:
+                    lo_mu = mid_mu
+            mu_total_ocr = (lo_mu + hi_mu) / 2.0
+
+    # ── Delta da quote 1X2 ─────────────────────────────────────────────────────
+    if quota_1 > 1.0 and quota_x > 1.0 and quota_2 > 1.0:
+        overround_1x2 = 1.0 / quota_1 + 1.0 / quota_x + 1.0 / quota_2
+        if overround_1x2 <= OCR_QUOTES.MAX_OVERROUND_3WAY:
+            p1_fair, _, _ = _devig_three_way(quota_1, quota_x, quota_2)
+            tot_ref = mu_total_ocr if mu_total_ocr > 0.5 else linea_ou
+
+            if tot_ref > 0.3:
+                lo_d, hi_d = -tot_ref * 0.95, tot_ref * 0.95
+                for _ in range(40):
+                    mid_d = (lo_d + hi_d) / 2.0
+                    mu_h = max(POISSON.EPS, (tot_ref + mid_d) / 2.0)
+                    mu_a = max(POISSON.EPS, (tot_ref - mid_d) / 2.0)
+                    if _p_home_win_simple(mu_h, mu_a) < p1_fair:
+                        lo_d = mid_d
+                    else:
+                        hi_d = mid_d
+                ocr_delta = (lo_d + hi_d) / 2.0
+
+    return mu_total_ocr, ocr_delta
+
+
+# ---------------------------------------------------------------------------
 # Blend Bayesiano + bisection
 # ---------------------------------------------------------------------------
 
@@ -156,6 +278,8 @@ def calcola_xg_bayesiani(
     gol_tot: int = 0,
     *,
     ocr_imp_total: float = 0.0,
+    ocr_total_quotes: float = 0.0,
+    ocr_delta_quotes: float = 0.0,
 ) -> tuple[float, float]:
     """
     Estrae gli xG impliciti dal blend Bayesiano delle linee di mercato.
@@ -222,6 +346,18 @@ def calcola_xg_bayesiani(
     # Disabilitato in live (minuto > 0): i tiri diventano la fonte primaria.
     if ocr_imp_total > 0.5 and minuto == 0:
         tot_op = (1.0 - BAYES.OCR_PRIOR_WEIGHT) * tot_op + BAYES.OCR_PRIOR_WEIGHT * ocr_imp_total
+
+    # Blend con total implicito dalle quote O/U bookmaker (più preciso della linea grezza).
+    if ocr_total_quotes > 0.5 and minuto == 0:
+        from src.config import OCR_QUOTES
+        tot_op = (1.0 - OCR_QUOTES.TOTAL_WEIGHT) * tot_op + OCR_QUOTES.TOTAL_WEIGHT * ocr_total_quotes
+
+    # Blend con delta implicito dalle quote 1X2 → aggiusta ah_op.
+    # ocr_delta > 0: casa favorita. Convenzione AH: fair_ah ≈ -delta.
+    if abs(ocr_delta_quotes) > 0.05 and minuto == 0:
+        from src.config import OCR_QUOTES
+        ocr_ah_implied = -ocr_delta_quotes
+        ah_op = (1.0 - OCR_QUOTES.DELTA_WEIGHT) * ah_op + OCR_QUOTES.DELTA_WEIGHT * ocr_ah_implied
 
     # FIX: Cap temporale SEMPRE applicato per evitare xG insensati a fine partita.
     # I gol rimanenti non possono superare ~(90-minuto)/90 * TOT_TEMPORAL_MAX.

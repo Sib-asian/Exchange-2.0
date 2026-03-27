@@ -923,6 +923,13 @@ def build_match_state(
     comm_rate: float,
     shots: tuple[int, int, int, int] | None = None,
     ocr_imp_total: float = 0.0,
+    ocr_quota_1: float = 0.0,
+    ocr_quota_x: float = 0.0,
+    ocr_quota_2: float = 0.0,
+    ocr_quota_over: float = 0.0,
+    ocr_quota_under: float = 0.0,
+    ocr_quota_gg: float = 0.0,
+    ocr_quota_ng: float = 0.0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -974,6 +981,13 @@ def build_match_state(
         falli_casa=match.get("falli_casa", 0),
         falli_trasf=match.get("falli_trasf", 0),
         ocr_imp_total=ocr_imp_total,
+        ocr_quota_1=ocr_quota_1,
+        ocr_quota_x=ocr_quota_x,
+        ocr_quota_2=ocr_quota_2,
+        ocr_quota_over=ocr_quota_over,
+        ocr_quota_under=ocr_quota_under,
+        ocr_quota_gg=ocr_quota_gg,
+        ocr_quota_ng=ocr_quota_ng,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )
