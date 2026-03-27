@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from src.config import DC, POISSON, RHO
+from src.config import DC, POISSON, RHO, YELLOWS
 
 if TYPE_CHECKING:
     pass
@@ -132,6 +132,7 @@ def rho_dc_dinamico(
     tot_cur: float,
     minuto: int,
     gol_totali: int = 0,
+    gialli_tot: int = 0,
 ) -> float:
     """
     Coefficiente Dixon-Coles dinamico, contestualizzato alla partita.
@@ -141,11 +142,13 @@ def rho_dc_dinamico(
     - Partite aperte (Total > 3.0): difese aperte → rho_DC meno negativo
     - Late game con vantaggio: parking the bus → rho_DC più negativo
     - Alto punteggio: partita aperta → rho_DC meno negativo
+    - #9 Molti gialli: gioco fisico/duro → struttura difensiva → rho_DC più negativo
 
     Args:
         tot_cur: Total corrente (gol rimanenti).
         minuto: Minuto attuale [0, 90].
         gol_totali: Gol già segnati.
+        gialli_tot: Somma gialli casa + trasferta (default 0).
 
     Returns:
         rho_DC in [RHO_DC_MIN, RHO_DC_MAX].
@@ -159,6 +162,14 @@ def rho_dc_dinamico(
 
     rho_dc = DC.RHO_DC_BASE + DC.RHO_DC_TOT_SCALE * tot_factor * goal_factor \
         + DC.RHO_DC_TIME_SCALE * time_factor
+
+    # #9 — Gialli alti → rho_DC più negativo (gioco fisico/difensivo).
+    # Ogni giallo aggiunge un piccolo contributo negativo, cappato a RHO_DC_YELLOW_CAP.
+    if gialli_tot > 0:
+        yellow_adjustment = -min(YELLOWS.RHO_DC_YELLOW_CAP,
+                                  gialli_tot * YELLOWS.RHO_DC_YELLOW_RATE)
+        rho_dc += yellow_adjustment
+
     return max(DC.RHO_DC_MIN, min(DC.RHO_DC_MAX, rho_dc))
 
 

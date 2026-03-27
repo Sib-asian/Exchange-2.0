@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 
-from src.config import BAYES, POISSON, SHOTS
+from src.config import BAYES, BLOCKED, FOULS, POISSON, SHOTS
 from src.models.poisson import dixon_coles_tau, poisson_pmf, rho_dc_dinamico
 
 # ---------------------------------------------------------------------------
@@ -341,6 +341,13 @@ def blend_xg_shots(
     possesso_a: float = 0.0,
     att_pericolosi_h: int = 0,
     att_pericolosi_a: int = 0,
+    att_totali_h: int = 0,
+    att_totali_a: int = 0,
+    tiri_bloccati_h: int = 0,
+    tiri_bloccati_a: int = 0,
+    falli_h: int = 0,
+    falli_a: int = 0,
+    tot_op: float = 0.0,
 ) -> tuple[float, float, float, float, float, float, float]:
     """
     Integra le stime xG da linee di mercato con le evidenze empiriche dei tiri.
@@ -415,8 +422,28 @@ def blend_xg_shots(
         k_sot_h, k_sot_a = 1.0, 1.0
         k_soff_h, k_soff_a = 1.0, 1.0
 
-    xg_h_accum = sot_h * SHOTS.XG_SOT * k_sot_h + soff_h * SHOTS.XG_SOFF * k_soff_h
-    xg_a_accum = sot_a * SHOTS.XG_SOT * k_sot_a + soff_a * SHOTS.XG_SOFF * k_soff_a
+    # #3 — Rapporto att. pericolosi come correttore qualità SOT.
+    # Squadra con alto rapporto att_per / att_tot tira da posizioni migliori →
+    # XG_SOT effettivo è più alto (i tiri sono più pericolosi in media).
+    # Range correttore: da -10% (tutti attacchi normali) a +15% (tutti pericolosi).
+    def _sot_quality_multiplier(att_per: int, att_tot: int) -> float:
+        if att_tot <= 0 or att_per <= 0:
+            return 1.0
+        ratio = att_per / att_tot  # [0, 1]
+        # baseline ratio ≈ 0.35 (media top-5 leagues)
+        return max(0.90, min(1.15, 1.0 + (ratio - 0.35) * 0.50))
+
+    xg_sot_h = SHOTS.XG_SOT * _sot_quality_multiplier(att_pericolosi_h, att_totali_h or (att_pericolosi_h + 1))
+    xg_sot_a = SHOTS.XG_SOT * _sot_quality_multiplier(att_pericolosi_a, att_totali_a or (att_pericolosi_a + 1))
+
+    # #2 — Tiri bloccati nel xG accum.
+    # Un tiro bloccato era diretto verso lo specchio → xG > SOFF ma < SOT.
+    xg_h_accum = (sot_h * xg_sot_h * k_sot_h
+                  + soff_h * SHOTS.XG_SOFF * k_soff_h
+                  + tiri_bloccati_h * BLOCKED.XG_BLOCKED)
+    xg_a_accum = (sot_a * xg_sot_a * k_sot_a
+                  + soff_a * SHOTS.XG_SOFF * k_soff_a
+                  + tiri_bloccati_a * BLOCKED.XG_BLOCKED)
 
     frac_rimasta = max(BAYES.FRAC_RIMASTA_FLOOR, (90.0 - minuto) / 90.0)
 
@@ -450,19 +477,42 @@ def blend_xg_shots(
     shot_dom = abs(sot_h - sot_a) / sot_tot if sot_tot > 0 else 0.0
 
     # Pesi blend dinamici
-    n_shots = sot_h + soff_h + sot_a + soff_a
+    n_shots = sot_h + soff_h + sot_a + soff_a + tiri_bloccati_h + tiri_bloccati_a
     shot_info = min(1.0, n_shots / SHOTS.SHOT_INFO_THRESHOLD)
+
+    # #11 — LEAGUE_MEAN_RATE inferito dalla linea O/U apertura.
+    # Se tot_op disponibile, è un proxy migliore del generico 2.7 per questa lega/partita.
+    # Fallback al valore di config se tot_op non è passato.
+    league_mean = tot_op if tot_op > 0.5 else SHOTS.LEAGUE_MEAN_RATE
 
     # Shrinkage Bayesiano verso la media di lega (Fix #7).
     # Con pochi tiri (early game) il campione è rumoroso → maggiore shrinkage.
     # Con molti tiri (late game) il campione è affidabile → meno shrinkage.
     # League mean ripartita equamente tra le due squadre.
-    league_mu_rem = SHOTS.LEAGUE_MEAN_RATE * frac_rimasta * 0.5  # per squadra
+    league_mu_rem = league_mean * frac_rimasta * 0.5  # per squadra
     alpha_shrink = SHOTS.SHRINKAGE_WEIGHT * (1.0 - shot_info)
     mu_h_shots = (1.0 - alpha_shrink) * mu_h_shots + alpha_shrink * league_mu_rem
     mu_a_shots = (1.0 - alpha_shrink) * mu_a_shots + alpha_shrink * league_mu_rem
     alpha_t = min(SHOTS.ALPHA_T_MAX, shot_info * frac_giocata * SHOTS.ALPHA_T_RATE)
-    alpha_d = min(SHOTS.ALPHA_D_MAX, shot_info * math.sqrt(frac_giocata))
+
+    # #7 — Alpha_D adattivo su rapporto att. pericolosi.
+    # Se un team domina in att. pericolosi, il differenziale tiri è più affidabile →
+    # alpha_D può salire oltre il cap standard.
+    att_per_tot = att_pericolosi_h + att_pericolosi_a
+    att_dom_ratio = (abs(att_pericolosi_h - att_pericolosi_a) / att_per_tot
+                     if att_per_tot > 0 else 0.0)
+    # Boost fino a +20% di alpha_D quando un team domina nettamente (att_dom_ratio ≈ 1)
+    alpha_d_boost = min(0.20, att_dom_ratio * 0.25)
+    alpha_d = min(SHOTS.ALPHA_D_MAX + alpha_d_boost, shot_info * math.sqrt(frac_giocata) + alpha_d_boost)
+
+    # #5 — Falli → correzione leggera tot_bayes (via mu_shots).
+    # Alto numero di falli → gioco spezzettato → meno flusso → lieve riduzione gol attesi.
+    # Agiamo su mu_h_shots e mu_a_shots prima del blend finale.
+    falli_tot = falli_h + falli_a
+    if falli_tot > FOULS.THRESHOLD:
+        _foul_reduction = min(FOULS.CAP, (falli_tot - FOULS.THRESHOLD) * FOULS.RATE)
+        mu_h_shots *= (1.0 - _foul_reduction)
+        mu_a_shots *= (1.0 - _foul_reduction)
 
     # ── Integrazione statistiche avanzate (corner, possesso, att. pericolosi) ──
     # Queste statistiche agiscono come ULTERIORE evidenza empirica di dominio,

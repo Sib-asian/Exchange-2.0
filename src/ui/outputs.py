@@ -664,6 +664,38 @@ def render_avvisi_incoerenza(
 
 
 # ---------------------------------------------------------------------------
+# #12 Warning divergenza OCR vs modello
+# ---------------------------------------------------------------------------
+
+def render_ocr_divergence_warning(risultati: "ProbabilitaModello") -> None:
+    """
+    Mostra un avviso se le quote OCR prematch discordano dal modello di >15%.
+
+    #12: Se il mercato 1X2/OU/BTTS visto nello screenshot diverge significativamente
+    dalle probabilità calcolate, potrebbe indicare:
+    - Errore nell'OCR (estrazione quote sbagliata)
+    - Informazione non incorporata nelle linee AH/Total (infortuni, meteo, ecc.)
+    - Mercato inefficiente (raro su exchange liquidi)
+    """
+    if not risultati.ocr_divergence:
+        return
+
+    with st.expander(f"⚠️ Divergenza OCR vs Modello ({len(risultati.ocr_divergence)} mercati)", expanded=True):
+        st.caption(
+            "Le quote lette dallo screenshot divergono dal modello di oltre il 15%. "
+            "Verifica che l'OCR abbia letto correttamente le quote, "
+            "oppure considera se ci sono informazioni non incorporate nelle linee asiatiche."
+        )
+        for mercato, (p_model, p_ocr, div) in risultati.ocr_divergence.items():
+            col_m, col_o, col_d = st.columns(3)
+            col_m.metric(f"{mercato} — Modello", f"{p_model:.1%}")
+            col_o.metric("OCR (mercato)", f"{p_ocr:.1%}")
+            _dir = "Modello > OCR" if p_model > p_ocr else "OCR > Modello"
+            col_d.metric("Divergenza", f"{div:.1%}", delta=_dir,
+                         delta_color="inverse")
+
+
+# ---------------------------------------------------------------------------
 # Debug panel
 # ---------------------------------------------------------------------------
 

@@ -665,6 +665,104 @@ class InputValidationConfig:
     BLOCK_ON_CRITICAL_ERRORS: bool = True
 
 
+@dataclass(frozen=True)
+class YellowCardConfig:
+    """Parametri per l'effetto dei cartellini gialli.
+
+    #4: Gialli → fattore rischio rosso + rallentamento ritmo.
+    #9: rho_dc più negativo con gialli alti.
+    """
+
+    # Soglia gialli per attivare il ritmo ridotto (somma casa + trasf)
+    TEMPO_THRESHOLD: int = 4          # sotto: nessun effetto ritmo
+    # Riduzione gol attesi per ogni giallo sopra la soglia: -1.5% per giallo
+    TEMPO_RATE: float = 0.015
+    # Cap riduzione ritmo per i gialli (max -8%)
+    TEMPO_CAP: float = 0.08
+
+    # Rischio rosso futuro: probabilità incrementale per giallo (moltiplicatore xG)
+    # Un giallo ≈ +12% chance di prossimo rosso → leggero abbassamento xG attaccante
+    RED_RISK_PER_YELLOW: float = 0.04   # -4% xG per ogni giallo sopra 1
+    RED_RISK_CAP: float = 0.12          # cap -12%
+
+    # Effetto su rho_dc: più gialli → gioco più duro → struttura difensiva
+    # Applica un moltiplicatore su RHO_DC_BASE: -0.005 per giallo, cap -0.03
+    RHO_DC_YELLOW_RATE: float = 0.005
+    RHO_DC_YELLOW_CAP: float = 0.03
+
+
+@dataclass(frozen=True)
+class FoulConfig:
+    """Parametri per l'effetto dei falli sul tot_bayes.
+
+    #5: Falli → correzione leggera tot_bayes.
+    """
+
+    # Soglia falli totali (casa + trasf) per attivare l'effetto
+    THRESHOLD: int = 20               # sotto: nessun effetto
+    # Riduzione tot_bayes per ogni fallo sopra la soglia: -0.3%
+    RATE: float = 0.003
+    # Cap totale riduzione sul tot_bayes (max -5%)
+    CAP: float = 0.05
+
+
+@dataclass(frozen=True)
+class BlockedShotConfig:
+    """Parametri per i tiri bloccati nel calcolo xG.
+
+    #2: Tiri bloccati nel xG accum.
+    """
+
+    # xG per tiro bloccato: minore di SOT (bloccato prima del portiere)
+    # ma maggiore di SOFF (era diretto, non fuori)
+    # Letteratura: ~0.04-0.06 (StatsBomb: blocked shots ≈ 0.05)
+    XG_BLOCKED: float = 0.05
+
+
+@dataclass(frozen=True)
+class OcrCalibrationConfig:
+    """Parametri per la calibrazione OCR prematch e warning divergenza.
+
+    #1: Quote OCR come calibratore Bayesiano prematch.
+    #6: Confidence prematch adattiva con OCR.
+    #12: Warning divergenza quote OCR vs modello.
+    """
+
+    # Peso delle probabilità implicite OCR nel blend prematch xG
+    # 0 = solo linee AH/Total, 1 = solo OCR quote
+    # 0.20: le linee AH sono più affidabili, ma le 1X2 OCR aggiungono un segnale utile
+    XG_OCR_BLEND_WEIGHT: float = 0.20
+
+    # Boost alla confidence prematch quando OCR disponibile con alta affidabilità
+    HIGH_CONF_BOOST: float = 0.15    # +15% confidence con OCR high
+    MEDIUM_CONF_BOOST: float = 0.08  # +8% confidence con OCR medium
+
+    # Soglia divergenza per warning: se |p_model - p_ocr| > threshold → avvisa
+    DIVERGENCE_THRESHOLD: float = 0.15   # 15%
+
+    # Margine bookmaker: prob implicite normalizzate sopra questa soglia
+    # (rimuove l'overround prima del confronto)
+    MIN_OVERROUND_TO_NORMALIZE: float = 0.01
+
+
+@dataclass(frozen=True)
+class StatMomentumConfig:
+    """Parametri per il momentum statistico (attacchi/tiri) blendato con momentum mercato.
+
+    #10: Momentum statistico da attacchi/tiri blendato con momentum mercato.
+    """
+
+    # Peso del momentum statistico vs momentum mercato nel blend finale
+    # 0 = solo mercato, 1 = solo statistiche
+    STAT_WEIGHT: float = 0.25
+
+    # Scala il momentum stat: max contributo = STAT_SCALE (es. 0.5 = fino a +0.5 di momentum)
+    STAT_SCALE: float = 1.0
+
+    # Minuto minimo per attivare il momentum statistico (campione troppo piccolo prima)
+    MIN_MINUTE: int = 15
+
+
 # Istanze globali immutabili — importare da qui
 POISSON   = PoissonConfig()
 DC        = DixonColesConfig()
@@ -686,3 +784,8 @@ CACHE     = CacheConfig()
 CLEAN_SHEET = CleanSheetConfig()
 ENGINE = EngineConfig()
 INPUT_VALIDATION = InputValidationConfig()
+YELLOWS = YellowCardConfig()
+FOULS = FoulConfig()
+BLOCKED = BlockedShotConfig()
+OCR_CALIB = OcrCalibrationConfig()
+STAT_MOM = StatMomentumConfig()

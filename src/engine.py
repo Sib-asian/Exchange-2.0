@@ -58,6 +58,24 @@ class MatchState:
     possesso_a: float = 0.0
     att_pericolosi_h: int = 0  # Dangerous attacks
     att_pericolosi_a: int = 0
+    att_totali_h: int = 0      # Total attacks (att. normali + pericolosi)
+    att_totali_a: int = 0
+    tiri_bloccati_h: int = 0   # #2: Blocked shots
+    tiri_bloccati_a: int = 0
+    gialli_casa: int = 0       # #4/#9: Yellow cards
+    gialli_trasf: int = 0
+    falli_casa: int = 0        # #5: Fouls
+    falli_trasf: int = 0
+
+    # Probabilità implicite OCR prematch (0.0 = non disponibili)
+    # #1 #6 #12: Quote lette dallo screenshot prematch
+    ocr_p1: float = 0.0
+    ocr_px: float = 0.0
+    ocr_p2: float = 0.0
+    ocr_p_over: float = 0.0
+    ocr_p_under: float = 0.0
+    ocr_p_btts: float = 0.0
+    ocr_confidence: str = ""   # "high", "medium", "low", "" = non disponibile
 
     # Bankroll e commissione
     bankroll: float = 1000.0
@@ -160,6 +178,10 @@ class ProbabilitaModello:
     # FIX: Campo per indicare linee probabilmente non aggiornate
     # True se ci sono gol ma le linee sembrano ancora quelle d'apertura
     lines_need_update: bool = False
+
+    # #12: Divergenza quote OCR vs modello (mercato → modello)
+    # Dict {mercato: (p_model, p_ocr, divergenza)} per mercati con divergenza > soglia
+    ocr_divergence: dict = field(default_factory=dict)
 
     # Intervalli di credibilità multi-modello
     credible_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
@@ -311,8 +333,39 @@ def analizza(
         gol_tot=state.gol_casa + state.gol_trasf,
     )
 
+    # 1b. #1 — OCR calibratore prematch: blenda xG base con probabilità implicite OCR.
+    # Solo a minuto=0 con OCR disponibile: le 1X2 OCR forniscono un secondo prior
+    # indipendente dalle linee AH/Total, utile quando le linee asiatiche sono illiquide.
+    # A minuto>0 le linee live sono molto più informative → OCR ignorato.
+    _ocr_available = (state.minuto == 0
+                      and state.ocr_p1 > 0 and state.ocr_p2 > 0
+                      and state.ocr_p1 + state.ocr_px + state.ocr_p2 > 0.5)
+    if _ocr_available:
+        from src.config import OCR_CALIB
+        # Le prob OCR sono già normalizzate (tolto overround nell'inputs.py).
+        # Stima implicita xG da prob 1X2: usa solo il ratio p1/(p1+p2) per estrarre
+        # il differenziale relativo, mantenendo il totale dal modello AH/Total.
+        _sum_12 = state.ocr_p1 + state.ocr_p2
+        if _sum_12 > 0.1:
+            # Rapporto forza implicita: p1/(p1+p2) → indica quanto xG_h deve superare xG_a
+            _ocr_strength_ratio = state.ocr_p1 / _sum_12  # [0,1], 0.5=equilibrio
+            # Converti in differenziale: -0.5 a +0.5 normalizzato
+            _ocr_delta_norm = _ocr_strength_ratio - 0.5   # positivo = casa favorita
+            # xG impliciti dal totale AH (già calcolato) con differenziale OCR
+            _tot_base = xg_h_base + xg_a_base
+            # Differenziale OCR: scala rispetto al totale (un totale di 2.5 con ratio 0.6/0.4
+            # → delta ≈ 0.1 × tot = 0.25 extra per la casa)
+            _ocr_delta = _ocr_delta_norm * _tot_base * 1.0  # 1.0 = scale factor
+            _xg_h_ocr = max(BAYES.TOT_BAYES_MIN, 0.5 * (_tot_base + _ocr_delta))
+            _xg_a_ocr = max(BAYES.TOT_BAYES_MIN, 0.5 * (_tot_base - _ocr_delta))
+            # Blend: OCR_CALIB.XG_OCR_BLEND_WEIGHT verso OCR, resto dal modello
+            _w = OCR_CALIB.XG_OCR_BLEND_WEIGHT
+            xg_h_base = (1.0 - _w) * xg_h_base + _w * _xg_h_ocr
+            xg_a_base = (1.0 - _w) * xg_a_base + _w * _xg_a_ocr
+
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
-    n_shots_tot = state.sot_h + state.soff_h + state.sot_a + state.soff_a
+    n_shots_tot = (state.sot_h + state.soff_h + state.sot_a + state.soff_a
+                   + state.tiri_bloccati_h + state.tiri_bloccati_a)
     if n_shots_tot > 0 and state.minuto > 0:
         xg_h_blend, xg_a_blend, xg_h_accum, xg_a_accum, alpha_t, alpha_d, shot_dom = blend_xg_shots(
             xg_h_base, xg_a_base,
@@ -326,6 +379,13 @@ def analizza(
             possesso_a=state.possesso_a,
             att_pericolosi_h=state.att_pericolosi_h,
             att_pericolosi_a=state.att_pericolosi_a,
+            att_totali_h=state.att_totali_h,
+            att_totali_a=state.att_totali_a,
+            tiri_bloccati_h=state.tiri_bloccati_h,
+            tiri_bloccati_a=state.tiri_bloccati_a,
+            falli_h=state.falli_casa,
+            falli_a=state.falli_trasf,
+            tot_op=state.tot_op,
         )
     else:
         xg_h_blend = xg_h_base
@@ -351,21 +411,68 @@ def analizza(
     # Aggiungiamo un "momentum da gol" che aumenta con i gol segnati.
     momentum_from_goals = min(1.5, gol_tot_scored * 0.3) if gol_tot_scored > 0 else 0.0
 
-    momentum = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto) + momentum_from_goals
-    momentum = min(momentum, MOMENTUM.MOMENTUM_CAP)  # Rispetta il cap
+    momentum_market = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto) + momentum_from_goals
+
+    # #10 — Momentum statistico da attacchi/tiri blendato con momentum mercato.
+    # Se un team domina nettamente in attacchi/tiri, il momentum statistico
+    # amplifica (o smorza) il segnale di mercato.
+    from src.config import STAT_MOM
+    _stat_momentum = 0.0
+    if state.minuto >= STAT_MOM.MIN_MINUTE:
+        _att_per_tot = state.att_pericolosi_h + state.att_pericolosi_a
+        _sot_tot_live = state.sot_h + state.sot_a
+        # Usa att_pericolosi se disponibili, altrimenti SOT
+        if _att_per_tot > 0:
+            _stat_dom = (state.att_pericolosi_h - state.att_pericolosi_a) / _att_per_tot
+        elif _sot_tot_live > 0:
+            _stat_dom = (state.sot_h - state.sot_a) / _sot_tot_live
+        else:
+            _stat_dom = 0.0
+        # Momentum statistico: valore assoluto (intensità di dominanza, non direzione)
+        _stat_momentum = abs(_stat_dom) * STAT_MOM.STAT_SCALE
+
+    momentum = min(
+        MOMENTUM.MOMENTUM_CAP,
+        (1.0 - STAT_MOM.STAT_WEIGHT) * momentum_market + STAT_MOM.STAT_WEIGHT * _stat_momentum,
+    )
 
     flat_lines = abs(delta_ah) < BAYES.FLAT_LINE_THRESHOLD and abs(delta_tot) < BAYES.FLAT_LINE_THRESHOLD
 
     # 4. Time decay + score effect + rossi + momentum dampening
-    # FIX: Passa delta_ah per evitare doppio conteggio score effect
+    # #8: Bypass score effect a minuto=0 — a prematch diff=0 quindi già bypassato,
+    # ma lo passiamo come gol_casa=gol_trasf=0 esplicito per sicurezza.
+    _td_gol_casa = state.gol_casa if state.minuto > 0 else 0
+    _td_gol_trasf = state.gol_trasf if state.minuto > 0 else 0
     xg_h_final, xg_a_final = time_decay_dinamico(
         xg_h_blend, xg_a_blend,
         state.minuto,
-        state.gol_casa, state.gol_trasf,
+        _td_gol_casa, _td_gol_trasf,
         state.rossi_casa, state.rossi_trasf,
         momentum=momentum,
         delta_ah=delta_ah,
     )
+
+    # #4 — Gialli → fattore rischio rosso + rallentamento ritmo.
+    # Applicato DOPO il time-decay per non interferire con score effect / rossi.
+    from src.config import YELLOWS
+    _gialli_tot = state.gialli_casa + state.gialli_trasf
+    if _gialli_tot > 0 and state.minuto > 0:
+        # Riduzione ritmo: molti gialli = gioco più tattico/spezzettato
+        _tempo_red = min(YELLOWS.TEMPO_CAP,
+                         max(0.0, _gialli_tot - YELLOWS.TEMPO_THRESHOLD) * YELLOWS.TEMPO_RATE)
+        if _tempo_red > 0:
+            xg_h_final *= (1.0 - _tempo_red)
+            xg_a_final *= (1.0 - _tempo_red)
+        # Rischio rosso futuro: squadra con più gialli rischia l'espulsione →
+        # leggero abbassamento xG offensivo (più prudente in attacco)
+        _gialli_h = state.gialli_casa
+        _gialli_a = state.gialli_trasf
+        if _gialli_h > 1:
+            _red_risk_h = min(YELLOWS.RED_RISK_CAP, (_gialli_h - 1) * YELLOWS.RED_RISK_PER_YELLOW)
+            xg_h_final *= (1.0 - _red_risk_h)
+        if _gialli_a > 1:
+            _red_risk_a = min(YELLOWS.RED_RISK_CAP, (_gialli_a - 1) * YELLOWS.RED_RISK_PER_YELLOW)
+            xg_a_final *= (1.0 - _red_risk_a)
 
     # 4b. Stale line detection: se le linee non si sono mosse dopo >15 minuti
     # di partita, il mercato è potenzialmente illiquido o sospeso.
@@ -373,7 +480,12 @@ def analizza(
 
     # 5. Calcola parametri condivisi tra i modelli
     from src.models.poisson import rho_dc_dinamico as _calc_rho_dc
-    _rho_dc_shared = _calc_rho_dc(tot_cur_eff, state.minuto, state.gol_casa + state.gol_trasf)
+    # #9: Passa gialli_tot a rho_dc_dinamico per aumentare la correlazione negativa
+    _rho_dc_shared = _calc_rho_dc(
+        tot_cur_eff, state.minuto,
+        state.gol_casa + state.gol_trasf,
+        gialli_tot=state.gialli_casa + state.gialli_trasf,
+    )
 
     # Parametri per il modello Copula
     frac_giocata = state.minuto / 90.0
@@ -510,10 +622,40 @@ def analizza(
     # Fix #6.4: Usa parametro dal config per la radice
     model_confidence = min(1.0, _product ** ENGINE.CONFIDENCE_ROOT_POWER)
 
+    # #6 — Confidence prematch adattiva con OCR.
+    # Se le quote OCR sono disponibili con buona affidabilità, la fiducia
+    # nel modello prematch aumenta (secondo prior indipendente).
+    if _ocr_available and state.minuto == 0:
+        from src.config import OCR_CALIB
+        if state.ocr_confidence == "high":
+            model_confidence = min(1.0, model_confidence + OCR_CALIB.HIGH_CONF_BOOST)
+        elif state.ocr_confidence == "medium":
+            model_confidence = min(1.0, model_confidence + OCR_CALIB.MEDIUM_CONF_BOOST)
+
     # FIX: Rileva se le linee sembrano non aggiornate dopo i gol
     # Se ci sono gol segnati ma le linee sono ancora "flat" (uguale all'apertura),
     # l'utente probabilmente ha dimenticato di aggiornarle.
     lines_need_update = flat_lines and gol_tot_scored > 0 and state.minuto >= 15
+
+    # #12 — Warning divergenza se quote OCR discordano >15% dal modello.
+    # Confronta le probabilità implicite OCR (normalizzate, senza overround)
+    # con quelle del modello. Se divergono >15%, segnala possibile errore.
+    ocr_divergence: dict = {}
+    if (state.ocr_p1 > 0 or state.ocr_p_over > 0 or state.ocr_p_btts > 0):
+        from src.config import OCR_CALIB
+        _ocr_checks = [
+            ("1X2 Casa",      p1,     state.ocr_p1),
+            ("1X2 Pareggio",  px,     state.ocr_px),
+            ("1X2 Trasferta", p2,     state.ocr_p2),
+            ("Over",          p_over, state.ocr_p_over),
+            ("Under",         p_under, state.ocr_p_under),
+            ("BTTS",          p_btts, state.ocr_p_btts),
+        ]
+        for _label, _p_model, _p_ocr in _ocr_checks:
+            if _p_ocr > 0.01 and _p_model > 0.01:
+                _div = abs(_p_model - _p_ocr)
+                if _div > OCR_CALIB.DIVERGENCE_THRESHOLD:
+                    ocr_divergence[_label] = (_p_model, _p_ocr, _div)
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,
@@ -539,4 +681,5 @@ def analizza(
         delta_ah=delta_ah,
         delta_tot=delta_tot,
         lines_need_update=lines_need_update,
+        ocr_divergence=ocr_divergence,
     )

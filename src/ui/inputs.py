@@ -306,9 +306,13 @@ _LIVE_WIDGET_KEYS = [
     "live_minuto", "live_gol_casa", "live_gol_trasf",
     "live_rossi_casa", "live_rossi_trasf",
     "live_sot_h", "live_soff_h", "live_sot_a", "live_soff_a",
+    "live_blk_h", "live_blk_a",
     "live_corner_h", "live_corner_a",
     "live_poss_h", "live_poss_a",
     "live_att_per_h", "live_att_per_a",
+    "live_att_tot_h", "live_att_tot_a",
+    "live_gialli_h", "live_gialli_a",
+    "live_falli_h", "live_falli_a",
 ]
 
 
@@ -330,12 +334,20 @@ def _push_live_data_to_session(data: LiveStatsExtracted) -> None:
     st.session_state["live_soff_h"] = data.tiri_fuori_casa
     st.session_state["live_sot_a"] = data.tiri_porta_trasf
     st.session_state["live_soff_a"] = data.tiri_fuori_trasf
+    st.session_state["live_blk_h"] = data.tiri_bloccati_casa
+    st.session_state["live_blk_a"] = data.tiri_bloccati_trasf
     st.session_state["live_corner_h"] = data.corner_casa
     st.session_state["live_corner_a"] = data.corner_trasf
     st.session_state["live_poss_h"] = data.possesso_casa
     st.session_state["live_poss_a"] = data.possesso_trasf
     st.session_state["live_att_per_h"] = data.attacchi_pericolosi_casa
     st.session_state["live_att_per_a"] = data.attacchi_pericolosi_trasf
+    st.session_state["live_att_tot_h"] = data.attacchi_casa
+    st.session_state["live_att_tot_a"] = data.attacchi_trasf
+    st.session_state["live_gialli_h"] = data.gialli_casa
+    st.session_state["live_gialli_a"] = data.gialli_trasf
+    st.session_state["live_falli_h"] = data.falli_casa
+    st.session_state["live_falli_a"] = data.falli_trasf
 
 
 def render_live_screenshot_upload() -> LiveStatsExtracted | None:
@@ -440,7 +452,7 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
     st.divider()
     st.markdown("**📊 Statistiche Live**")
 
-    # Riga 3: Tiri
+    # Riga 3: Tiri (in porta, fuori, bloccati)
     col_t1, col_t2, col_t3, col_t4 = st.columns(4)
     with col_t1:
         sot_h = st.number_input(
@@ -461,6 +473,19 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
         soff_a = st.number_input(
             "Tiri fuori ✈️", min_value=0,
             key="live_soff_a",
+        )
+
+    col_b1, col_b2, _, _ = st.columns(4)
+    with col_b1:
+        blk_h = st.number_input(
+            "Bloccati 🏠", min_value=0,
+            key="live_blk_h",
+            help="Tiri bloccati dalla difesa (non in porta, non fuori)",
+        )
+    with col_b2:
+        blk_a = st.number_input(
+            "Bloccati ✈️", min_value=0,
+            key="live_blk_a",
         )
 
     # Riga 4: Corner e Possesso
@@ -488,17 +513,47 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
             key="live_poss_a",
         )
 
-    # Riga 5: Attacchi pericolosi
-    col_a1, col_a2 = st.columns(2)
+    # Riga 5: Attacchi (totali e pericolosi)
+    col_a1, col_a2, col_a3, col_a4 = st.columns(4)
     with col_a1:
-        att_per_h = st.number_input(
-            "Att. Pericolosi 🏠",
-            min_value=0, key="live_att_per_h",
+        att_tot_h = st.number_input(
+            "Attacchi 🏠", min_value=0, key="live_att_tot_h",
+            help="Attacchi totali (normali + pericolosi)",
         )
     with col_a2:
+        att_tot_a = st.number_input(
+            "Attacchi ✈️", min_value=0, key="live_att_tot_a",
+        )
+    with col_a3:
+        att_per_h = st.number_input(
+            "Att. Pericol. 🏠", min_value=0, key="live_att_per_h",
+        )
+    with col_a4:
         att_per_a = st.number_input(
-            "Att. Pericolosi ✈️",
-            min_value=0, key="live_att_per_a",
+            "Att. Pericol. ✈️", min_value=0, key="live_att_per_a",
+        )
+
+    # Riga 6: Gialli e Falli
+    col_g1, col_g2, col_f1, col_f2 = st.columns(4)
+    with col_g1:
+        gialli_h = st.number_input(
+            "🟨 Gialli 🏠", min_value=0, max_value=11,
+            key="live_gialli_h",
+        )
+    with col_g2:
+        gialli_a = st.number_input(
+            "🟨 Gialli ✈️", min_value=0, max_value=11,
+            key="live_gialli_a",
+        )
+    with col_f1:
+        falli_h = st.number_input(
+            "Falli 🏠", min_value=0, max_value=40,
+            key="live_falli_h",
+        )
+    with col_f2:
+        falli_a = st.number_input(
+            "Falli ✈️", min_value=0, max_value=40,
+            key="live_falli_a",
         )
 
     return {
@@ -511,12 +566,20 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
         "soff_h": soff_h,
         "sot_a": sot_a,
         "soff_a": soff_a,
+        "tiri_bloccati_h": blk_h,
+        "tiri_bloccati_a": blk_a,
         "corner_h": corner_h,
         "corner_a": corner_a,
         "possesso_h": poss_h,
         "possesso_a": poss_a,
+        "att_totali_h": att_tot_h,
+        "att_totali_a": att_tot_a,
         "att_pericolosi_h": att_per_h,
         "att_pericolosi_a": att_per_a,
+        "gialli_casa": gialli_h,
+        "gialli_trasf": gialli_a,
+        "falli_casa": falli_h,
+        "falli_trasf": falli_a,
     }
 
 
@@ -856,6 +919,7 @@ def build_match_state(
     bankroll: float,
     comm_rate: float,
     shots: tuple[int, int, int, int] | None = None,
+    ocr_data: dict | None = None,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -867,6 +931,7 @@ def build_match_state(
         bankroll: Capitale.
         comm_rate: Commissione.
         shots: (sot_h, soff_h, sot_a, soff_a) — legacy, se None usa match dict.
+        ocr_data: Dict con quote prematch OCR per calibrazione #1/#6/#12.
 
     Returns:
         MatchState validato.
@@ -878,6 +943,34 @@ def build_match_state(
         soff_h = match.get("soff_h", 0)
         sot_a = match.get("sot_a", 0)
         soff_a = match.get("soff_a", 0)
+
+    # Probabilità implicite OCR normalizzate (rimuove overround)
+    ocr_p1 = ocr_px = ocr_p2 = ocr_p_over = ocr_p_under = ocr_p_btts = 0.0
+    ocr_confidence = ""
+    if ocr_data:
+        q1 = ocr_data.get("quota_1", 0.0)
+        qx = ocr_data.get("quota_x", 0.0)
+        q2 = ocr_data.get("quota_2", 0.0)
+        q_over = ocr_data.get("quota_over", 0.0)
+        q_under = ocr_data.get("quota_under", 0.0)
+        q_gg = ocr_data.get("quota_gg", 0.0)
+        ocr_confidence = ocr_data.get("confidence", "")
+        # Normalizza 1X2 (rimuove overround)
+        if q1 > 1.0 and qx > 1.0 and q2 > 1.0:
+            _raw_sum = 1/q1 + 1/qx + 1/q2
+            if _raw_sum > 0:
+                ocr_p1 = (1/q1) / _raw_sum
+                ocr_px = (1/qx) / _raw_sum
+                ocr_p2 = (1/q2) / _raw_sum
+        # Normalizza O/U
+        if q_over > 1.0 and q_under > 1.0:
+            _ou_sum = 1/q_over + 1/q_under
+            if _ou_sum > 0:
+                ocr_p_over = (1/q_over) / _ou_sum
+                ocr_p_under = (1/q_under) / _ou_sum
+        # BTTS (solo Sì)
+        if q_gg > 1.0:
+            ocr_p_btts = 1.0 / q_gg
 
     return MatchState(
         minuto=match["minuto"],
@@ -892,12 +985,27 @@ def build_match_state(
         linea_ou=linea_ou,
         sot_h=sot_h, soff_h=soff_h,
         sot_a=sot_a, soff_a=soff_a,
+        tiri_bloccati_h=match.get("tiri_bloccati_h", 0),
+        tiri_bloccati_a=match.get("tiri_bloccati_a", 0),
         corner_h=match.get("corner_h", 0),
         corner_a=match.get("corner_a", 0),
         possesso_h=match.get("possesso_h", 0.0),
         possesso_a=match.get("possesso_a", 0.0),
         att_pericolosi_h=match.get("att_pericolosi_h", 0),
         att_pericolosi_a=match.get("att_pericolosi_a", 0),
+        att_totali_h=match.get("att_totali_h", 0),
+        att_totali_a=match.get("att_totali_a", 0),
+        gialli_casa=match.get("gialli_casa", 0),
+        gialli_trasf=match.get("gialli_trasf", 0),
+        falli_casa=match.get("falli_casa", 0),
+        falli_trasf=match.get("falli_trasf", 0),
+        ocr_p1=ocr_p1,
+        ocr_px=ocr_px,
+        ocr_p2=ocr_p2,
+        ocr_p_over=ocr_p_over,
+        ocr_p_under=ocr_p_under,
+        ocr_p_btts=ocr_p_btts,
+        ocr_confidence=ocr_confidence,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )

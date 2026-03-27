@@ -38,6 +38,7 @@ from src.ui.outputs import (
     render_mercati_chiusi,
     render_model_confidence,
     render_momentum,
+    render_ocr_divergence_warning,
     render_quote_fair,
     render_red_card_impact,
     render_risk_metrics,
@@ -96,7 +97,10 @@ st.divider()
 if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     try:
-        state = build_match_state(match, lines, linea_ou, bankroll, comm_rate)
+        # Passa i dati OCR prematch (se disponibili) per calibrazione #1/#6/#12
+        _ocr_data = st.session_state.get("extracted_data")
+        _ocr_dict = _ocr_data.to_dict() if (_ocr_data is not None and _ocr_data.extraction_success) else None
+        state = build_match_state(match, lines, linea_ou, bankroll, comm_rate, ocr_data=_ocr_dict)
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
         st.stop()
@@ -113,6 +117,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     # ── Verifica linee non aggiornate (FIX) ───────────────────────────────────
     render_lines_need_update(risultati)
+
+    # ── #12 Warning divergenza OCR vs Modello ────────────────────────────────
+    render_ocr_divergence_warning(risultati)
 
     # ── Quote Fair ───────────────────────────────────────────────────────────
     render_quote_fair(risultati, state.minuto, state.gol_casa, state.gol_trasf, linea_ou)
