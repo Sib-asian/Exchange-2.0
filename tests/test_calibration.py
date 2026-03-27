@@ -118,7 +118,9 @@ class TestBlendXGShots:
         result = blend_xg_shots(1.0, 1.0, 20, 10, 15, 8, 0, 0, 80)
         alpha_t, alpha_d = result[4], result[5]
         assert alpha_t <= SHOTS.ALPHA_T_MAX + 1e-9, f"α_T={alpha_t} supera MAX={SHOTS.ALPHA_T_MAX}"
-        assert alpha_d <= SHOTS.ALPHA_D_MAX + 1e-9, f"α_D={alpha_d} supera MAX={SHOTS.ALPHA_D_MAX}"
+        # alpha_d può ora arrivare fino a ALPHA_D_MAX_QUALITY quando la qualità attacchi è alta
+        assert alpha_d <= SHOTS.ALPHA_D_MAX_QUALITY + 1e-9, \
+            f"α_D={alpha_d} supera ALPHA_D_MAX_QUALITY={SHOTS.ALPHA_D_MAX_QUALITY}"
 
     def test_game_state_leading_home_reduces_away_quality(self):
         """

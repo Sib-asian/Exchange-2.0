@@ -71,6 +71,12 @@ class DixonColesConfig:
     # DC_CORR_FLOOR=0.70: evita correzioni troppo aggressive che rompono la normalizzazione
     DC_CORR_FLOOR: float = 0.70
 
+    # Cartellini gialli: partita tesa → struttura difensiva → rho_DC più negativo
+    # Shift aggiuntivo di -0.010 per ogni giallo sopra soglia (6), cap -0.04.
+    RHO_DC_YELLOW_THRESHOLD: int = 6
+    RHO_DC_YELLOW_SCALE: float = 0.010
+    RHO_DC_YELLOW_MAX: float = 0.040
+
 
 @dataclass(frozen=True)
 class RhoConfig:
@@ -120,6 +126,10 @@ class ShotConfig:
     # xG per tiro fuori porta (StatsBomb open data senza dati posizionali: 0.06-0.10)
     XG_SOFF: float = 0.07
 
+    # xG per tiro bloccato: valore < soff perché il tiro è stato intercettato prima
+    # dello specchio → qualità media inferiore. Letteratura: ~0.03-0.05.
+    XG_BLK: float = 0.04
+
     # Numero di tiri totali per considerare il campione "sufficiente"
     SHOT_INFO_THRESHOLD: int = 15
 
@@ -133,6 +143,10 @@ class ShotConfig:
     # Peso massimo dei tiri sul Differenziale (più informativo del mercato)
     ALPHA_D_MAX: float = 0.70
 
+    # Limite superiore alpha_D quando la qualità degli attacchi è alta
+    # (rapporto att.pericolosi/att.totali elevato → i tiri sono più informativi)
+    ALPHA_D_MAX_QUALITY: float = 0.80
+
     # Smorzamento proiezione tiri: curva esponenziale (regressione alla media)
     # 0.75 a inizio partita → 1.0 a fine (campione ≈ universo).
     # Decay rate 2.0: converge rapidamente dopo il 30' (campione affidabile).
@@ -143,7 +157,13 @@ class ShotConfig:
     # Riduce la varianza delle previsioni shot-based verso il prior di lega.
     # 10% verso la media con campione perfetto; cresce con pochi tiri.
     SHRINKAGE_WEIGHT: float = 0.10
-    LEAGUE_MEAN_RATE: float = 2.7  # gol/90' media top-5 leagues
+    LEAGUE_MEAN_RATE: float = 2.7  # gol/90' media top-5 leagues (fallback)
+
+    # Moltiplicatori qualità tiri basati su rapporto att.pericolosi/att.totali
+    # q_ratio alto (es. 0.40) → attacchi di alta qualità → XG_SOT effettivo più alto
+    # Range: [ATT_QUALITY_MIN_MULT, ATT_QUALITY_MAX_MULT] × XG_SOT base
+    ATT_QUALITY_MIN_MULT: float = 0.85   # qualità minima (pochi pericol. su molti att.)
+    ATT_QUALITY_MAX_MULT: float = 1.15   # qualità massima (quasi tutti pericolosi)
 
     # Correzione game-state differenziata per tipo di tiro
     # SOT (in porta): +10% per gol di vantaggio (contropiede di qualità)
@@ -160,6 +180,18 @@ class TimeDecayConfig:
     # Score effect residuale: cap assoluto (AH live già copre ~80% dell'effetto)
     SCORE_EFFECT_MAX: float = 0.08
     SCORE_EFFECT_BASE: float = 0.07
+
+    # Ritmo di gioco: cartellini gialli sopra soglia → partita spezzata → meno gol
+    # Effetto leggero: max -10% con 12+ gialli totali. Soglia=6 (3 per squadra).
+    YELLOW_RHYTHM_THRESHOLD: int = 6     # gialli totali sopra cui scatta la correzione
+    YELLOW_RHYTHM_RATE: float = 0.008    # riduzione per giallo oltre soglia
+    YELLOW_RHYTHM_MIN: float = 0.90      # floor: max -10%
+
+    # Ritmo di gioco: falli sopra soglia → gioco spezzettato → meno gol
+    # Max -5% con 30+ falli totali. Soglia=20 (10 per squadra).
+    FOUL_RHYTHM_THRESHOLD: int = 20      # falli totali sopra cui scatta la correzione
+    FOUL_RHYTHM_RATE: float = 0.003      # riduzione per fallo oltre soglia
+    FOUL_RHYTHM_MIN: float = 0.95        # floor: max -5%
 
     # Saturazione score effect: 1.5 (più rapida di 2.0 per pressing tardivo)
     SCORE_SATURATION: float = 1.5
@@ -252,6 +284,11 @@ class BayesianConfig:
     NEWTON_MAX_ITER: int = 15
     NEWTON_H: float = 1e-7  # step per derivata numerica
 
+    # Peso della linea O/U estratta da OCR nel blend del prior Bayesiano.
+    # Solo in prematch (minuto=0): blenda tot_op con la linea OCR al 15%.
+    # Conservativo: l'OCR può avere margine o leggere un mercato leggermente diverso.
+    OCR_PRIOR_WEIGHT: float = 0.15
+
 
 @dataclass(frozen=True)
 class MomentumConfig:
@@ -266,6 +303,11 @@ class MomentumConfig:
 
     # Cap del momentum
     MOMENTUM_CAP: float = 6.0
+
+    # Contributo massimo del momentum statistico (dominio tiri/attacchi).
+    # Aggiunto al momentum di mercato quando la dominanza è > 40%.
+    # Conservativo: max +0.5 quando tutta la pressione è da un lato.
+    STAT_MOMENTUM_MAX: float = 0.50
 
     # Soglie interpretative
     STABLE_THRESHOLD: float = 1.0
@@ -622,6 +664,11 @@ class EngineConfig:
     # PREMATCH_TIME_CONF=0.35: nessun tempo giocato, ma linee fresche
     PREMATCH_SHOTS_CONF: float = 0.35
     PREMATCH_TIME_CONF: float = 0.35
+
+    # Boost confidenza prematch quando le quote OCR sono disponibili.
+    # Le quote di bookmaker portano info aggiuntiva (formazioni, meteo, ecc.)
+    # non contenuta nelle linee AH/Total → confidenza sale a 0.50.
+    OCR_PREMATCH_SHOTS_CONF: float = 0.50
 
     # Model confidence: prodotto di 5 componenti, radice 5ª per normalizzare
     # CONFIDENCE_ROOT_POWER=0.20 (= 1/5): radice quinta

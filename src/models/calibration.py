@@ -154,6 +154,8 @@ def calcola_xg_bayesiani(
     minuto: int,
     gol_diff: int = 0,
     gol_tot: int = 0,
+    *,
+    ocr_imp_total: float = 0.0,
 ) -> tuple[float, float]:
     """
     Estrae gli xG impliciti dal blend Bayesiano delle linee di mercato.
@@ -213,6 +215,13 @@ def calcola_xg_bayesiani(
     delta_ah_inner = abs(ah_cur - expected_ah_cur)
     delta_tot_inner = abs(tot_cur - expected_tot_cur)
     flat = delta_ah_inner < BAYES.FLAT_LINE_THRESHOLD and delta_tot_inner < BAYES.FLAT_LINE_THRESHOLD
+
+    # #1: Se quote OCR disponibili e siamo in prematch, blenda tot_op con la linea OCR.
+    # Peso conservativo 15%: l'OCR potrebbe aver letto un mercato leggermente diverso
+    # (es. Asian Total vs European O/U) o avere margine incorporato.
+    # Disabilitato in live (minuto > 0): i tiri diventano la fonte primaria.
+    if ocr_imp_total > 0.5 and minuto == 0:
+        tot_op = (1.0 - BAYES.OCR_PRIOR_WEIGHT) * tot_op + BAYES.OCR_PRIOR_WEIGHT * ocr_imp_total
 
     # FIX: Cap temporale SEMPRE applicato per evitare xG insensati a fine partita.
     # I gol rimanenti non possono superare ~(90-minuto)/90 * TOT_TEMPORAL_MAX.
@@ -341,6 +350,10 @@ def blend_xg_shots(
     possesso_a: float = 0.0,
     att_pericolosi_h: int = 0,
     att_pericolosi_a: int = 0,
+    blk_h: int = 0,
+    blk_a: int = 0,
+    att_h: int = 0,
+    att_a: int = 0,
 ) -> tuple[float, float, float, float, float, float, float]:
     """
     Integra le stime xG da linee di mercato con le evidenze empiriche dei tiri.
@@ -415,8 +428,26 @@ def blend_xg_shots(
         k_sot_h, k_sot_a = 1.0, 1.0
         k_soff_h, k_soff_a = 1.0, 1.0
 
-    xg_h_accum = sot_h * SHOTS.XG_SOT * k_sot_h + soff_h * SHOTS.XG_SOFF * k_soff_h
-    xg_a_accum = sot_a * SHOTS.XG_SOT * k_sot_a + soff_a * SHOTS.XG_SOFF * k_soff_a
+    # #3 / #7: Rapporto att.pericolosi / att.totali → qualità offensiva.
+    # Un team che converte molti attacchi in pericolosi tira meglio → XG_SOT effettivo ↑.
+    # Range: [ATT_QUALITY_MIN_MULT, ATT_QUALITY_MAX_MULT] × XG_SOT_base.
+    def _quality_mult(att_per: int, att_tot: int) -> float:
+        if att_tot <= 0 or att_per <= 0:
+            return 1.0
+        q_ratio = min(1.0, att_per / att_tot)
+        # Scala lineare: q_ratio=0 → MIN_MULT, q_ratio=1 → MAX_MULT
+        return SHOTS.ATT_QUALITY_MIN_MULT + (SHOTS.ATT_QUALITY_MAX_MULT - SHOTS.ATT_QUALITY_MIN_MULT) * q_ratio
+
+    xg_sot_h = SHOTS.XG_SOT * _quality_mult(att_pericolosi_h, att_h)
+    xg_sot_a = SHOTS.XG_SOT * _quality_mult(att_pericolosi_a, att_a)
+
+    # #2: Aggiungi tiri bloccati (XG_BLK < XG_SOFF: bloccati prima dello specchio)
+    xg_h_accum = (sot_h * xg_sot_h * k_sot_h
+                  + soff_h * SHOTS.XG_SOFF * k_soff_h
+                  + blk_h * SHOTS.XG_BLK)
+    xg_a_accum = (sot_a * xg_sot_a * k_sot_a
+                  + soff_a * SHOTS.XG_SOFF * k_soff_a
+                  + blk_a * SHOTS.XG_BLK)
 
     frac_rimasta = max(BAYES.FRAC_RIMASTA_FLOOR, (90.0 - minuto) / 90.0)
 
@@ -453,16 +484,28 @@ def blend_xg_shots(
     n_shots = sot_h + soff_h + sot_a + soff_a
     shot_info = min(1.0, n_shots / SHOTS.SHOT_INFO_THRESHOLD)
 
-    # Shrinkage Bayesiano verso la media di lega (Fix #7).
-    # Con pochi tiri (early game) il campione è rumoroso → maggiore shrinkage.
-    # Con molti tiri (late game) il campione è affidabile → meno shrinkage.
-    # League mean ripartita equamente tra le due squadre.
-    league_mu_rem = SHOTS.LEAGUE_MEAN_RATE * frac_rimasta * 0.5  # per squadra
+    # #11: Shrinkage verso media CONTESTUALE invece di media fissa di lega.
+    # La linea di mercato (mu_h_line + mu_a_line) è il miglior prior per QUESTA gara.
+    # Blend 50/50 tra media fissa di lega e rate implicito dalla linea:
+    # es. gara difensiva con tot_op=2.0 → shrinkage target ~2.35 (non 2.7).
+    line_rate_90 = (mu_h_line + mu_a_line) / max(frac_rimasta, 0.1)  # annualizzato
+    effective_league_rate = 0.5 * SHOTS.LEAGUE_MEAN_RATE + 0.5 * min(4.5, line_rate_90)
+    league_mu_rem = effective_league_rate * frac_rimasta * 0.5  # per squadra
     alpha_shrink = SHOTS.SHRINKAGE_WEIGHT * (1.0 - shot_info)
     mu_h_shots = (1.0 - alpha_shrink) * mu_h_shots + alpha_shrink * league_mu_rem
     mu_a_shots = (1.0 - alpha_shrink) * mu_a_shots + alpha_shrink * league_mu_rem
+
     alpha_t = min(SHOTS.ALPHA_T_MAX, shot_info * frac_giocata * SHOTS.ALPHA_T_RATE)
-    alpha_d = min(SHOTS.ALPHA_D_MAX, shot_info * math.sqrt(frac_giocata))
+
+    # #7: alpha_D cap adattivo: se la qualità degli attacchi è alta, i tiri sono
+    # più informativi del mercato → permettiamo alpha_D fino a ALPHA_D_MAX_QUALITY.
+    q_ratio_avg = 0.5 * (_quality_mult(att_pericolosi_h, att_h)
+                         + _quality_mult(att_pericolosi_a, att_a))
+    # q_ratio_avg ∈ [ATT_QUALITY_MIN_MULT, ATT_QUALITY_MAX_MULT]; normalize a [0,1]
+    _q_range = max(1e-6, SHOTS.ATT_QUALITY_MAX_MULT - SHOTS.ATT_QUALITY_MIN_MULT)
+    _q_norm = (q_ratio_avg - SHOTS.ATT_QUALITY_MIN_MULT) / _q_range  # [0, 1]
+    alpha_d_cap = SHOTS.ALPHA_D_MAX + (SHOTS.ALPHA_D_MAX_QUALITY - SHOTS.ALPHA_D_MAX) * _q_norm
+    alpha_d = min(alpha_d_cap, shot_info * math.sqrt(frac_giocata))
 
     # ── Integrazione statistiche avanzate (corner, possesso, att. pericolosi) ──
     # Queste statistiche agiscono come ULTERIORE evidenza empirica di dominio,

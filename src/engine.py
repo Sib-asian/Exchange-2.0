@@ -59,6 +59,20 @@ class MatchState:
     att_pericolosi_h: int = 0  # Dangerous attacks
     att_pericolosi_a: int = 0
 
+    # Statistiche aggiuntive da OCR (0 = non disponibili)
+    gialli_casa: int = 0       # Cartellini gialli casa
+    gialli_trasf: int = 0      # Cartellini gialli trasferta
+    blk_h: int = 0             # Tiri bloccati casa
+    blk_a: int = 0             # Tiri bloccati trasferta
+    att_h: int = 0             # Attacchi totali casa
+    att_a: int = 0             # Attacchi totali trasferta
+    falli_casa: int = 0        # Falli casa
+    falli_trasf: int = 0       # Falli trasferta
+
+    # Linea O/U estratta da OCR (0 = non disponibile).
+    # Usata come soft prior per la calibrazione Bayesiana in prematch.
+    ocr_imp_total: float = 0.0
+
     # Bankroll e commissione
     bankroll: float = 1000.0
     comm_rate: float = 0.025   # 2.5%
@@ -309,6 +323,7 @@ def analizza(
         state.minuto,
         gol_diff=state.gol_casa - state.gol_trasf,
         gol_tot=state.gol_casa + state.gol_trasf,
+        ocr_imp_total=state.ocr_imp_total,
     )
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
@@ -326,6 +341,10 @@ def analizza(
             possesso_a=state.possesso_a,
             att_pericolosi_h=state.att_pericolosi_h,
             att_pericolosi_a=state.att_pericolosi_a,
+            blk_h=state.blk_h,
+            blk_a=state.blk_a,
+            att_h=state.att_h,
+            att_a=state.att_a,
         )
     else:
         xg_h_blend = xg_h_base
@@ -352,6 +371,23 @@ def analizza(
     momentum_from_goals = min(1.5, gol_tot_scored * 0.3) if gol_tot_scored > 0 else 0.0
 
     momentum = calcola_momentum_mercato(delta_ah, delta_tot, state.minuto) + momentum_from_goals
+
+    # #10: Momentum statistico — aggiunge componente direzionale da tiri/attacchi.
+    # Attiva solo se i dati sono sufficienti (>4 tiri) e la dominanza è significativa (>40%).
+    # Max contributo: STAT_MOMENTUM_MAX = 0.5. Conservativo: il mercato domina (80%+).
+    if n_shots_tot > 4 and state.minuto > 0:
+        _sot_tot = state.sot_h + state.sot_a
+        _shot_dom_abs = abs(state.sot_h - state.sot_a) / _sot_tot if _sot_tot > 0 else 0.0
+        if _shot_dom_abs > 0.40:
+            _stat_contrib = (_shot_dom_abs - 0.40) / 0.60 * MOMENTUM.STAT_MOMENTUM_MAX
+            momentum = momentum + _stat_contrib
+    elif (state.att_pericolosi_h + state.att_pericolosi_a) > 10 and state.minuto > 0:
+        _att_tot = state.att_pericolosi_h + state.att_pericolosi_a
+        _att_dom = abs(state.att_pericolosi_h - state.att_pericolosi_a) / _att_tot
+        if _att_dom > 0.40:
+            _stat_contrib = (_att_dom - 0.40) / 0.60 * MOMENTUM.STAT_MOMENTUM_MAX * 0.70
+            momentum = momentum + _stat_contrib
+
     momentum = min(momentum, MOMENTUM.MOMENTUM_CAP)  # Rispetta il cap
 
     flat_lines = abs(delta_ah) < BAYES.FLAT_LINE_THRESHOLD and abs(delta_tot) < BAYES.FLAT_LINE_THRESHOLD
@@ -365,6 +401,10 @@ def analizza(
         state.rossi_casa, state.rossi_trasf,
         momentum=momentum,
         delta_ah=delta_ah,
+        gialli_casa=state.gialli_casa,
+        gialli_trasf=state.gialli_trasf,
+        falli_casa=state.falli_casa,
+        falli_trasf=state.falli_trasf,
     )
 
     # 4b. Stale line detection: se le linee non si sono mosse dopo >15 minuti
@@ -373,7 +413,10 @@ def analizza(
 
     # 5. Calcola parametri condivisi tra i modelli
     from src.models.poisson import rho_dc_dinamico as _calc_rho_dc
-    _rho_dc_shared = _calc_rho_dc(tot_cur_eff, state.minuto, state.gol_casa + state.gol_trasf)
+    _rho_dc_shared = _calc_rho_dc(
+        tot_cur_eff, state.minuto, state.gol_casa + state.gol_trasf,
+        gialli_totali=state.gialli_casa + state.gialli_trasf,
+    )
 
     # Parametri per il modello Copula
     frac_giocata = state.minuto / 90.0
@@ -495,8 +538,11 @@ def analizza(
         _blend_conf = (alpha_t + alpha_d) / 2.0
     else:
         # Baseline line-only: le linee di mercato sono l'unica fonte di informazione.
-        # Fix #4.1/#4.5: Usa parametri dal config invece di hardcoded
-        _shots_conf = ENGINE.PREMATCH_SHOTS_CONF
+        # #6: Se le quote OCR sono disponibili in prematch, la confidenza sale:
+        # le quote del bookmaker hanno già digerito info su formazioni, meteo, ecc.
+        _ocr_prematch = state.ocr_imp_total > 0 and state.minuto == 0
+        _shots_conf = (ENGINE.OCR_PREMATCH_SHOTS_CONF if _ocr_prematch
+                       else ENGINE.PREMATCH_SHOTS_CONF)
         _blend_conf = max(ENGINE.BLEND_CONF_STALE,
                           (ENGINE.BLEND_CONF_STALE if stale_line
                            else (ENGINE.BLEND_CONF_FLAT if flat_lines

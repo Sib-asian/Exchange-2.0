@@ -38,6 +38,7 @@ from src.ui.outputs import (
     render_mercati_chiusi,
     render_model_confidence,
     render_momentum,
+    render_ocr_market_divergence,
     render_quote_fair,
     render_red_card_impact,
     render_risk_metrics,
@@ -95,8 +96,15 @@ st.divider()
 # ── Analisi ──────────────────────────────────────────────────────────────────
 if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
+    # Linea O/U estratta da OCR: usata come soft prior Bayesiano in prematch.
+    _ocr_total = 0.0
+    if extracted_data is not None and extracted_data.extraction_success:
+        if extracted_data.linea_ou > 0.5:
+            _ocr_total = extracted_data.linea_ou
+
     try:
-        state = build_match_state(match, lines, linea_ou, bankroll, comm_rate)
+        state = build_match_state(match, lines, linea_ou, bankroll, comm_rate,
+                                   ocr_imp_total=_ocr_total)
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
         st.stop()
@@ -108,6 +116,17 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         risultati = analizza(state)
 
     shots = (state.sot_h, state.soff_h, state.sot_a, state.soff_a)
+
+    # #12: Warning se le quote OCR divergono >15% dal modello
+    if extracted_data is not None and extracted_data.extraction_success:
+        render_ocr_market_divergence(
+            risultati,
+            ocr_quota_1=extracted_data.quota_1,
+            ocr_quota_x=extracted_data.quota_x,
+            ocr_quota_2=extracted_data.quota_2,
+            ocr_quota_over=extracted_data.quota_over,
+            ocr_quota_under=extracted_data.quota_under,
+        )
     n_shots_tot = sum(shots)
     gol_attuali = state.gol_casa + state.gol_trasf  # recompute from validated state
 
