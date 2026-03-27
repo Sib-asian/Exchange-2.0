@@ -147,6 +147,14 @@ class ShotConfig:
     # (rapporto att.pericolosi/att.totali elevato → i tiri sono più informativi)
     ALPHA_D_MAX_QUALITY: float = 0.80
 
+    # #2: Late-game dampening di alpha_D per riequilibrare T vs D.
+    # Dopo il 60' (frac=0.67), alpha_D cresce più veloce di alpha_T (sqrt vs lineare).
+    # Applichiamo una riduzione lineare del 25% sull'eccesso dopo frac=0.67,
+    # con floor a 0.75 del valore calcolato per non azzerare mai l'effetto D.
+    ALPHA_D_LATE_GAME_FRAC: float = 0.667   # dal 60' in poi
+    ALPHA_D_LATE_GAME_DAMP: float = 0.25    # riduzione massima del 25% a fine partita
+    ALPHA_D_LATE_GAME_MIN: float = 0.75     # floor: mantiene almeno 75% del valore
+
     # Smorzamento proiezione tiri: curva esponenziale (regressione alla media)
     # 0.75 a inizio partita → 1.0 a fine (campione ≈ universo).
     # Decay rate 2.0: converge rapidamente dopo il 30' (campione affidabile).
@@ -164,6 +172,14 @@ class ShotConfig:
     # Range: [ATT_QUALITY_MIN_MULT, ATT_QUALITY_MAX_MULT] × XG_SOT base
     ATT_QUALITY_MIN_MULT: float = 0.85   # qualità minima (pochi pericol. su molti att.)
     ATT_QUALITY_MAX_MULT: float = 1.15   # qualità massima (quasi tutti pericolosi)
+
+    # #5: Scala temporale adv_shift modulata dalla magnitudine del dominio.
+    # Un dominio 70-30 è significativo anche al 10', mentre 52-48 è rumore.
+    # time_scale = min(1, frac * dom_factor) dove:
+    #   dom_factor ∈ [ADV_DOM_SCALE_MIN, ADV_DOM_SCALE_MAX]
+    # Magnitudine bassa → fattore minimo (conservativo), magnitudine alta → fattore max.
+    ADV_DOM_SCALE_MIN: float = 1.0   # dom=0 (bilanciato) → time_scale = frac × 1.0
+    ADV_DOM_SCALE_MAX: float = 2.0   # dom=1 (totale) → time_scale = frac × 2.0
 
     # Correzione game-state differenziata per tipo di tiro
     # SOT (in porta): +10% per gol di vantaggio (contropiede di qualità)
@@ -457,6 +473,23 @@ class SignalConfig:
     MOMENTUM_STAKE_THRESHOLD: float = 2.5
     MOMENTUM_STAKE_FLOOR: float = 0.40
 
+    # #8: Moltiplicatori momentum per mercato.
+    # 1X2: meno sensibile al momentum (forma pre-partita domina)
+    # BTTS Sì: molto sensibile (gol multipli = alta volatilità)
+    # BTTS No: moderatamente sensibile
+    # Over: neutro
+    # Under: meno sensibile (il momentum Over non implica Under automatico)
+    MOMENTUM_MKT_1X2: float = 0.60
+    MOMENTUM_MKT_BTTS_SI: float = 1.20
+    MOMENTUM_MKT_BTTS_NO: float = 1.10
+    MOMENTUM_MKT_OVER: float = 1.00
+    MOMENTUM_MKT_UNDER: float = 0.80
+
+    # #4: Scala la riduzione da momentum per model_agreement.
+    # Quando i modelli divergono, la stima xG è già incerta → non amplificare con momentum.
+    # effective_momentum = momentum * max(MOMENTUM_AGREE_FLOOR, model_agreement)
+    MOMENTUM_AGREE_FLOOR: float = 0.50   # anche con agreement=0 usa 50% del momentum
+
     # Modulazione edge sulla riduzione momentum:
     # edge forte (>5%) → meno riduzione (il momentum è rumore)
     # edge debole (<2%) → più riduzione (il momentum è segnale)
@@ -605,10 +638,22 @@ class SubstitutionConfig:
 class ConsensusConfig:
     """Parametri per il consenso multi-modello."""
 
-    # Pesi dei 3 modelli nel consensus
+    # Pesi dei 3 modelli nel consensus (default: prematch/early game)
     W_BIVARIATE: float = 0.50   # bivariate Poisson + DC (modello principale)
     W_COPULA: float = 0.30      # CMP + Frank copula (overdispersion)
     W_MARKOV: float = 0.20      # Markov chain (score-dependent rates)
+
+    # #1: Pesi dinamici per fase di gioco.
+    # Prematch/early (<5'): Poisson domina, Markov non ha stato significativo.
+    # Late game (>60'): Markov eccelle con punteggio attuale come contesto.
+    W_BP_EARLY: float = 0.55    # Bivariate Poisson early game
+    W_COP_EARLY: float = 0.35   # Copula early game
+    W_MK_EARLY: float = 0.10    # Markov early (pochi eventi, contributo minimo)
+    W_BP_LATE: float = 0.35     # Bivariate Poisson late game
+    W_COP_LATE: float = 0.25    # Copula late game
+    W_MK_LATE: float = 0.40     # Markov late (punteggio fissato → molto informativo)
+    EARLY_GAME_MINUTE: int = 5   # Sotto questo minuto → pesi early
+    LATE_GAME_MINUTE: int = 60   # Sopra questo minuto → pesi late
 
     # Calibrazione isotonica
     DRAW_SHRINKAGE: float = 0.97  # riduzione draw (-3%)
@@ -736,6 +781,18 @@ class OcrQuotesConfig:
     # >1.12 su mercati a due vie → vig eccessivo.
     MAX_OVERROUND_3WAY: float = 1.30
     MAX_OVERROUND_2WAY: float = 1.12
+
+    # #3: Scaling qualità basato sull'overround effettivo.
+    # Overround basso (1-2%) → quote molto efficienti → peso pieno.
+    # Overround alto (vicino al cap) → peso ridotto proporzionalmente.
+    # Formula: quality = 1 - min(MAX_PENALTY, (overround-1) * RATE)
+    # Per O/U a due vie: overround 1.02 → quality=0.97, overround 1.10 → quality=0.80
+    TOTAL_QUALITY_OVERROUND_RATE: float = 2.0    # scala per O/U (2 vie)
+    TOTAL_QUALITY_MAX_PENALTY: float = 0.20      # max riduzione peso O/U (-20%)
+    DELTA_QUALITY_OVERROUND_RATE: float = 0.67   # scala per 1X2 (3 vie, overround più alto)
+    DELTA_QUALITY_MAX_PENALTY: float = 0.20      # max riduzione peso 1X2 (-20%)
+    BTTS_QUALITY_OVERROUND_RATE: float = 3.0     # scala per GG/NG (2 vie, più sensibile)
+    BTTS_QUALITY_MAX_PENALTY: float = 0.20       # max riduzione peso BTTS (-20%)
 
 
 # Istanze globali immutabili — importare da qui

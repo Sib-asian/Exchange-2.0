@@ -330,12 +330,19 @@ def analizza(
     from src.models.calibration import estrai_segnali_ocr_da_quote
     _ocr_total_quotes = 0.0
     _ocr_delta_quotes = 0.0
+    _ocr_overround_ou = 0.0
+    _ocr_overround_1x2 = 0.0
     if state.minuto == 0:
         _ocr_total_quotes, _ocr_delta_quotes = estrai_segnali_ocr_da_quote(
             state.ocr_quota_1, state.ocr_quota_x, state.ocr_quota_2,
             state.ocr_quota_over, state.ocr_quota_under,
             state.linea_ou,
         )
+        # #3: Calcola overround per quality-aware blending in calcola_xg_bayesiani()
+        if state.ocr_quota_over > 1.0 and state.ocr_quota_under > 1.0:
+            _ocr_overround_ou = 1.0 / state.ocr_quota_over + 1.0 / state.ocr_quota_under
+        if state.ocr_quota_1 > 1.0 and state.ocr_quota_x > 1.0 and state.ocr_quota_2 > 1.0:
+            _ocr_overround_1x2 = 1.0 / state.ocr_quota_1 + 1.0 / state.ocr_quota_x + 1.0 / state.ocr_quota_2
 
     # 1. xG da linee (prior bayesiano)
     xg_h_base, xg_a_base = calcola_xg_bayesiani(
@@ -347,6 +354,8 @@ def analizza(
         ocr_imp_total=state.ocr_imp_total,
         ocr_total_quotes=_ocr_total_quotes,
         ocr_delta_quotes=_ocr_delta_quotes,
+        ocr_overround_ou=_ocr_overround_ou,
+        ocr_overround_1x2=_ocr_overround_1x2,
     )
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
@@ -521,11 +530,19 @@ def analizza(
                         f"Model {model_name} failed: {e}"
                     )
 
-    # 8. Consensus multi-modello: media pesata
+    # 8. Consensus multi-modello: media pesata con pesi dinamici per fase di gioco.
+    # #1: Premi la Markov chain nel tardo gioco (punteggio fisso → molto informativa)
+    # e il Bivariate Poisson in prematch/early (nessuno stato significativo).
+    if state.minuto < CONSENSUS.EARLY_GAME_MINUTE:
+        _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_EARLY, CONSENSUS.W_COP_EARLY, CONSENSUS.W_MK_EARLY
+    elif state.minuto > CONSENSUS.LATE_GAME_MINUTE:
+        _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_LATE, CONSENSUS.W_COP_LATE, CONSENSUS.W_MK_LATE
+    else:
+        _w_bp, _w_cop, _w_mk = CONSENSUS.W_BIVARIATE, CONSENSUS.W_COPULA, CONSENSUS.W_MARKOV
     consensus_probs = compute_consensus(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
-        weights=(CONSENSUS.W_BIVARIATE, CONSENSUS.W_COPULA, CONSENSUS.W_MARKOV),
+        weights=(_w_bp, _w_cop, _w_mk),
     )
 
     # 9. Calibrazione isotonica
@@ -544,13 +561,16 @@ def analizza(
         _overround_btts = 1.0 / state.ocr_quota_gg + 1.0 / state.ocr_quota_ng
         if _overround_btts <= OCR_QUOTES.MAX_OVERROUND_2WAY:
             _p_gg_ocr = _devig_two_way(state.ocr_quota_gg, state.ocr_quota_ng)
-            _w_btts = OCR_QUOTES.BTTS_PRIOR_WEIGHT
+            # #3: Peso scalato per qualità dell'overround BTTS
+            _quality_btts = 1.0 - min(OCR_QUOTES.BTTS_QUALITY_MAX_PENALTY,
+                                       max(0.0, (_overround_btts - 1.0) * OCR_QUOTES.BTTS_QUALITY_OVERROUND_RATE))
+            _w_btts = OCR_QUOTES.BTTS_PRIOR_WEIGHT * _quality_btts
             p_btts = (1.0 - _w_btts) * p_btts + _w_btts * _p_gg_ocr
 
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
-    # Fix #2.7: Usa funzione helper per costruire la matrice consensus
+    # Fix #2.7: Usa funzione helper per costruire la matrice consensus (pesi dinamici)
     full_consensus = _build_consensus_matrix(full_bp, full_copula, full_markov,
-                                              CONSENSUS.W_BIVARIATE, CONSENSUS.W_COPULA, CONSENSUS.W_MARKOV)
+                                              _w_bp, _w_cop, _w_mk)
     full_matrix = full_consensus if full_consensus else full_bp
     top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
 
@@ -591,10 +611,13 @@ def analizza(
     # Fix #6.4: Usa parametro dal config per la radice
     model_confidence = min(1.0, _product ** ENGINE.CONFIDENCE_ROOT_POWER)
 
-    # FIX: Rileva se le linee sembrano non aggiornate dopo i gol
-    # Se ci sono gol segnati ma le linee sono ancora "flat" (uguale all'apertura),
-    # l'utente probabilmente ha dimenticato di aggiornarle.
-    lines_need_update = flat_lines and gol_tot_scored > 0 and state.minuto >= 15
+    # FIX: Rileva se le linee sembrano non aggiornate dopo i gol.
+    # Caso 1: linee flat + gol segnati (mercato non ha reagito)
+    # Caso 2: #6 molti gol (≥3) senza adeguato movimento di linea, anche dal min 10.
+    lines_need_update = (
+        (flat_lines and gol_tot_scored > 0 and state.minuto >= 15)
+        or (gol_tot_scored >= 3 and abs(delta_ah) < 0.5 and state.minuto >= 10)
+    )
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,

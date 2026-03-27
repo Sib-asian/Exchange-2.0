@@ -103,9 +103,10 @@ def markov_score_distribution(
             p_a_raw = min(0.20, la * dt)
 
             # Correzione DC per punteggi bassi: riduce la probabilità
-            # di gol simultanei quando il totale cumulato è basso.
-            total_so_far = gol_h + gh + gol_a + ga
-            if total_so_far <= 1:
+            # di gol simultanei quando i gol RIMANENTI sono bassi (gh,ga ∈ {0,1}).
+            # FIX: usa gol rimanenti (gh, ga), non il totale cumulato (gol_h+gh+gol_a+ga),
+            # coerente con la tau-correction DC che si applica a i,j ∈ {0,1}.
+            if gh <= 1 and ga <= 1:
                 # Applica correzione DC: rho_dc < 0 → meno prob simultanea
                 # Redistribuisce la riduzione del joint verso i gol singoli.
                 joint_reduction = p_h_raw * p_a_raw * (1.0 - dc_corr_low)
