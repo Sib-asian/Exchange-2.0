@@ -569,16 +569,32 @@ def genera_segnali_avanzati(
 
     soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement)
     kelly_frac = calcola_kelly_fraction(minuto, n_shots_tot, model_confidence)
-    momentum_factor = max(
-        SIGNALS.MOMENTUM_STAKE_FLOOR,
-        1.0 - SIGNALS.MOMENTUM_STAKE_REDUCTION_RATE * max(0.0, momentum - SIGNALS.MOMENTUM_STAKE_THRESHOLD),
-    )
+
+    # #4: Scala il momentum effettivo per model_agreement.
+    # Quando i modelli divergono, la stima xG è già incerta → non amplificare con momentum.
+    _agree_scale = max(SIGNALS.MOMENTUM_AGREE_FLOOR, model_agreement)
+    _effective_momentum = momentum * _agree_scale
+
+    # #8: Momentum factor differenziato per mercato.
+    # 1X2 è meno sensibile al momentum (forma pre-partita domina).
+    # BTTS Sì è molto sensibile (richiede gol multipli = alta volatilità).
+    def _mf(market_mult: float) -> float:
+        return max(
+            SIGNALS.MOMENTUM_STAKE_FLOOR,
+            1.0 - SIGNALS.MOMENTUM_STAKE_REDUCTION_RATE
+                  * max(0.0, _effective_momentum - SIGNALS.MOMENTUM_STAKE_THRESHOLD)
+                  * market_mult,
+        )
+
     segnali: list[Signal] = []
 
-    def _valuta(etichetta: str, prob: float, q_exc: float, soglia: float, back_only: bool = False) -> None:
+    def _valuta(etichetta: str, prob: float, q_exc: float, soglia: float,
+                back_only: bool = False, mf: float | None = None) -> None:
         s = valuta_mercato(
             etichetta, prob, q_exc, soglia,
-            bankroll, comm_rate, kelly_frac, momentum_factor, back_only,
+            bankroll, comm_rate, kelly_frac,
+            mf if mf is not None else _mf(SIGNALS.MOMENTUM_MKT_OVER),
+            back_only,
             minuto=minuto,
             model_confidence=model_confidence,
         )
@@ -586,10 +602,10 @@ def genera_segnali_avanzati(
             segnali.append(s)
 
     # 1X2
-    _valuta("1 Casa", prob_1, quotes.q_1, soglie["1x2"])
-    _valuta("2 Trasf.", prob_2, quotes.q_2, soglie["1x2"])
+    _valuta("1 Casa", prob_1, quotes.q_1, soglie["1x2"], mf=_mf(SIGNALS.MOMENTUM_MKT_1X2))
+    _valuta("2 Trasf.", prob_2, quotes.q_2, soglie["1x2"], mf=_mf(SIGNALS.MOMENTUM_MKT_1X2))
     if quotes.q_x > 1.0:
-        _valuta("X Pareggio", prob_x, quotes.q_x, soglie["1x2"])
+        _valuta("X Pareggio", prob_x, quotes.q_x, soglie["1x2"], mf=_mf(SIGNALS.MOMENTUM_MKT_1X2))
 
     # Over/Under
     # LAY Over = scommettere che non arriveranno abbastanza gol = equivalente a BACK Under.
@@ -598,13 +614,18 @@ def genera_segnali_avanzati(
     # mancanti, dove la liquidità del mercato Over è superiore e il LAY è più efficiente.
     gol_mancanti = soglie["gol_mancanti"]
     if minuto >= SIGNALS.LATE_GAME_LAY_OVER_MINUTE and gol_mancanti >= SIGNALS.LATE_GAME_LAY_OVER_GOALS:
-        _valuta(f"Over {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"], back_only=False)
+        _valuta(f"Over {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"],
+                back_only=False, mf=_mf(SIGNALS.MOMENTUM_MKT_OVER))
     else:
-        _valuta(f"Over {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"], back_only=True)
-    _valuta(f"Under {linea_ou}", prob_under, quotes.q_under, soglie["ou_under"])
+        _valuta(f"Over {linea_ou}", prob_over, quotes.q_over, soglie["ou_over"],
+                back_only=True, mf=_mf(SIGNALS.MOMENTUM_MKT_OVER))
+    _valuta(f"Under {linea_ou}", prob_under, quotes.q_under, soglie["ou_under"],
+            mf=_mf(SIGNALS.MOMENTUM_MKT_UNDER))
 
     # BTTS
-    _valuta("BTTS Sì", prob_btts, quotes.q_btts_si, soglie["btts_si"])
-    _valuta("BTTS No", 1.0 - prob_btts, quotes.q_btts_no, soglie["btts_no"])
+    _valuta("BTTS Sì", prob_btts, quotes.q_btts_si, soglie["btts_si"],
+            mf=_mf(SIGNALS.MOMENTUM_MKT_BTTS_SI))
+    _valuta("BTTS No", 1.0 - prob_btts, quotes.q_btts_no, soglie["btts_no"],
+            mf=_mf(SIGNALS.MOMENTUM_MKT_BTTS_NO))
 
     return _filtra_segnali_coerenti(segnali)

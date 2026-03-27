@@ -269,24 +269,45 @@ class TestBlendXGShotsSimulation:
     """Simulazione del blend tiri/linee in diversi scenari di partita."""
 
     def test_progressive_shot_weight(self):
-        """Il peso dei tiri deve crescere col tempo e col numero di tiri."""
+        """Il peso dei tiri deve crescere col tempo e col numero di tiri.
+
+        alpha_T è sempre monotonicamente crescente.
+        alpha_D cresce fino al 60' (ALPHA_D_LATE_GAME_FRAC=0.667), poi può
+        diminuire leggermente per il late-game dampening (miglioramento #2).
+        """
         alphas_t = []
         alphas_d = []
-        for m in [15, 30, 45, 60, 75]:
+        minutes = [15, 30, 45, 60, 75]
+        for m in minutes:
             # Tiri proporzionali al minuto
             n = int(m * 0.3)
             result = blend_xg_shots(1.0, 1.0, n, n // 2, n, n // 2, 0, 0, m)
             alphas_t.append(result[4])
             alphas_d.append(result[5])
 
-        # Alpha deve crescere monotonicamente
+        # alpha_T deve crescere monotonicamente (nessun dampening sul Total)
         for i in range(1, len(alphas_t)):
             assert alphas_t[i] >= alphas_t[i - 1] - 1e-9, (
                 f"alpha_t non crescente: {alphas_t}"
             )
-            assert alphas_d[i] >= alphas_d[i - 1] - 1e-9, (
-                f"alpha_d non crescente: {alphas_d}"
-            )
+
+        # alpha_D cresce mentre entrambi i minuti sono sotto la soglia late-game (~60')
+        # e può diminuire quando il minuto corrente supera ALPHA_D_LATE_GAME_FRAC.
+        from src.config import SHOTS
+        late_frac = SHOTS.ALPHA_D_LATE_GAME_FRAC  # 0.667 ≈ 60'
+        for i in range(1, len(minutes)):
+            frac_cur = minutes[i] / 90.0
+            if frac_cur <= late_frac:
+                # Entrambi i minuti ancora in early/mid: alpha_D deve crescere
+                assert alphas_d[i] >= alphas_d[i - 1] - 1e-9, (
+                    f"alpha_d non crescente prima del late-game: {alphas_d}"
+                )
+            else:
+                # Minuto corrente oltre la soglia: dampening attivo → alpha_D ≤ valore precedente
+                max_allowed = alphas_d[i - 1] * 1.01  # tolleranza 1% floating point
+                assert alphas_d[i] <= max_allowed, (
+                    f"alpha_d in late game non dampato: {alphas_d}"
+                )
 
     def test_game_state_symmetric(self):
         """L'effetto game-state deve essere simmetrico."""

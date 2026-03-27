@@ -280,6 +280,8 @@ def calcola_xg_bayesiani(
     ocr_imp_total: float = 0.0,
     ocr_total_quotes: float = 0.0,
     ocr_delta_quotes: float = 0.0,
+    ocr_overround_ou: float = 0.0,
+    ocr_overround_1x2: float = 0.0,
 ) -> tuple[float, float]:
     """
     Estrae gli xG impliciti dal blend Bayesiano delle linee di mercato.
@@ -348,16 +350,30 @@ def calcola_xg_bayesiani(
         tot_op = (1.0 - BAYES.OCR_PRIOR_WEIGHT) * tot_op + BAYES.OCR_PRIOR_WEIGHT * ocr_imp_total
 
     # Blend con total implicito dalle quote O/U bookmaker (più preciso della linea grezza).
+    # #3: Peso scalato per qualità: overround basso → più informativo → peso maggiore.
     if ocr_total_quotes > 0.5 and minuto == 0:
         from src.config import OCR_QUOTES
-        tot_op = (1.0 - OCR_QUOTES.TOTAL_WEIGHT) * tot_op + OCR_QUOTES.TOTAL_WEIGHT * ocr_total_quotes
+        if ocr_overround_ou > 1.0:
+            _quality_ou = 1.0 - min(OCR_QUOTES.TOTAL_QUALITY_MAX_PENALTY,
+                                    max(0.0, (ocr_overround_ou - 1.0) * OCR_QUOTES.TOTAL_QUALITY_OVERROUND_RATE))
+            _total_w = OCR_QUOTES.TOTAL_WEIGHT * _quality_ou
+        else:
+            _total_w = OCR_QUOTES.TOTAL_WEIGHT
+        tot_op = (1.0 - _total_w) * tot_op + _total_w * ocr_total_quotes
 
     # Blend con delta implicito dalle quote 1X2 → aggiusta ah_op.
     # ocr_delta > 0: casa favorita. Convenzione AH: fair_ah ≈ -delta.
+    # #3: Peso scalato per qualità: overround basso → più informativo → peso maggiore.
     if abs(ocr_delta_quotes) > 0.05 and minuto == 0:
         from src.config import OCR_QUOTES
+        if ocr_overround_1x2 > 1.0:
+            _quality_1x2 = 1.0 - min(OCR_QUOTES.DELTA_QUALITY_MAX_PENALTY,
+                                      max(0.0, (ocr_overround_1x2 - 1.0) * OCR_QUOTES.DELTA_QUALITY_OVERROUND_RATE))
+            _delta_w = OCR_QUOTES.DELTA_WEIGHT * _quality_1x2
+        else:
+            _delta_w = OCR_QUOTES.DELTA_WEIGHT
         ocr_ah_implied = -ocr_delta_quotes
-        ah_op = (1.0 - OCR_QUOTES.DELTA_WEIGHT) * ah_op + OCR_QUOTES.DELTA_WEIGHT * ocr_ah_implied
+        ah_op = (1.0 - _delta_w) * ah_op + _delta_w * ocr_ah_implied
 
     # FIX: Cap temporale SEMPRE applicato per evitare xG insensati a fine partita.
     # I gol rimanenti non possono superare ~(90-minuto)/90 * TOT_TEMPORAL_MAX.
@@ -649,6 +665,12 @@ def blend_xg_shots(
     _q_norm = (q_ratio_avg - SHOTS.ATT_QUALITY_MIN_MULT) / _q_range  # [0, 1]
     alpha_d_cap = SHOTS.ALPHA_D_MAX + (SHOTS.ALPHA_D_MAX_QUALITY - SHOTS.ALPHA_D_MAX) * _q_norm
     alpha_d = min(alpha_d_cap, shot_info * math.sqrt(frac_giocata))
+    # #2: Late-game dampening di alpha_D: dopo il 60', D cresce più veloce di T (sqrt vs lineare).
+    # Riduciamo progressivamente alpha_D nell'ultimo terzo per ribilanciare T vs D.
+    if frac_giocata > SHOTS.ALPHA_D_LATE_GAME_FRAC:
+        _excess = (frac_giocata - SHOTS.ALPHA_D_LATE_GAME_FRAC) / (1.0 - SHOTS.ALPHA_D_LATE_GAME_FRAC)
+        _damp = max(SHOTS.ALPHA_D_LATE_GAME_MIN, 1.0 - SHOTS.ALPHA_D_LATE_GAME_DAMP * _excess)
+        alpha_d *= _damp
 
     # ── Integrazione statistiche avanzate (corner, possesso, att. pericolosi) ──
     # Queste statistiche agiscono come ULTERIORE evidenza empirica di dominio,
@@ -686,8 +708,14 @@ def blend_xg_shots(
         if adv_signals:
             # Media pesata dei segnali disponibili, normalizzata
             adv_dom = sum(adv_signals) / len(adv_signals)
-            # Scale col tempo: early game = poco peso, late game = peso pieno
-            time_scale = min(1.0, frac_giocata * 1.5)
+            # #5: Scale col tempo E con la magnitudine del dominio.
+            # Un dominio netto (70-30 possesso) è significativo anche al 10';
+            # un dominio quasi nullo (52-48) è rumore anche al 70'.
+            # dom_factor ∈ [ADV_DOM_SCALE_MIN, ADV_DOM_SCALE_MAX] in base a |adv_dom|.
+            adv_dom_abs = abs(adv_dom)
+            dom_factor = (SHOTS.ADV_DOM_SCALE_MIN
+                          + (SHOTS.ADV_DOM_SCALE_MAX - SHOTS.ADV_DOM_SCALE_MIN) * adv_dom_abs)
+            time_scale = min(1.0, frac_giocata * dom_factor)
             # Shift effettivo sul mu per squadra
             adv_shift = adv_dom * _ADV_STATS_MAX_SHIFT * time_scale * (mu_h_shots + mu_a_shots)
             mu_h_shots = max(POISSON.EPS, mu_h_shots + adv_shift)
