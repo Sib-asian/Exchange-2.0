@@ -366,8 +366,15 @@ def calcola_xg_bayesiani(
     _tot_cap = max(BAYES.TOT_BAYES_MIN, _mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
 
     if flat:
-        ah_bayes = float(ah_cur)
-        tot_bayes = min(max(BAYES.TOT_BAYES_MIN, float(tot_cur)), _tot_cap)  # Cap applicato!
+        # FIX: a prematch (minuto=0) usiamo ah_op/tot_op (che possono essere già stati
+        # aggiustati dall'OCR blend) invece di ah_cur/tot_cur (originali non aggiustati).
+        # In live con linee flat usiamo ah_cur/tot_cur come prima.
+        if minuto == 0:
+            ah_bayes = float(ah_op)
+            tot_bayes = min(max(BAYES.TOT_BAYES_MIN, float(tot_op)), _tot_cap)
+        else:
+            ah_bayes = float(ah_cur)
+            tot_bayes = min(max(BAYES.TOT_BAYES_MIN, float(tot_cur)), _tot_cap)
     else:
         ah_bayes = (ah_op * frac_rimasta) * w_op + ah_cur * w_cur
         tot_bayes_raw = (tot_op * frac_rimasta) * w_op + tot_cur * w_cur
