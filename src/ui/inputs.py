@@ -444,22 +444,22 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
     col_t1, col_t2, col_t3, col_t4 = st.columns(4)
     with col_t1:
         sot_h = st.number_input(
-            "Tiri porta 🏠", value=data.tiri_porta_casa, min_value=0,
+            "Tiri porta 🏠", min_value=0,
             key="live_sot_h",
         )
     with col_t2:
         soff_h = st.number_input(
-            "Tiri fuori 🏠", value=data.tiri_fuori_casa, min_value=0,
+            "Tiri fuori 🏠", min_value=0,
             key="live_soff_h",
         )
     with col_t3:
         sot_a = st.number_input(
-            "Tiri porta ✈️", value=data.tiri_porta_trasf, min_value=0,
+            "Tiri porta ✈️", min_value=0,
             key="live_sot_a",
         )
     with col_t4:
         soff_a = st.number_input(
-            "Tiri fuori ✈️", value=data.tiri_fuori_trasf, min_value=0,
+            "Tiri fuori ✈️", min_value=0,
             key="live_soff_a",
         )
 
@@ -467,23 +467,23 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
     col_c1, col_c2, col_p1, col_p2 = st.columns(4)
     with col_c1:
         corner_h = st.number_input(
-            "Corner 🏠", value=data.corner_casa, min_value=0,
+            "Corner 🏠", min_value=0,
             key="live_corner_h",
         )
     with col_c2:
         corner_a = st.number_input(
-            "Corner ✈️", value=data.corner_trasf, min_value=0,
+            "Corner ✈️", min_value=0,
             key="live_corner_a",
         )
     with col_p1:
         poss_h = st.number_input(
-            "Possesso% 🏠", value=data.possesso_casa,
+            "Possesso% 🏠",
             min_value=0.0, max_value=100.0, step=1.0,
             key="live_poss_h",
         )
     with col_p2:
         poss_a = st.number_input(
-            "Possesso% ✈️", value=data.possesso_trasf,
+            "Possesso% ✈️",
             min_value=0.0, max_value=100.0, step=1.0,
             key="live_poss_a",
         )
@@ -492,12 +492,12 @@ def _render_live_stats_panel(data: LiveStatsExtracted) -> dict:
     col_a1, col_a2 = st.columns(2)
     with col_a1:
         att_per_h = st.number_input(
-            "Att. Pericolosi 🏠", value=data.attacchi_pericolosi_casa,
+            "Att. Pericolosi 🏠",
             min_value=0, key="live_att_per_h",
         )
     with col_a2:
         att_per_a = st.number_input(
-            "Att. Pericolosi ✈️", value=data.attacchi_pericolosi_trasf,
+            "Att. Pericolosi ✈️",
             min_value=0, key="live_att_per_a",
         )
 
