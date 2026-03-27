@@ -539,8 +539,8 @@ def analizza(
     # Le quote GG/NG contengono informazione su formazioni e stile di gioco
     # non catturata dalle linee AH/Total.
     if state.minuto == 0 and state.ocr_quota_gg > 1.0 and state.ocr_quota_ng > 1.0:
-        from src.models.calibration import _devig_two_way
         from src.config import OCR_QUOTES
+        from src.models.calibration import _devig_two_way
         _overround_btts = 1.0 / state.ocr_quota_gg + 1.0 / state.ocr_quota_ng
         if _overround_btts <= OCR_QUOTES.MAX_OVERROUND_2WAY:
             _p_gg_ocr = _devig_two_way(state.ocr_quota_gg, state.ocr_quota_ng)
