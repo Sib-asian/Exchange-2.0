@@ -9,7 +9,15 @@ Verifica:
 
 import math
 
-from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
+from src.models.calibration import (
+    _devig_three_way,
+    _devig_two_way,
+    _p_home_win_simple,
+    _poisson_pmf_k,
+    blend_xg_shots,
+    calcola_xg_bayesiani,
+    estrai_segnali_ocr_da_quote,
+)
 
 # ---------------------------------------------------------------------------
 # calcola_xg_bayesiani
@@ -143,3 +151,136 @@ class TestBlendXGShots:
         # I valori non possono essere infiniti
         assert math.isfinite(result[0])
         assert math.isfinite(result[1])
+
+
+# ---------------------------------------------------------------------------
+# Funzioni helper OCR quote
+# ---------------------------------------------------------------------------
+
+class TestDevigTwoWay:
+    def test_symmetric_quotes_give_half(self):
+        """Quote uguali → p = 0.5."""
+        assert abs(_devig_two_way(2.0, 2.0) - 0.5) < 1e-9
+
+    def test_favorite_higher_probability(self):
+        """Quota bassa → probabilità alta."""
+        p = _devig_two_way(1.50, 2.50)
+        assert p > 0.5
+
+    def test_sums_with_complement(self):
+        """P(1) + P(2) deve essere 1.0 (dopo devig)."""
+        p1 = _devig_two_way(1.70, 2.10)
+        p2 = _devig_two_way(2.10, 1.70)
+        assert abs(p1 + p2 - 1.0) < 1e-9
+
+    def test_invalid_quote_returns_half(self):
+        """Quote <= 1.0 devono restituire 0.5."""
+        assert _devig_two_way(0.9, 2.0) == 0.5
+        assert _devig_two_way(2.0, 1.0) == 0.5
+
+
+class TestDevigThreeWay:
+    def test_sum_to_one(self):
+        """Le tre probabilità devono sommare a 1.0."""
+        p1, px, p2 = _devig_three_way(2.10, 3.40, 3.20)
+        assert abs(p1 + px + p2 - 1.0) < 1e-9
+
+    def test_favorite_higher_probability(self):
+        """La quota più bassa deve dare la probabilità più alta."""
+        p1, px, p2 = _devig_three_way(1.80, 3.60, 4.50)
+        assert p1 > px and p1 > p2
+
+    def test_invalid_quote_returns_uniform(self):
+        """Quote invalide → distribuzione uniforme."""
+        p1, px, p2 = _devig_three_way(0.9, 3.40, 3.20)
+        assert abs(p1 - 1 / 3) < 1e-9
+
+
+class TestPoissonPmfK:
+    def test_pmf_sums_to_one(self):
+        """Somma delle PMF deve essere ≈ 1."""
+        mu = 2.5
+        total = sum(_poisson_pmf_k(mu, k) for k in range(30))
+        assert abs(total - 1.0) < 1e-6
+
+    def test_mu_zero_returns_one_at_k0(self):
+        """Con mu=0, solo P(X=0)=1."""
+        assert _poisson_pmf_k(0, 0) == 1.0
+        assert _poisson_pmf_k(0, 1) == 0.0
+
+    def test_positive_values(self):
+        """Le PMF devono essere sempre non-negative."""
+        for k in range(10):
+            assert _poisson_pmf_k(1.5, k) >= 0.0
+
+
+class TestPHomeWinSimple:
+    def test_equal_teams_near_half(self):
+        """Squadre uguali → P(home win) < 0.5 (pareggi abbassano la prob)."""
+        p = _p_home_win_simple(1.5, 1.5)
+        assert 0.3 < p < 0.5
+
+    def test_stronger_home_higher_prob(self):
+        """Casa più forte → P(home win) maggiore."""
+        p_even = _p_home_win_simple(1.5, 1.5)
+        p_home_fav = _p_home_win_simple(2.0, 1.0)
+        assert p_home_fav > p_even
+
+    def test_probability_in_range(self):
+        """P deve essere in [0, 1]."""
+        p = _p_home_win_simple(1.2, 1.8)
+        assert 0.0 <= p <= 1.0
+
+
+class TestEstraiSegnaliOcrDaQuote:
+    def test_returns_tuple_of_floats(self):
+        """Deve restituire una tupla (float, float)."""
+        result = estrai_segnali_ocr_da_quote(2.10, 3.40, 3.20, 1.85, 1.95, 2.5)
+        assert len(result) == 2
+        assert isinstance(result[0], float)
+        assert isinstance(result[1], float)
+
+    def test_no_quotes_returns_zeros(self):
+        """Senza quote valide (tutte 0), deve restituire (0.0, 0.0)."""
+        result = estrai_segnali_ocr_da_quote(0.0, 0.0, 0.0, 0.0, 0.0, 2.5)
+        assert result == (0.0, 0.0)
+
+    def test_ou_quote_returns_plausible_total(self):
+        """Quote O/U bilanciate su linea 2.5 → total ≈ 2.5."""
+        # Quote 1.90/1.90 → p_over = 0.5 → total ≈ 2.5 (per linea 2.5)
+        mu_total, _ = estrai_segnali_ocr_da_quote(0.0, 0.0, 0.0, 1.90, 1.90, 2.5)
+        assert 2.2 < mu_total < 2.8, f"mu_total={mu_total:.3f} non plausibile"
+
+    def test_1x2_favorite_gives_positive_delta(self):
+        """Casa favorita → delta positivo."""
+        _, delta = estrai_segnali_ocr_da_quote(1.70, 3.40, 4.50, 0.0, 0.0, 2.5)
+        assert delta > 0.0, f"Casa favorita ma delta={delta:.3f}"
+
+    def test_away_favorite_gives_negative_delta(self):
+        """Trasferta favorita → delta negativo."""
+        _, delta = estrai_segnali_ocr_da_quote(4.50, 3.40, 1.70, 0.0, 0.0, 2.5)
+        assert delta < 0.0, f"Trasf favorita ma delta={delta:.3f}"
+
+    def test_high_overround_ignored(self):
+        """Quote con overround eccessivo (>1.12 su 2vie) devono essere ignorate."""
+        # Over 1.50, Under 1.50 → overround = 1/1.50 + 1/1.50 = 1.33 > 1.12
+        mu_total, _ = estrai_segnali_ocr_da_quote(0.0, 0.0, 0.0, 1.50, 1.50, 2.5)
+        assert mu_total == 0.0, "Overround eccessivo non filtrato"
+
+    def test_ocr_blend_applied_at_prematch_flat_lines(self):
+        """Con quote OCR e linee flat a prematch, il blend deve influenzare xg."""
+        # Senza OCR: linee flat ah=0, tot=2.5 → xg_h ≈ xg_a ≈ 1.25
+        xg_h_no_ocr, xg_a_no_ocr = calcola_xg_bayesiani(0.0, 2.5, 0.0, 2.5, 0)
+
+        # Con OCR che suggerisce casa favorita (quota_1 bassa) e total più alto
+        xg_h_ocr, xg_a_ocr = calcola_xg_bayesiani(
+            0.0, 2.5, 0.0, 2.5, 0,
+            ocr_total_quotes=3.0,    # OCR suggerisce total=3.0
+            ocr_delta_quotes=0.5,    # OCR suggerisce casa +0.5 gol
+        )
+
+        # Il blend OCR deve aumentare il total e favorire la casa
+        assert xg_h_ocr + xg_a_ocr > xg_h_no_ocr + xg_a_no_ocr, \
+            "OCR total non ha aumentato la somma xG"
+        assert xg_h_ocr > xg_a_ocr, \
+            "OCR delta positivo non ha favorito la casa"
