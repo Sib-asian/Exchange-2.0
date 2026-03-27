@@ -56,20 +56,15 @@ st.set_page_config(
 st.title(f"{UI.PAGE_ICON} {UI.PAGE_TITLE}")
 st.caption(f"v{UI.VERSION} · Modello bivariate Poisson + Dixon-Coles + Kelly frazionato")
 
-# ── Sezione 0: Upload Screenshot (NUOVO) ───────────────────────────────────────
-with st.expander("📷 Carica Screenshot Quote (opzionale)", expanded=False):
-    extracted_data = render_image_upload()
-    if extracted_data is not None:
-        _ocr_data = render_extracted_data_panel(extracted_data)  # noqa: F841
+# ── Step 1: Linee Asiatiche (Spread / Total) ─────────────────────────────────
+# Le linee vanno inserite per prime: servono sia al prematch sia al live.
+# Leggiamo minuto/gol dal session state (impostati dalla sezione live al render precedente).
+_live_min = st.session_state.get("live_minuto", 0)
+_live_gh = st.session_state.get("live_gol_casa", 0)
+_live_ga = st.session_state.get("live_gol_trasf", 0)
 
-st.divider()
-
-# ── Input ────────────────────────────────────────────────────────────────────
-match = render_match_state_live()
-st.divider()
-
-lines = render_asian_lines(match["gol_casa"], match["gol_trasf"], match["minuto"])
-gol_attuali = match["gol_casa"] + match["gol_trasf"]
+lines = render_asian_lines(_live_gh, _live_ga, _live_min)
+gol_attuali = _live_gh + _live_ga
 linea_ou = render_ou_selector(lines["tot_cur_raw"], gol_attuali, lines["fullgame_mode"])
 bankroll, comm_pct, comm_rate = render_bankroll()
 
@@ -83,6 +78,18 @@ if lines.get("blocking_errors") and INPUT_VALIDATION.BLOCK_ON_CRITICAL_ERRORS:
     st.error(f"🚫 **ANALISI BLOCCATA**: Rilevati {len(lines['blocking_errors'])} errori critici nei dati. "
              f"Correggi i valori evidenziati prima di procedere.")
     st.stop()
+st.divider()
+
+# ── Step 2: Screenshot Quote (Prematch) ──────────────────────────────────────
+with st.expander("📷 Carica Screenshot Quote (prematch)", expanded=False):
+    extracted_data = render_image_upload()
+    if extracted_data is not None:
+        _ocr_data = render_extracted_data_panel(extracted_data)  # noqa: F841
+
+st.divider()
+
+# ── Step 3: Stato Partita Live ───────────────────────────────────────────────
+match = render_match_state_live()
 st.divider()
 
 # ── Analisi ──────────────────────────────────────────────────────────────────

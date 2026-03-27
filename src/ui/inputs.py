@@ -527,7 +527,7 @@ def render_match_state_live() -> dict:
     Returns:
         Dict con tutti i valori live (minuto, gol, rossi, tiri, corner, ecc.).
     """
-    st.header("1. Stato Partita Live")
+    st.header("3. Stato Partita Live")
 
     live_data = render_live_screenshot_upload()
 
@@ -574,7 +574,7 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
         Include anche "fullgame_mode" (bool) e i valori raw inseriti dall'utente.
         Include "validation_errors" con eventuali errori di validazione.
     """
-    st.header("2. Linee Asiatiche")
+    st.header("1. Linee Asiatiche (Spread / Total)")
 
     # Validazione input: variabile per raccogliere errori
     validation_errors: list[str] = []
