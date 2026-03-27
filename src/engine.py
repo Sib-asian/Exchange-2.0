@@ -602,7 +602,16 @@ def analizza(
                           (ENGINE.BLEND_CONF_STALE if stale_line
                            else (ENGINE.BLEND_CONF_FLAT if flat_lines
                                 else ENGINE.BLEND_CONF_NORMAL)))
-    _line_conf = ENGINE.LINE_CONF_STALE if stale_line else (ENGINE.LINE_CONF_FLAT if flat_lines else ENGINE.LINE_CONF_NORMAL)
+    # FIX: Al prematch (minuto=0), flat_lines è sempre True perché apertura=corrente
+    # è la normalità prima della partita. Usare LINE_CONF_FLAT/BLEND_CONF_FLAT
+    # penalizza artificialmente il prematch riducendo la confidenza sotto soglia.
+    # In prematch trattiamo le linee come NORMALI (linee fresche d'apertura).
+    if state.minuto == 0:
+        _line_conf = ENGINE.LINE_CONF_NORMAL
+        if n_shots_tot == 0:
+            _blend_conf = ENGINE.BLEND_CONF_NORMAL
+    else:
+        _line_conf = ENGINE.LINE_CONF_STALE if stale_line else (ENGINE.LINE_CONF_FLAT if flat_lines else ENGINE.LINE_CONF_NORMAL)
     _time_conf = _math.sqrt(state.minuto / 90.0) if state.minuto > 0 else ENGINE.PREMATCH_TIME_CONF
     _agreement_conf = model_agreement
     # _agreement_conf può essere 0.0 → il suo guard è necessario.
