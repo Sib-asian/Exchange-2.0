@@ -670,9 +670,16 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
     with col_a2:
         if fullgame_mode:
             st.markdown("**Corrente — full game live** *(opzionale, auto-converte in rimanenti)*")
+            # Pre-inizializza solo al primo render; i render successivi usano session_state
+            # così modificare l'apertura non resetta mai il corrente inserito dall'utente.
+            if "ah_cur_raw_input" not in st.session_state:
+                st.session_state["ah_cur_raw_input"] = ah_op
+            if "tot_cur_raw_input" not in st.session_state:
+                st.session_state["tot_cur_raw_input"] = tot_op
             ah_cur_raw  = st.number_input(
                 "AH Corrente (full game)",
-                value=ah_op, step=0.25,
+                step=0.25,
+                key="ah_cur_raw_input",
                 help=(
                     "AH live come quotato sull'exchange (full 90'). "
                     "Se non hai dati live, lascia uguale all'AH Apertura: il modello scala "
@@ -682,7 +689,8 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
             )
             tot_cur_raw = st.number_input(
                 "Totale Corrente (full game)",
-                value=tot_op, step=0.25,
+                step=0.25,
+                key="tot_cur_raw_input",
                 help=(
                     "Linea Over/Under live come quotata sull'exchange (gol totali da inizio partita). "
                     "Se non hai dati live, lascia uguale al Totale Apertura: il modello scala "
@@ -708,9 +716,14 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
                 )
         else:
             st.markdown("**Corrente — gol rimanenti** *(opzionale)*")
+            if "ah_cur_raw_input" not in st.session_state:
+                st.session_state["ah_cur_raw_input"] = ah_op
+            if "tot_cur_raw_input" not in st.session_state:
+                st.session_state["tot_cur_raw_input"] = tot_op
             ah_cur_raw = st.number_input(
                 "AH Corrente (rimanenti)",
-                value=ah_op, step=0.25,
+                step=0.25,
+                key="ah_cur_raw_input",
                 help=(
                     "Handicap asiatico live riferito ai soli gol rimanenti da ora al 90'. "
                     "Se non hai dati live, lascia uguale all'apertura."
@@ -718,7 +731,8 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
             )
             tot_cur_raw = st.number_input(
                 "Totale Corrente (rimanenti)",
-                value=tot_op, step=0.25,
+                step=0.25,
+                key="tot_cur_raw_input",
                 help=(
                     "Gol attesi rimanenti da ora al 90' secondo il mercato. "
                     "Se non hai dati live, lascia uguale all'apertura."
