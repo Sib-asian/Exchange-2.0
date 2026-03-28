@@ -88,55 +88,62 @@ def _get_gemini_api_key() -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Prompt
+# Prompt — approccio a 2 stadi
 # ---------------------------------------------------------------------------
 
-def _build_prompt(squadra_casa: str, squadra_trasf: str, competizione: str) -> str:
+def _build_prompt_raccolta(squadra_casa: str, squadra_trasf: str, competizione: str) -> str:
+    """Stadio 1: cerca fatti in prosa (con google_search). Nessun vincolo JSON."""
     comp_str = f" ({competizione})" if competizione else ""
     return f"""Sei un analista sportivo. Cerca informazioni AGGIORNATE sulla partita:
 
 {squadra_casa} vs {squadra_trasf}{comp_str}
 
-Cerca autonomamente queste informazioni usando Google:
-1. Infortuni, squalifiche, assenze confermate per entrambe le squadre OGGI
-2. Forma recente (ultimi 5 risultati) di entrambe le squadre
-3. Head-to-head recente (ultime 3-5 partite dirette): risultati e gol
-4. Eventuale contesto speciale (derby, finale, lotta salvezza/titolo, campo neutro, meteo avverso)
+Usa Google per trovare:
+1. Infortuni, squalifiche, assenze confermate OGGI per entrambe le squadre
+2. Forma recente (ultimi 5 risultati) di entrambe le squadre — indica W/D/L per ogni partita
+3. Head-to-head recente (ultime 3-5 partite dirette): risultati, gol segnati
+4. Contesto speciale: derby, lotta salvezza/titolo, campo neutro, meteo avverso
 
-Dopo aver cercato, restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
+Rispondi liberamente con tutte le informazioni che trovi. Sii preciso e conciso.
+"""
+
+
+def _build_prompt_formato(
+    fatti: str,
+    squadra_casa: str,
+    squadra_trasf: str,
+    competizione: str,
+) -> str:
+    """Stadio 2: formatta i fatti come JSON (senza google_search)."""
+    comp_str = f" ({competizione})" if competizione else ""
+    return f"""Hai raccolto queste informazioni sulla partita {squadra_casa} vs {squadra_trasf}{comp_str}:
+
+---
+{fatti[:3000]}
+---
+
+Ora compila SOLO questo JSON con i dati trovati (non aggiungere nessun altro testo):
 
 {{
-  "assenze_casa": ["Nome giocatore (ruolo) - motivo", ...],
-  "assenze_trasf": ["Nome giocatore (ruolo) - motivo", ...],
+  "assenze_casa": ["Nome giocatore (ruolo) - motivo"],
+  "assenze_trasf": ["Nome giocatore (ruolo) - motivo"],
   "forma_casa": "WDLWW",
   "forma_trasf": "LLWDW",
-  "h2h_sommario": "Descrizione breve degli ultimi H2H",
+  "h2h_sommario": "Descrizione breve ultimi H2H",
   "h2h_media_gol": 2.4,
-  "contesto": "Descrizione contesto partita in 1-2 frasi",
-  "adj_tot": -0.20,
-  "adj_ah": 0.10,
+  "contesto": "Contesto in 1-2 frasi",
+  "adj_tot": 0.0,
+  "adj_ah": 0.0,
   "affidabilita": "alta",
-  "note_aggiustamento": "Spiegazione in italiano del perché questi aggiustamenti"
+  "note_aggiustamento": "Spiegazione aggiustamenti in italiano"
 }}
 
-REGOLE PER GLI AGGIUSTAMENTI (adj_tot e adj_ah):
-- adj_tot: quanto modificare il totale atteso. Range: -0.50 a +0.30
-  * Centravanti titolare out → -0.20 a -0.30
-  * Entrambi gli attaccanti principali out → -0.35 a -0.50
-  * Derby / partita tesa → -0.10 a -0.20
-  * Squadra che pressa alto vs difesa passiva → +0.10 a +0.20
-  * Se nessuna info rilevante → 0.0
-- adj_ah: quanto modificare l'handicap asiatico apertura. Range: -0.25 a +0.25
-  * Casa in crisi di risultati (3+ sconfitte) → +0.15 (favorisce meno la casa)
-  * Trasferta senza vittorie in 5 → -0.10 (favorisce più la casa)
-  * Se nessuna info rilevante → 0.0
-- affidabilita: "alta" se hai trovato info fresche (max 48h), "media" se generiche, "bassa" se poco trovato
+REGOLE AGGIUSTAMENTI:
+- adj_tot (range -0.50/+0.30): centravanti out=-0.25, derby=-0.15, nessuna info=0.0
+- adj_ah (range -0.25/+0.25): casa in crisi=+0.15, trasferta senza vittorie=-0.10, nessuna info=0.0
+- affidabilita: "alta"=info fresche <48h, "media"=generiche, "bassa"=poche info
 
-IMPORTANTE:
-- Se non trovi informazioni per un campo, usa lista vuota [] o stringa vuota ""
-- h2h_media_gol = 0.0 se non trovi dati H2H
-- Non inventare nulla — usa solo ciò che hai trovato realmente
-- Restituisci SOLO il JSON, niente altro testo prima o dopo
+IMPORTANTE: se un campo non ha dati usa [] o "" o 0.0. Output SOLO il JSON.
 """
 
 
@@ -146,8 +153,8 @@ IMPORTANTE:
 
 def _chiama_gemini_con_ricerca(prompt: str) -> tuple[str, list[str]]:
     """
-    Chiama Gemini con tool google_search attivo.
-    Restituisce (testo_risposta, lista_url_fonti).
+    Stadio 1: chiama Gemini con google_search attivo.
+    Restituisce (testo_prosa, lista_url_fonti).
     """
     api_key = _get_gemini_api_key()
     if not api_key:
@@ -157,7 +164,7 @@ def _chiama_gemini_con_ricerca(prompt: str) -> tuple[str, list[str]]:
         "contents": [{"parts": [{"text": prompt}]}],
         "tools": [{"google_search": {}}],
         "generationConfig": {
-            "temperature": 0.1,    # bassa: vogliamo fatti, non creatività
+            "temperature": 0.1,
             "maxOutputTokens": 2048,
         },
     }
@@ -168,24 +175,20 @@ def _chiama_gemini_con_ricerca(prompt: str) -> tuple[str, list[str]]:
         try:
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
-                url,
-                data=data,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+                url, data=data,
+                headers={"Content-Type": "application/json"}, method="POST",
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
-            # Estrai testo risposta
             candidates = result.get("candidates", [])
             if not candidates:
-                last_error = f"{model}: nessun candidato nella risposta"
+                last_error = f"{model}: nessun candidato"
                 continue
 
             parts = candidates[0].get("content", {}).get("parts", [])
             testo = "".join(p.get("text", "") for p in parts)
 
-            # Estrai fonti dal grounding metadata
             fonti: list[str] = []
             grounding = candidates[0].get("groundingMetadata", {})
             for chunk in grounding.get("groundingChunks", []):
@@ -194,6 +197,56 @@ def _chiama_gemini_con_ricerca(prompt: str) -> tuple[str, list[str]]:
                     fonti.append(uri)
 
             return testo, fonti
+
+        except urllib.error.HTTPError as e:
+            last_error = f"{model}: HTTP {e.code}"
+            if e.code == 429:
+                import time
+                time.sleep(2)
+            continue
+        except Exception as e:
+            last_error = f"{model}: {e}"
+            continue
+
+    raise RuntimeError(f"Tutti i modelli falliti. Ultimo errore: {last_error}")
+
+
+def _chiama_gemini_solo_testo(prompt: str) -> str:
+    """
+    Stadio 2: chiama Gemini SENZA google_search per formattare in JSON.
+    Senza grounding Gemini segue le istruzioni di formato molto più fedelmente.
+    """
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY non configurata")
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.0,      # deterministico: vogliamo solo il JSON
+            "maxOutputTokens": 1024,
+        },
+    }
+
+    last_error = ""
+    for model in _GEMINI_SEARCH_MODELS:
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url, data=data,
+                headers={"Content-Type": "application/json"}, method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+
+            candidates = result.get("candidates", [])
+            if not candidates:
+                last_error = f"{model}: nessun candidato"
+                continue
+
+            parts = candidates[0].get("content", {}).get("parts", [])
+            return "".join(p.get("text", "") for p in parts)
 
         except urllib.error.HTTPError as e:
             last_error = f"{model}: HTTP {e.code}"
@@ -349,9 +402,19 @@ def ricerca_contesto_partita(
         )
 
     try:
-        prompt = _build_prompt(squadra_casa.strip(), squadra_trasf.strip(), competizione.strip())
-        testo, fonti = _chiama_gemini_con_ricerca(prompt)
-        return _parse_risposta(testo, fonti, squadra_casa.strip(), squadra_trasf.strip(), competizione.strip())
+        sc = squadra_casa.strip()
+        st_t = squadra_trasf.strip()
+        comp = competizione.strip()
+
+        # Stadio 1: raccolta fatti con google_search (risposta in prosa libera)
+        prompt_raccolta = _build_prompt_raccolta(sc, st_t, comp)
+        fatti, fonti = _chiama_gemini_con_ricerca(prompt_raccolta)
+
+        # Stadio 2: formattazione JSON senza google_search (Gemini segue le istruzioni)
+        prompt_formato = _build_prompt_formato(fatti, sc, st_t, comp)
+        testo_json = _chiama_gemini_solo_testo(prompt_formato)
+
+        return _parse_risposta(testo_json, fonti, sc, st_t, comp)
     except Exception as e:
         return RicercaPartita(
             squadra_casa=squadra_casa,
@@ -407,35 +470,30 @@ def valida_quote_ocr(
     if not quote_str:
         return default  # niente da validare
 
-    prompt = f"""Sei un validatore di quote. Cerca le quote bookmaker ATTUALI per la partita:
+    prompt_cerca = (
+        f"Cerca le quote bookmaker attuali (Bet365, Pinnacle, William Hill) per la partita "
+        f"{squadra_casa} vs {squadra_trasf}. "
+        f"Quote da verificare — {quote_str} "
+        f"Descrivi le quote che trovi online e confrontale con quelle da verificare."
+    )
+    prompt_json = f"""Hai trovato queste informazioni sulle quote per {squadra_casa} vs {squadra_trasf}:
 
-{squadra_casa} vs {squadra_trasf}
+---
+{{FATTI}}
+---
 
-Quote estratte da screenshot (da validare):
-{quote_str}
+Quote originali da verificare: {quote_str}
 
-Cerca su Google le quote correnti di almeno un bookmaker affidabile (Bet365, Pinnacle, William Hill, Betfair).
-Confronta le quote trovate con quelle estratte.
+Compila SOLO questo JSON:
+{{"confidence_scale": 0.95, "flags": ["anomalia se presente"], "quote_trovate": "descrizione"}}
 
-Restituisci SOLO un JSON valido:
-{{
-  "confidence_scale": 0.95,
-  "flags": ["Lista di anomalie, vuota se tutto ok"],
-  "quote_trovate": "Descrizione breve delle quote trovate online"
-}}
-
-REGOLE per confidence_scale:
-- 1.0: Quote concordi (differenza < 5%)
-- 0.90: Differenza 5-10% su almeno una quota
-- 0.80: Differenza 10-20% o quote sospette
-- 0.70: Quote molto diverse o non trovate
-
-Se non riesci a trovare le quote online, usa confidence_scale=0.90 e flags=[].
-Restituisci SOLO il JSON, nient'altro.
+confidence_scale: 1.0=concordi(<5%), 0.90=diff 5-10%, 0.80=diff 10-20%, 0.70=molto diverse o non trovate.
+Se non trovate usa confidence_scale=0.90 e flags=[]. Output SOLO il JSON.
 """
 
     try:
-        testo, _ = _chiama_gemini_con_ricerca(prompt)
+        fatti, _ = _chiama_gemini_con_ricerca(prompt_cerca)
+        testo = _chiama_gemini_solo_testo(prompt_json.replace("{FATTI}", fatti[:2000]))
         dati = _estrai_json(testo)
         if dati is None:
             return default
@@ -473,41 +531,36 @@ def cerca_prior_storico(
         return 0.0
 
     comp_str = f" in {competizione}" if competizione else ""
-    prompt = f"""Cerca la media storica di gol nelle partite dirette (head-to-head) tra:
+    prompt_cerca = (
+        f"Cerca i risultati delle ultime 5-10 partite dirette (head-to-head) tra "
+        f"{squadra_casa} e {squadra_trasf}{comp_str}. "
+        f"Per ogni partita indica il risultato e i gol totali segnati."
+    )
+    prompt_json = f"""Hai trovato questi dati H2H per {squadra_casa} vs {squadra_trasf}:
 
-{squadra_casa} vs {squadra_trasf}{comp_str}
+---
+{{FATTI}}
+---
 
-Cerca le ultime 5-10 partite dirette tra queste squadre.
-Calcola la media di gol totali (home + away) per partita.
+Calcola la media gol e compila SOLO questo JSON:
+{{"media_gol": 2.4, "n_partite": 6, "affidabilita": "alta", "note": "descrizione"}}
 
-Restituisci SOLO un JSON valido:
-{{
-  "media_gol": 2.4,
-  "n_partite": 6,
-  "affidabilita": "alta",
-  "note": "Breve descrizione dei dati trovati"
-}}
-
-REGOLE:
-- media_gol: media gol totali per partita (0.0 se non trovata)
-- n_partite: numero di partite analizzate (0 se dati non trovati)
-- affidabilita: "alta" (≥5 partite recenti), "media" (3-4), "bassa" (<3 o dati vecchi)
-- Se non trovi dati affidabili, usa media_gol=0.0 e n_partite=0
-- Restituisci SOLO il JSON, nient'altro
+affidabilita: "alta"=5+ partite recenti, "media"=3-4, "bassa"=meno di 3 o dati vecchi.
+Se non hai dati usa media_gol=0.0 e n_partite=0. Output SOLO il JSON.
 """
 
     try:
-        testo, _ = _chiama_gemini_con_ricerca(prompt)
+        fatti, _ = _chiama_gemini_con_ricerca(prompt_cerca)
+        testo = _chiama_gemini_solo_testo(prompt_json.replace("{FATTI}", fatti[:2000]))
         dati = _estrai_json(testo)
         if dati is None:
             return 0.0
         media = float(dati.get("media_gol", 0.0))
         n_partite = int(dati.get("n_partite", 0))
         affidabilita = str(dati.get("affidabilita", "bassa"))
-        # Restituisce 0.0 se i dati sono insufficienti o inaffidabili
         if n_partite < 3 or affidabilita == "bassa" or media <= 0.5:
             return 0.0
-        return max(0.5, min(6.0, media))  # clamp a range plausibile
+        return max(0.5, min(6.0, media))
     except Exception:
         return 0.0
 
@@ -559,44 +612,29 @@ def interpreta_movimento_linee(
         direzione = "al rialzo" if delta_tot > 0 else "al ribasso"
         movimento_str += f"Total si è mosso di {delta_tot:+.2f} ({direzione}). "
 
-    prompt = f"""Sei un analista di movimenti di mercato scommesse. Analizza il movimento delle linee per:
+    prompt_cerca = (
+        f"Cerca notizie recenti su {squadra_casa} vs {squadra_trasf}{comp_str}: "
+        f"infortuni, squalifiche, comunicati ufficiali. "
+        f"Movimento linee osservato: {movimento_str} "
+        f"Spiega se ci sono notizie che giustificherebbero questo movimento."
+    )
+    prompt_json = f"""Per la partita {squadra_casa} vs {squadra_trasf}, movimento {movimento_str}
 
-{squadra_casa} vs {squadra_trasf}{comp_str}
+Notizie trovate:
+---
+{{FATTI}}
+---
 
-Movimento osservato (dalla quota di apertura all'attuale):
-{movimento_str}
+Compila SOLO questo JSON:
+{{"movement_quality": 1.0, "tipo": "incerto", "motivo": "spiegazione"}}
 
-Cerca su Google le notizie RECENTI su questa partita:
-- Infortuni/squalifiche che spiegherebbero il movimento
-- Comunicati ufficiali delle squadre
-- Analisi di esperti o tipster di fama
-
-Determina se il movimento è:
-- "sharp": causato da scommettitori professionali o notizie fondamentali (alta qualità)
-- "public": causato da scommesse del grande pubblico (bassa qualità segnale)
-- "news": causato da notizie ufficiali verificabili (alta qualità)
-- "incerto": motivo non chiaro
-
-Restituisci SOLO un JSON valido:
-{{
-  "movement_quality": 1.10,
-  "tipo": "sharp",
-  "motivo": "Breve spiegazione in italiano",
-  "confidence": "alta"
-}}
-
-REGOLE per movement_quality:
-- Movimento sharp confermato o notizie ufficiali: 1.15-1.30
-- Notizie riportate ma non confermate: 1.05-1.15
-- Movimento ambiguo o misto: 0.95-1.05
-- Probabile public betting senza motivazione fondamentale: 0.85-0.95
-- Nessuna informazione trovata → usa 1.0
-
-Restituisci SOLO il JSON, nient'altro.
+movement_quality: sharp/news confermati=1.15-1.30, parziali=1.05-1.15, ambiguo=0.95-1.05,
+public/nessuna info=0.85-0.95, nessuna info trovata=1.0. Output SOLO il JSON.
 """
 
     try:
-        testo, _ = _chiama_gemini_con_ricerca(prompt)
+        fatti, _ = _chiama_gemini_con_ricerca(prompt_cerca)
+        testo = _chiama_gemini_solo_testo(prompt_json.replace("{FATTI}", fatti[:2000]))
         dati = _estrai_json(testo)
         if dati is None:
             return 1.0
