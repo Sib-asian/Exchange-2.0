@@ -73,6 +73,20 @@ class MatchState:
     # Usata come soft prior per la calibrazione Bayesiana in prematch.
     ocr_imp_total: float = 0.0
 
+    # Prior storico H2H (media gol partite precedenti tra queste due squadre).
+    # Calcolato da Gemini + Google Search. 0.0 = non disponibile.
+    # Blendato con tot_op al 10% solo in prematch (minuto=0).
+    fixture_historical_total: float = 0.0
+
+    # Qualità del movimento linee (da Gemini). Range [0.80, 1.30], default 1.0.
+    # > 1.0 = movimento affidabile (sharp/notizie) → w_cur aumentato.
+    # < 1.0 = movimento rumoroso (pubblico/liquidità) → w_cur diminuito.
+    movement_quality: float = 1.0
+
+    # Scala di confidenza delle quote OCR (da validatore Gemini). Range [0.70, 1.0].
+    # 1.0 = quote verificate concordi col mercato; < 1.0 = quote sospette/anomale.
+    ocr_confidence_scale: float = 1.0
+
     # Quote bookmaker prematch estratte da OCR (0.0 = non disponibili).
     # Usate come prior addizionali per la calibrazione Bayesiana in prematch.
     ocr_quota_1: float = 0.0
@@ -356,6 +370,9 @@ def analizza(
         ocr_delta_quotes=_ocr_delta_quotes,
         ocr_overround_ou=_ocr_overround_ou,
         ocr_overround_1x2=_ocr_overround_1x2,
+        fixture_historical_total=state.fixture_historical_total,
+        movement_quality=state.movement_quality,
+        ocr_confidence_scale=state.ocr_confidence_scale,
     )
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
