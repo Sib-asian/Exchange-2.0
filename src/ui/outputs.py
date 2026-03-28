@@ -31,6 +31,52 @@ def _q_fair(prob: float) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Pronostici Rapidi — solo percentuali, niente quote
+# ---------------------------------------------------------------------------
+
+def render_pronostici_rapidi(
+    risultati: ProbabilitaModello,
+    linea_ou: float,
+    minuto: int = 0,
+    gol_casa: int = 0,
+    gol_trasf: int = 0,
+) -> None:
+    """
+    Blocco percentuali pulito per tutti i mercati principali.
+    Niente quote, niente CI, niente robe strane — solo le probabilità.
+    """
+    if minuto > 0:
+        st.subheader(f"Pronostici — {minuto}' | {gol_casa}–{gol_trasf}")
+    else:
+        st.subheader("Pronostici Prematch")
+
+    # 1X2
+    c1, cx, c2 = st.columns(3)
+    c1.metric("1 — Casa",     f"{risultati.p1:.0%}")
+    cx.metric("X — Pareggio", f"{risultati.px:.0%}")
+    c2.metric("2 — Trasf.",   f"{risultati.p2:.0%}")
+
+    st.divider()
+
+    # Over/Under + BTTS
+    co, cu, cgg, cng = st.columns(4)
+    co.metric(f"Over {linea_ou}",  f"{risultati.p_over:.0%}")
+    cu.metric(f"Under {linea_ou}", f"{risultati.p_under:.0%}")
+    cgg.metric("GG (sì)",          f"{risultati.p_btts:.0%}")
+    cng.metric("NG (no)",          f"{1 - risultati.p_btts:.0%}")
+
+    # Confidenza modello
+    conf = risultati.model_confidence
+    icon = "🟢" if conf >= 0.70 else "🟡" if conf >= 0.40 else "🔴"
+    parts = [f"{icon} Confidenza: **{conf:.0%}**"]
+    if risultati.stale_line:
+        parts.append(" · linea invariata")
+    if risultati.model_agreement < 0.70:
+        parts.append(f" · accordo modelli: {risultati.model_agreement:.0%}")
+    st.caption("  ".join(parts))
+
+
+# ---------------------------------------------------------------------------
 # Quote Fair
 # ---------------------------------------------------------------------------
 

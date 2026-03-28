@@ -1023,3 +1023,130 @@ def build_match_state(
         bankroll=bankroll,
         comm_rate=comm_rate,
     )
+
+
+# ---------------------------------------------------------------------------
+# Nuovi renderer semplificati
+# ---------------------------------------------------------------------------
+
+def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
+    """
+    Render semplificato delle linee: 4 campi in 2 colonne.
+    Sempre modalità Full Game — nessun radio button.
+
+    Returns:
+        Dict compatibile con render_asian_lines (ah_op, tot_op, ah_cur, tot_cur, ...).
+    """
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Spread (AH)**")
+        ah_op = st.number_input(
+            "Apertura", value=-0.25, step=0.25, key="lines_ah_op",
+            help="Handicap asiatico all'apertura del mercato.",
+        )
+        if "ah_cur_raw_input" not in st.session_state:
+            st.session_state["ah_cur_raw_input"] = ah_op
+        ah_cur_raw = st.number_input(
+            "Chiusura / Live", step=0.25, key="ah_cur_raw_input",
+            help="AH corrente sull'exchange (full game). Uguale all'apertura se non aggiornato.",
+        )
+
+    with col2:
+        st.markdown("**Total (O/U)**")
+        tot_op = st.number_input(
+            "Apertura", value=2.50, step=0.25, key="lines_tot_op",
+            help="Linea Over/Under all'apertura (gol totali intera partita).",
+        )
+        if "tot_cur_raw_input" not in st.session_state:
+            st.session_state["tot_cur_raw_input"] = tot_op
+        tot_cur_raw = st.number_input(
+            "Chiusura / Live", step=0.25, key="tot_cur_raw_input",
+            help="Total corrente sull'exchange (full game). Aggiorna se il mercato si è mosso.",
+        )
+
+    # Conversione Full Game → gol rimanenti (automatica)
+    gol_diff = gol_casa - gol_trasf
+    gol_tot  = gol_casa + gol_trasf
+    ah_cur   = ah_cur_raw + gol_diff
+    tot_cur  = max(BAYES.TOT_BAYES_MIN, tot_cur_raw - gol_tot)
+
+    if gol_tot > 0:
+        st.caption(
+            f"Rimanenti calcolati automaticamente — "
+            f"AH: **{ah_cur:+.2f}** · Total: **{tot_cur:.2f}**"
+        )
+
+    return {
+        "ah_op": ah_op,
+        "tot_op": tot_op,
+        "ah_cur": ah_cur,
+        "tot_cur": tot_cur,
+        "tot_cur_raw": tot_cur_raw,
+        "fullgame_mode": True,
+        "validation_errors": [],
+        "blocking_errors": [],
+    }
+
+
+def render_live_semplice() -> dict:
+    """
+    Render compatto per i dati live: minuto, gol, screenshot statistiche.
+    Rossi e gialli in un expander opzionale.
+    I valori dei tiri/corner/possesso vengono da session_state (popolati dallo screenshot).
+
+    Returns:
+        Dict con tutti i campi live (compatibile con build_match_state).
+    """
+    col_m, col_h, col_a = st.columns(3)
+    with col_m:
+        minuto = st.slider("Minuto", 0, 90, key="live_minuto")
+    with col_h:
+        gol_casa = st.number_input("Gol Casa", min_value=0, max_value=20, key="live_gol_casa")
+    with col_a:
+        gol_trasf = st.number_input("Gol Trasf.", min_value=0, max_value=20, key="live_gol_trasf")
+
+    # Screenshot live (auto-popola tiri/corner/possesso/attacchi/cartellini)
+    render_live_screenshot_upload()
+
+    # Cartellini rossi (impatto importante sul modello — separati dal resto)
+    with st.expander("🟥 Cartellini rossi / avanzate", expanded=False):
+        cr1, cr2 = st.columns(2)
+        with cr1:
+            rossi_casa = st.number_input("Rossi Casa", min_value=0, max_value=4, key="live_rossi_casa")
+        with cr2:
+            rossi_trasf = st.number_input("Rossi Trasf.", min_value=0, max_value=4, key="live_rossi_trasf")
+        cy1, cy2 = st.columns(2)
+        with cy1:
+            gialli_casa = st.number_input("Gialli Casa", min_value=0, max_value=20, key="live_gialli_casa")
+        with cy2:
+            gialli_trasf = st.number_input("Gialli Trasf.", min_value=0, max_value=20, key="live_gialli_trasf")
+    # Leggi tutti gli altri valori dal session_state (popolati dallo screenshot)
+    def _ss(k: str, default=0):
+        return st.session_state.get(k, default)
+
+    return {
+        "minuto":           minuto,
+        "gol_casa":         gol_casa,
+        "gol_trasf":        gol_trasf,
+        "rossi_casa":       st.session_state.get("live_rossi_casa", 0),
+        "rossi_trasf":      st.session_state.get("live_rossi_trasf", 0),
+        "gialli_casa":      st.session_state.get("live_gialli_casa", 0),
+        "gialli_trasf":     st.session_state.get("live_gialli_trasf", 0),
+        "sot_h":            _ss("live_sot_h"),
+        "soff_h":           _ss("live_soff_h"),
+        "sot_a":            _ss("live_sot_a"),
+        "soff_a":           _ss("live_soff_a"),
+        "blk_h":            _ss("live_blk_h"),
+        "blk_a":            _ss("live_blk_a"),
+        "corner_h":         _ss("live_corner_h"),
+        "corner_a":         _ss("live_corner_a"),
+        "possesso_h":       _ss("live_poss_h", 0.0),
+        "possesso_a":       _ss("live_poss_a", 0.0),
+        "att_pericolosi_h": _ss("live_att_per_h"),
+        "att_pericolosi_a": _ss("live_att_per_a"),
+        "att_h":            _ss("live_att_h"),
+        "att_a":            _ss("live_att_a"),
+        "falli_casa":       _ss("live_falli_casa"),
+        "falli_trasf":      _ss("live_falli_trasf"),
+    }
