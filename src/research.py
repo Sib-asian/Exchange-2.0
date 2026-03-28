@@ -22,7 +22,6 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-
 # ---------------------------------------------------------------------------
 # Dataclass risultato ricerca
 # ---------------------------------------------------------------------------
