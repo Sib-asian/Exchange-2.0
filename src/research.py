@@ -158,7 +158,7 @@ def _chiama_gemini_con_ricerca(prompt: str) -> tuple[str, list[str]]:
         "tools": [{"google_search": {}}],
         "generationConfig": {
             "temperature": 0.1,    # bassa: vogliamo fatti, non creatività
-            "maxOutputTokens": 1024,
+            "maxOutputTokens": 2048,
         },
     }
 
@@ -209,33 +209,84 @@ def _chiama_gemini_con_ricerca(prompt: str) -> tuple[str, list[str]]:
 
 
 # ---------------------------------------------------------------------------
+# Helper: estrazione JSON robusta
+# ---------------------------------------------------------------------------
+
+def _estrai_json(testo: str) -> dict | None:
+    """
+    Estrae il primo oggetto JSON valido da una stringa di testo.
+
+    Gemini con google_search spesso restituisce:
+    - Testo libero prima del JSON
+    - JSON dentro blocchi markdown (```json ... ```)
+    - JSON valido ma preceduto da spiegazioni
+    - Risposta completamente priva di JSON
+
+    Strategia: prova in ordine
+    1. Blocco markdown ```json ... ```
+    2. Blocco markdown ``` ... ```
+    3. Regex greedy {.*} sull'intera stringa
+    4. Cerca tutti i candidati {.*} e prova a parsarli dal più lungo
+    """
+    if not testo:
+        return None
+
+    # 1. Blocco markdown ```json ... ```
+    m = re.search(r"```json\s*([\s\S]*?)```", testo)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # 2. Blocco markdown generico ``` ... ```
+    m = re.search(r"```\s*([\s\S]*?)```", testo)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Regex greedy: dal primo { all'ultimo }
+    m = re.search(r"\{[\s\S]*\}", testo)
+    if m:
+        try:
+            return json.loads(m.group())
+        except json.JSONDecodeError:
+            pass
+
+    # 4. Trova tutte le occorrenze di { e prova a parsare dal più lungo candidato
+    starts = [i for i, c in enumerate(testo) if c == "{"]
+    ends   = [i for i, c in enumerate(testo) if c == "}"]
+    candidati = sorted(
+        [(s, e) for s in starts for e in ends if e > s],
+        key=lambda se: se[1] - se[0],
+        reverse=True,
+    )
+    for s, e in candidati[:10]:  # prova i 10 candidati più lunghi
+        try:
+            return json.loads(testo[s:e+1])
+        except json.JSONDecodeError:
+            continue
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Parser risposta JSON
 # ---------------------------------------------------------------------------
 
 def _parse_risposta(testo: str, fonti: list[str], squadra_casa: str, squadra_trasf: str, competizione: str) -> RicercaPartita:
     """Estrae il JSON dalla risposta di Gemini e costruisce RicercaPartita."""
 
-    # Cerca blocco JSON nella risposta (può esserci testo prima/dopo)
-    json_match = re.search(r"\{[\s\S]*\}", testo)
-    if not json_match:
+    dati = _estrai_json(testo)
+    if dati is None:
         return RicercaPartita(
             squadra_casa=squadra_casa,
             squadra_trasf=squadra_trasf,
             competizione=competizione,
             success=False,
             error="Risposta non contiene JSON valido",
-            raw_response=testo[:500],
-        )
-
-    try:
-        dati = json.loads(json_match.group())
-    except json.JSONDecodeError as e:
-        return RicercaPartita(
-            squadra_casa=squadra_casa,
-            squadra_trasf=squadra_trasf,
-            competizione=competizione,
-            success=False,
-            error=f"JSON malformato: {e}",
             raw_response=testo[:500],
         )
 
@@ -385,10 +436,9 @@ Restituisci SOLO il JSON, nient'altro.
 
     try:
         testo, _ = _chiama_gemini_con_ricerca(prompt)
-        match = re.search(r"\{[\s\S]*\}", testo)
-        if not match:
+        dati = _estrai_json(testo)
+        if dati is None:
             return default
-        dati = json.loads(match.group())
         cs = float(dati.get("confidence_scale", 1.0))
         cs = max(0.70, min(1.0, cs))
         flags = [str(f) for f in dati.get("flags", []) if str(f).strip()]
@@ -448,10 +498,9 @@ REGOLE:
 
     try:
         testo, _ = _chiama_gemini_con_ricerca(prompt)
-        match = re.search(r"\{[\s\S]*\}", testo)
-        if not match:
+        dati = _estrai_json(testo)
+        if dati is None:
             return 0.0
-        dati = json.loads(match.group())
         media = float(dati.get("media_gol", 0.0))
         n_partite = int(dati.get("n_partite", 0))
         affidabilita = str(dati.get("affidabilita", "bassa"))
@@ -548,10 +597,9 @@ Restituisci SOLO il JSON, nient'altro.
 
     try:
         testo, _ = _chiama_gemini_con_ricerca(prompt)
-        match = re.search(r"\{[\s\S]*\}", testo)
-        if not match:
+        dati = _estrai_json(testo)
+        if dati is None:
             return 1.0
-        dati = json.loads(match.group())
         mq = float(dati.get("movement_quality", 1.0))
         return max(0.80, min(1.30, mq))
     except Exception:
