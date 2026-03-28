@@ -176,13 +176,48 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     _ocr_confidence_scale = 1.0
     _ricerca_adj_tot = 0.0
     _ricerca_adj_ah = 0.0
+    _absence_mult_h = 1.0
+    _absence_mult_a = 1.0
+    _forma_mult_h = 1.0
+    _forma_mult_a = 1.0
 
     # Usa dati dalla Ricerca Pre-Partita se disponibili
     if _ricerca_ok:
+        from src.config import AI_ADJ
+        from src.models.ai_adjustments import calcola_assenze_mult, calcola_forma_mult
+
+        # Scala per affidabilità: alta=1.0, media=0.65, bassa=0.35
+        _aff_scale = {
+            "alta":  AI_ADJ.AFFIDABILITA_ALTA,
+            "media": AI_ADJ.AFFIDABILITA_MEDIA,
+            "bassa": AI_ADJ.AFFIDABILITA_BASSA,
+        }.get(_ricerca.affidabilita, AI_ADJ.AFFIDABILITA_MEDIA)
+
         if _ricerca.h2h_media_gol > 0:
             _fixture_prior = _ricerca.h2h_media_gol
-        _ricerca_adj_tot = _ricerca.adj_tot
-        _ricerca_adj_ah = _ricerca.adj_ah
+
+        # #2: Scala adj_tot e adj_ah per affidabilità Gemini
+        _ricerca_adj_tot = _ricerca.adj_tot * _aff_scale
+        _ricerca_adj_ah = _ricerca.adj_ah * _aff_scale
+
+        # #1 + #3: Calcola moltiplicatori xG da assenze + forma (scalati per affidabilità)
+        # Assenze proprie → riducono xG della propria squadra
+        # GK avversario assente → aumentano xG dell'avversario
+        _own_h = calcola_assenze_mult(_ricerca.assenze_casa, per_avversario=False)
+        _gk_h  = calcola_assenze_mult(_ricerca.assenze_trasf, per_avversario=True)   # GK trasf assente → +xG casa
+        _own_a = calcola_assenze_mult(_ricerca.assenze_trasf, per_avversario=False)
+        _gk_a  = calcola_assenze_mult(_ricerca.assenze_casa, per_avversario=True)    # GK casa assente → +xG trasf
+
+        # Scala per affidabilità e combina (moltiplica gli effetti indipendenti)
+        _absence_mult_h = (1.0 + (_own_h - 1.0) * _aff_scale) * (1.0 + (_gk_h - 1.0) * _aff_scale)
+        _absence_mult_a = (1.0 + (_own_a - 1.0) * _aff_scale) * (1.0 + (_gk_a - 1.0) * _aff_scale)
+
+        if _ricerca.forma_casa:
+            _fm_h = calcola_forma_mult(_ricerca.forma_casa)
+            _forma_mult_h = 1.0 + (_fm_h - 1.0) * _aff_scale
+        if _ricerca.forma_trasf:
+            _fm_a = calcola_forma_mult(_ricerca.forma_trasf)
+            _forma_mult_a = 1.0 + (_fm_a - 1.0) * _aff_scale
 
     _has_ocr_teams = (
         extracted_data is not None
@@ -321,6 +356,10 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
             fixture_historical_total=_fixture_prior,
             movement_quality=_movement_quality,
             ocr_confidence_scale=_ocr_confidence_scale,
+            absence_mult_h=_absence_mult_h,
+            absence_mult_a=_absence_mult_a,
+            forma_mult_h=_forma_mult_h,
+            forma_mult_a=_forma_mult_a,
         )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")

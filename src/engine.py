@@ -97,6 +97,15 @@ class MatchState:
     ocr_quota_gg: float = 0.0
     ocr_quota_ng: float = 0.0
 
+    # Moltiplicatori xG da dati AI (da Gemini Ricerca Pre-Partita).
+    # Calcolati da assenze squadre e forma recente, scalati per affidabilità.
+    # 1.0 = nessun effetto (default quando la ricerca non è disponibile).
+    # < 1.0 = riduzione xG (proprie assenze); > 1.0 = aumento xG (GK avversario assente).
+    absence_mult_h: float = 1.0   # moltiplicatore xG casa (assenze + GK trasf. assente)
+    absence_mult_a: float = 1.0   # moltiplicatore xG trasferta (assenze + GK casa assente)
+    forma_mult_h: float = 1.0     # moltiplicatore xG casa dalla forma recente
+    forma_mult_a: float = 1.0     # moltiplicatore xG trasferta dalla forma recente
+
     # Bankroll e commissione
     bankroll: float = 1000.0
     comm_rate: float = 0.025   # 2.5%
@@ -401,6 +410,15 @@ def analizza(
         xg_h_accum = xg_a_accum = 0.0
         alpha_t = alpha_d = shot_dom = 0.0
 
+    # 2b. Aggiustamenti AI: assenze + forma (miglioramento #1, #3, #7).
+    # Applicati DOPO il blend per modular sia l'xG da linee che l'xG da tiri.
+    # ABSENCE_MARKET_ALPHA=0.40 già applicato in calcola_assenze_mult → nessun double-count.
+    # Condizione: skip se entrambi i moltiplicatori sono 1.0 per evitare ricompute inutile.
+    if state.absence_mult_h != 1.0 or state.forma_mult_h != 1.0:
+        xg_h_blend = max(ENGINE.XG_FLOOR, xg_h_blend * state.absence_mult_h * state.forma_mult_h)
+    if state.absence_mult_a != 1.0 or state.forma_mult_a != 1.0:
+        xg_a_blend = max(ENGINE.XG_FLOOR, xg_a_blend * state.absence_mult_a * state.forma_mult_a)
+
     # 3. Momentum mercato (calcolato PRIMA del time-decay per alimentare lo smorzamento xG)
     # ah_cur è in "gol rimanenti" (conversione full-game già applicata in inputs.py):
     #   ah_cur = ah_cur_full + (gol_casa - gol_trasf)
@@ -547,26 +565,35 @@ def analizza(
                         f"Model {model_name} failed: {e}"
                     )
 
-    # 8. Consensus multi-modello: media pesata con pesi dinamici per fase di gioco.
-    # #1: Premi la Markov chain nel tardo gioco (punteggio fisso → molto informativa)
+    # 8. Consensus multi-modello: media pesata con pesi dinamici per 4 fasi di gioco.
+    # #1/#6: Premi la Markov chain nel tardo gioco (punteggio fisso → molto informativa)
     # e il Bivariate Poisson in prematch/early (nessuno stato significativo).
-    if state.minuto < CONSENSUS.EARLY_GAME_MINUTE:
+    # Fasi: prematch(0') → early(1-20') → mid(20-60') → late(>60')
+    if state.minuto == 0:
+        _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_PREMATCH, CONSENSUS.W_COP_PREMATCH, CONSENSUS.W_MK_PREMATCH
+    elif state.minuto <= CONSENSUS.EARLY_GAME_MINUTE:
         _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_EARLY, CONSENSUS.W_COP_EARLY, CONSENSUS.W_MK_EARLY
-    elif state.minuto > CONSENSUS.LATE_GAME_MINUTE:
-        _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_LATE, CONSENSUS.W_COP_LATE, CONSENSUS.W_MK_LATE
+    elif state.minuto <= CONSENSUS.MID_GAME_MINUTE:
+        _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID
     else:
-        _w_bp, _w_cop, _w_mk = CONSENSUS.W_BIVARIATE, CONSENSUS.W_COPULA, CONSENSUS.W_MARKOV
+        _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_LATE, CONSENSUS.W_COP_LATE, CONSENSUS.W_MK_LATE
     consensus_probs = compute_consensus(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
         weights=(_w_bp, _w_cop, _w_mk),
     )
 
-    # 9. Calibrazione isotonica
+    # 9. Calibrazione isotonica con draw shrinkage dinamico (#4).
+    # Partite difensive (tot basso) → meno correzione sul pareggio.
+    # Partite aperte (tot alto) → più correzione (la Poisson sovrastima di più il draw).
+    _draw_factor = CONSENSUS.DRAW_SHRINKAGE_BASE * (tot_cur_eff / CONSENSUS.DRAW_SHRINKAGE_TOT_REF)
+    _draw_factor = max(CONSENSUS.DRAW_SHRINKAGE_MIN_FACTOR, min(CONSENSUS.DRAW_SHRINKAGE_MAX_FACTOR, _draw_factor))
+    _draw_shrinkage_dyn = 1.0 - _draw_factor
+
     p1, px, p2, p_over, p_under, p_btts = calibrate_probabilities(
         consensus_probs["p1"], consensus_probs["px"], consensus_probs["p2"],
         consensus_probs["p_over"], consensus_probs["p_under"], consensus_probs["p_btts"],
-        draw_shrinkage=CONSENSUS.DRAW_SHRINKAGE,
+        draw_shrinkage=_draw_shrinkage_dyn,
     )
 
     # 9b. Prior BTTS da quote OCR (solo prematch): nudge conservativo.
