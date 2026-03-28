@@ -20,7 +20,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
-from src.config import BAYES, CACHE, ENGINE
+from src.config import BAYES, CACHE, DECAY, ENGINE
 
 # ---------------------------------------------------------------------------
 # Dataclass di Input
@@ -415,9 +415,9 @@ def analizza(
     # ABSENCE_MARKET_ALPHA=0.40 già applicato in calcola_assenze_mult → nessun double-count.
     # Condizione: skip se entrambi i moltiplicatori sono 1.0 per evitare ricompute inutile.
     if state.absence_mult_h != 1.0 or state.forma_mult_h != 1.0:
-        xg_h_blend = max(ENGINE.XG_FLOOR, xg_h_blend * state.absence_mult_h * state.forma_mult_h)
+        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * state.absence_mult_h * state.forma_mult_h)
     if state.absence_mult_a != 1.0 or state.forma_mult_a != 1.0:
-        xg_a_blend = max(ENGINE.XG_FLOOR, xg_a_blend * state.absence_mult_a * state.forma_mult_a)
+        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * state.absence_mult_a * state.forma_mult_a)
 
     # 3. Momentum mercato (calcolato PRIMA del time-decay per alimentare lo smorzamento xG)
     # ah_cur è in "gol rimanenti" (conversione full-game già applicata in inputs.py):
