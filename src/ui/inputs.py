@@ -326,10 +326,22 @@ def _push_live_data_to_session(data: LiveStatsExtracted) -> None:
     NON sovrascrive minuto, gol e rossi se lo screenshot non li contiene
     (valore 0) — l'utente li inserisce manualmente prima di caricare lo screen.
     """
-    # Minuto e gol: NON sovrascrivere mai dallo screenshot.
-    # La tab statistiche di Nowgoal mostra "FT"/"HT" che non corrisponde
-    # al minuto reale della partita live. L'utente li imposta manualmente.
-    # Statistiche: sovrascivi sempre (sono il motivo principale dello screenshot)
+    # Minuto e punteggio: scrivi se estratti dalla pagina detail di Nowgoal
+    # (che mostra il minuto reale, es. "1st Half - 32").
+    # Il minuto 0 è il default — non sovrascrivere se non rilevato.
+    if data.minuto > 0:
+        st.session_state["live_minuto"] = data.minuto
+    # Punteggio: sempre (anche 0-0 è informativo)
+    st.session_state["live_gol_casa"]  = data.gol_casa
+    st.session_state["live_gol_trasf"] = data.gol_trasf
+
+    # Cartellini: sempre (derivati dagli eventi o conteggio diretto)
+    st.session_state["live_rossi_casa"]   = data.rossi_casa
+    st.session_state["live_rossi_trasf"]  = data.rossi_trasf
+    st.session_state["live_gialli_casa"]  = data.gialli_casa
+    st.session_state["live_gialli_trasf"] = data.gialli_trasf
+
+    # Statistiche live
     st.session_state["live_sot_h"] = data.tiri_porta_casa
     st.session_state["live_soff_h"] = data.tiri_fuori_casa
     st.session_state["live_sot_a"] = data.tiri_porta_trasf
@@ -1150,46 +1162,69 @@ def render_live_semplice() -> dict:
         # Mostra riepilogo di quanto estratto
         cached = st.session_state.get("live_stats_data")
         if cached and cached.extraction_success:
-            _sh = st.session_state.get("live_sot_h", 0)
-            _sa = st.session_state.get("live_sot_a", 0)
-            _ch = st.session_state.get("live_corner_h", 0)
-            _ca = st.session_state.get("live_corner_a", 0)
-            _ph = st.session_state.get("live_poss_h", 0.0)
-            _pa = st.session_state.get("live_poss_a", 0.0)
-            _ah = st.session_state.get("live_att_per_h", 0)
-            _aa = st.session_state.get("live_att_per_a", 0)
+            _min = st.session_state.get("live_minuto", 0)
+            _gh  = st.session_state.get("live_gol_casa", 0)
+            _ga  = st.session_state.get("live_gol_trasf", 0)
+            _sh  = st.session_state.get("live_sot_h", 0)
+            _sa  = st.session_state.get("live_sot_a", 0)
+            _ch  = st.session_state.get("live_corner_h", 0)
+            _ca  = st.session_state.get("live_corner_a", 0)
+            _ph  = st.session_state.get("live_poss_h", 0.0)
+            _pa  = st.session_state.get("live_poss_a", 0.0)
+            _ah  = st.session_state.get("live_att_per_h", 0)
+            _aa  = st.session_state.get("live_att_per_a", 0)
+            _rh  = st.session_state.get("live_rossi_casa", 0)
+            _ra  = st.session_state.get("live_rossi_trasf", 0)
+            _yh  = st.session_state.get("live_gialli_casa", 0)
+            _ya  = st.session_state.get("live_gialli_trasf", 0)
+
             st.success(
-                f"✅ Letto dallo screen — "
-                f"Tiri porta: **{_sh}–{_sa}** · "
-                f"Corner: **{_ch}–{_ca}** · "
-                f"Possesso: **{_ph:.0f}%–{_pa:.0f}%** · "
-                f"Att. peric.: **{_ah}–{_aa}**"
+                f"✅ **{_min}'  {_gh}–{_ga}**  ·  "
+                f"Tiri porta: {_sh}–{_sa}  ·  "
+                f"Corner: {_ch}–{_ca}  ·  "
+                f"Poss: {_ph:.0f}%–{_pa:.0f}%  ·  "
+                f"Att.per: {_ah}–{_aa}"
+                + (f"  ·  🟥 {_rh}–{_ra}" if _rh or _ra else "")
+                + (f"  ·  🟨 {_yh}–{_ya}" if _yh or _ya else "")
             )
-            # Mostra tutti i valori estratti in una tabella compatta
+
+            # Cronologia eventi
+            _ev = getattr(cached, "eventi", [])
+            if _ev:
+                st.markdown("**📋 Cronologia eventi**")
+                _ico = {"goal": "⚽", "yellow": "🟨", "red": "🟥", "sub": "🔄"}
+                for e in sorted(_ev, key=lambda x: x.get("min", 0)):
+                    _side = "Casa" if e["sq"] == "h" else "Trasf."
+                    _icon = _ico.get(e["t"], "•")
+                    _pl   = e.get("pl", "")
+                    _mn   = e.get("min", 0)
+                    st.caption(f"{_icon} {_mn}' — {_pl} ({_side})")
+
+            # Tabella completa valori estratti
             with st.expander("Vedi tutti i valori estratti", expanded=False):
                 _t1, _t2 = st.columns(2)
                 with _t1:
                     st.markdown("**Casa**")
-                    st.write(f"Tiri in porta: {_sh}")
-                    st.write(f"Tiri fuori: {st.session_state.get('live_soff_h', 0)}")
-                    st.write(f"Tiri bloccati: {st.session_state.get('live_blk_h', 0)}")
-                    st.write(f"Corner: {_ch}")
-                    st.write(f"Possesso: {_ph:.0f}%")
-                    st.write(f"Att. peric.: {_ah}")
-                    st.write(f"Att. totali: {st.session_state.get('live_att_h', 0)}")
-                    st.write(f"Gialli: {st.session_state.get('live_gialli_casa', 0)}")
-                    st.write(f"Falli: {st.session_state.get('live_falli_casa', 0)}")
+                    for label, key in [
+                        ("Tiri in porta", "live_sot_h"), ("Tiri fuori", "live_soff_h"),
+                        ("Tiri bloccati", "live_blk_h"), ("Corner", "live_corner_h"),
+                        ("Possesso", "live_poss_h"), ("Att. peric.", "live_att_per_h"),
+                        ("Att. totali", "live_att_h"), ("Gialli", "live_gialli_casa"),
+                        ("Rossi", "live_rossi_casa"), ("Falli", "live_falli_casa"),
+                    ]:
+                        v = st.session_state.get(key, 0)
+                        st.write(f"{label}: {v:.0f}" if isinstance(v, float) else f"{label}: {v}")
                 with _t2:
                     st.markdown("**Trasferta**")
-                    st.write(f"Tiri in porta: {_sa}")
-                    st.write(f"Tiri fuori: {st.session_state.get('live_soff_a', 0)}")
-                    st.write(f"Tiri bloccati: {st.session_state.get('live_blk_a', 0)}")
-                    st.write(f"Corner: {_ca}")
-                    st.write(f"Possesso: {_pa:.0f}%")
-                    st.write(f"Att. peric.: {_aa}")
-                    st.write(f"Att. totali: {st.session_state.get('live_att_a', 0)}")
-                    st.write(f"Gialli: {st.session_state.get('live_gialli_trasf', 0)}")
-                    st.write(f"Falli: {st.session_state.get('live_falli_trasf', 0)}")
+                    for label, key in [
+                        ("Tiri in porta", "live_sot_a"), ("Tiri fuori", "live_soff_a"),
+                        ("Tiri bloccati", "live_blk_a"), ("Corner", "live_corner_a"),
+                        ("Possesso", "live_poss_a"), ("Att. peric.", "live_att_per_a"),
+                        ("Att. totali", "live_att_a"), ("Gialli", "live_gialli_trasf"),
+                        ("Rossi", "live_rossi_trasf"), ("Falli", "live_falli_trasf"),
+                    ]:
+                        v = st.session_state.get(key, 0)
+                        st.write(f"{label}: {v:.0f}" if isinstance(v, float) else f"{label}: {v}")
         elif cached:
             st.warning(f"⚠️ Lettura parziale: {cached.error_message}")
 

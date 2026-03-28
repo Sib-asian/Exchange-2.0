@@ -36,7 +36,7 @@ import subprocess
 import tempfile
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +135,10 @@ class LiveStatsExtracted:
     # Falli
     falli_casa: int = 0
     falli_trasf: int = 0
+
+    # Cronologia eventi estratta dalla pagina
+    # Ogni elemento: {"t": "goal|yellow|red|sub", "sq": "h|a", "pl": "nome", "min": int}
+    eventi: list = field(default_factory=list)
 
     # Metadati
     raw_response: str = ""
@@ -487,8 +491,26 @@ def _extract_with_openai(image_path: Path) -> ExtractedData:
 # Live Stats Extraction (Nowgoal/simili)
 # ============================================================================
 
-LIVE_STATS_PROMPT = """Estrai le statistiche dallo screenshot di calcio. Sinistra=casa(h), destra=trasferta(a). MINUTO: se vedi "FT" o "Full Time" → min=90. Se vedi "HT" o "Half Time" → min=45. Se vedi un numero con ' (es "65'") → quel numero. Shots on Target/Goal=sot, Shots off Target/Goal=soff, Blocked=blk. Se vedi solo "Shots" totali: soff=shots-sot. Rispondi SOLO JSON (0 se non visibile):
-{"min":0,"g_h":0,"g_a":0,"r_h":0,"r_a":0,"y_h":0,"y_a":0,"sot_h":0,"sot_a":0,"soff_h":0,"soff_a":0,"blk_h":0,"blk_a":0,"cor_h":0,"cor_a":0,"pos_h":0,"pos_a":0,"att_h":0,"att_a":0,"datt_h":0,"datt_a":0,"fou_h":0,"fou_a":0}"""
+LIVE_STATS_PROMPT = """Analizza questo screenshot di partita di calcio live (Nowgoal o sito simile).
+Sinistra=casa(h), destra=trasferta(a).
+
+REGOLE:
+- min: minuto attuale. Se "FT"/"Full Time"→90. Se "HT"/"Half Time"→45. Se "32'"→32. Se "1st Half - 32"→32.
+- g_h/g_a: punteggio attuale (es. "1 - 0" → g_h=1, g_a=0)
+- r_h/r_a: conta i cartellini rossi nella cronologia eventi (rosso=espulsione diretta o 2° giallo)
+- y_h/y_a: conta i cartellini gialli nella cronologia eventi (NON contare il 2° giallo che ha causato rosso)
+- Shots on Goal/Target=sot, Shots off Goal/Target=soff, Blocked=blk
+- Se vedi solo "Shots" totali (non distinti): soff=shots-sot
+- pos_h/pos_a: Possession % (es. "70%" → 70)
+- att_h/att_a: Total Attacks; datt_h/datt_a: Dangerous Attacks
+- ev: cronologia eventi visibile nella pagina. Per ogni evento rilevante includi:
+  {"t":"goal|yellow|red|sub","sq":"h|a","pl":"nome giocatore","min":numero}
+  t=goal (gol), t=yellow (giallo), t=red (rosso/espulsione), t=sub (sostituzione)
+  sq="h" se evento a sinistra/casa, sq="a" se a destra/trasferta
+  Se non c'è cronologia visibile: ev=[]
+
+Rispondi SOLO con JSON valido (0 se dato non visibile):
+{"min":0,"g_h":0,"g_a":0,"r_h":0,"r_a":0,"y_h":0,"y_a":0,"sot_h":0,"sot_a":0,"soff_h":0,"soff_a":0,"blk_h":0,"blk_a":0,"cor_h":0,"cor_a":0,"pos_h":0,"pos_a":0,"att_h":0,"att_a":0,"datt_h":0,"datt_a":0,"fou_h":0,"fou_a":0,"ev":[]}"""
 
 
 def _extract_live_stats_with_gemini(image_path: Path) -> LiveStatsExtracted:
@@ -760,14 +782,40 @@ def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
             on = _safe_int(data.get("tiri_porta_trasf", 0))
             data["tiri_fuori_trasf"] = max(0, tot - on)
 
+        # Parsing eventi: valida che sia una lista di dict con i campi attesi
+        raw_ev = data.get("ev", data.get("eventi", []))
+        eventi: list = []
+        if isinstance(raw_ev, list):
+            for ev in raw_ev:
+                if not isinstance(ev, dict):
+                    continue
+                t   = str(ev.get("t", "")).lower()
+                sq  = str(ev.get("sq", "")).lower()
+                pl  = str(ev.get("pl", ev.get("player", "")))
+                mn  = _safe_int(ev.get("min", ev.get("minute", 0)))
+                if t in ("goal", "yellow", "red", "sub") and sq in ("h", "a"):
+                    eventi.append({"t": t, "sq": sq, "pl": pl, "min": mn})
+
+        # Ricava rossi/gialli dagli eventi se il conteggio diretto è 0
+        # (fallback robusto: conta eventi nella cronologia)
+        r_h = _safe_int(data.get("rossi_casa"))
+        r_a = _safe_int(data.get("rossi_trasf"))
+        y_h = _safe_int(data.get("gialli_casa"))
+        y_a = _safe_int(data.get("gialli_trasf"))
+        if eventi and (r_h == 0 and r_a == 0 and y_h == 0 and y_a == 0):
+            r_h = sum(1 for e in eventi if e["t"] == "red"    and e["sq"] == "h")
+            r_a = sum(1 for e in eventi if e["t"] == "red"    and e["sq"] == "a")
+            y_h = sum(1 for e in eventi if e["t"] == "yellow" and e["sq"] == "h")
+            y_a = sum(1 for e in eventi if e["t"] == "yellow" and e["sq"] == "a")
+
         return LiveStatsExtracted(
             minuto=_safe_int(data.get("minuto")),
             gol_casa=_safe_int(data.get("gol_casa")),
             gol_trasf=_safe_int(data.get("gol_trasf")),
-            rossi_casa=_safe_int(data.get("rossi_casa")),
-            rossi_trasf=_safe_int(data.get("rossi_trasf")),
-            gialli_casa=_safe_int(data.get("gialli_casa")),
-            gialli_trasf=_safe_int(data.get("gialli_trasf")),
+            rossi_casa=r_h,
+            rossi_trasf=r_a,
+            gialli_casa=y_h,
+            gialli_trasf=y_a,
             tiri_porta_casa=_safe_int(data.get("tiri_porta_casa")),
             tiri_porta_trasf=_safe_int(data.get("tiri_porta_trasf")),
             tiri_fuori_casa=_safe_int(data.get("tiri_fuori_casa")),
@@ -784,6 +832,7 @@ def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
             attacchi_pericolosi_trasf=_safe_int(data.get("attacchi_pericolosi_trasf")),
             falli_casa=_safe_int(data.get("falli_casa")),
             falli_trasf=_safe_int(data.get("falli_trasf")),
+            eventi=eventi,
             confidence=str(data.get("confidence", "medium")).lower(),
             raw_response=response,
             extraction_success=True,
