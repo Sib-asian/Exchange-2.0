@@ -249,6 +249,9 @@ def _chiama_gemini_con_ricerca(prompt: str) -> tuple[str, list[str]]:
 def _chiama_gemini_solo_testo(prompt: str) -> str:
     """
     Stadio 2: chiama Gemini SENZA google_search per formattare in JSON.
+
+    Usa response_mime_type="application/json" per garantire output JSON valido
+    senza markdown, backtick o testo extra che rompono il parsing.
     Senza grounding Gemini segue le istruzioni di formato molto più fedelmente.
     """
     api_key = _get_gemini_api_key()
@@ -258,8 +261,9 @@ def _chiama_gemini_solo_testo(prompt: str) -> str:
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.1,      # quasi deterministico (0.0 non supportato da tutti i modelli)
+            "temperature": 0.1,
             "maxOutputTokens": 4096,
+            "response_mime_type": "application/json",  # JSON mode: output sempre valido
         },
     }
 
@@ -357,6 +361,17 @@ def _estrai_json(testo: str) -> dict | None:
         except json.JSONDecodeError:
             continue
 
+    # 5. Fallback: il JSON potrebbe essere troncato — prova ad aggiungere "}" finale
+    # (accade quando Gemini raggiunge maxOutputTokens a metà del JSON)
+    m = re.search(r"\{[\s\S]*", testo)
+    if m:
+        troncato = m.group()
+        for suffix in ["}", "}}", "}]}"]:
+            try:
+                return json.loads(troncato + suffix)
+            except json.JSONDecodeError:
+                continue
+
     return None
 
 
@@ -375,7 +390,7 @@ def _parse_risposta(testo: str, fonti: list[str], squadra_casa: str, squadra_tra
             competizione=competizione,
             success=False,
             error="Risposta non contiene JSON valido",
-            raw_response=testo[:500],
+            raw_response=testo[:1500],
         )
 
     # Clamp aggiustamenti entro range sicuri
@@ -462,7 +477,7 @@ def ricerca_contesto_partita(
             competizione=competizione,
             success=False,
             error=str(e),
-            raw_response=f"[STADIO 1]\n{_raw_stage1[:500]}\n\n[STADIO 2]\n{_raw_stage2[:500]}",
+            raw_response=f"[STADIO 1]\n{_raw_stage1[:800]}\n\n[STADIO 2]\n{_raw_stage2[:800]}",
         )
 
 
