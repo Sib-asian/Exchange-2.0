@@ -228,6 +228,65 @@ def render_allineamento_mercato(
 
 
 # ---------------------------------------------------------------------------
+# Riepilogo Modello (xG + top score + bias mercato)
+# ---------------------------------------------------------------------------
+
+def render_riepilogo_modello(
+    risultati: ProbabilitaModello,
+    linea_ou: float,
+    minuto: int,
+) -> None:
+    """
+    Blocco sempre visibile con i dati chiave del modello:
+    - xG attesi per entrambe le squadre
+    - Squadra favorita con probabilità
+    - Orientamento Over/Under
+    - Top 3 correct score attesi
+    """
+    xh = risultati.xg_h_final
+    xa = risultati.xg_a_final
+
+    st.subheader("Riepilogo Modello")
+
+    # ── Riga 1: xG attesi + favorita ────────────────────────────────────────
+    col_xg1, col_xg2, col_xg3 = st.columns(3)
+    col_xg1.metric("xG Casa", f"{xh:.2f}", help="Goal attesi rimanenti — casa")
+    col_xg2.metric("xG Trasf.", f"{xa:.2f}", help="Goal attesi rimanenti — trasferta")
+
+    # Favorita + orientamento mercato gol
+    if risultati.p1 > risultati.p2 + 0.08:
+        _fav = f"Casa · {risultati.p1:.0%}"
+        _fav_delta = f"vs Trasf. {risultati.p2:.0%}"
+    elif risultati.p2 > risultati.p1 + 0.08:
+        _fav = f"Trasf. · {risultati.p2:.0%}"
+        _fav_delta = f"vs Casa {risultati.p1:.0%}"
+    else:
+        _fav = f"Equilibrata"
+        _fav_delta = f"1: {risultati.p1:.0%} · X: {risultati.px:.0%} · 2: {risultati.p2:.0%}"
+    col_xg3.metric("Favorita", _fav, _fav_delta)
+
+    # ── Riga 2: O/U + BTTS + Draw ───────────────────────────────────────────
+    col_ou, col_btts, col_x = st.columns(3)
+    _ou_lbl = f"Over {linea_ou:.1f}"
+    _ou_val = f"{risultati.p_over:.0%}"
+    _ou_dir = f"Under {risultati.p_under:.0%}"
+    col_ou.metric(_ou_lbl, _ou_val, _ou_dir)
+    col_btts.metric("BTTS Sì", f"{risultati.p_btts:.0%}", f"No {1 - risultati.p_btts:.0%}")
+    col_x.metric("Pareggio", f"{risultati.px:.0%}", f"Fair @{_q_fair(risultati.px):.2f}")
+
+    # ── Top 3 Correct Score ─────────────────────────────────────────────────
+    if risultati.top_cs:
+        st.caption("**Punteggi più probabili**")
+        cs_cols = st.columns(min(3, len(risultati.top_cs)))
+        for idx, ((fc, ft), prob) in enumerate(risultati.top_cs[:3]):
+            cs_cols[idx].metric(
+                label=f"{fc}–{ft}",
+                value=f"{prob:.1%}",
+                delta=f"fair @{_q_fair(prob):.2f}",
+            )
+
+
+# ---------------------------------------------------------------------------
 # Correct Score + Distribuzione Gol
 # ---------------------------------------------------------------------------
 

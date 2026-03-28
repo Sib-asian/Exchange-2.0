@@ -39,6 +39,7 @@ from src.ui.outputs import (
     render_model_confidence,
     render_momentum,
     render_ocr_market_divergence,
+    render_riepilogo_modello,
     render_quote_fair,
     render_red_card_impact,
     render_risk_metrics,
@@ -352,6 +353,9 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     # ── Quote Fair ───────────────────────────────────────────────────────────
     render_quote_fair(risultati, state.minuto, state.gol_casa, state.gol_trasf, linea_ou)
     render_model_confidence(risultati)
+    st.divider()
+    render_riepilogo_modello(risultati, linea_ou, state.minuto)
+    st.divider()
     render_confidence_bands(risultati, linea_ou)
     render_coerenza_mercati(risultati, linea_ou)
     render_correct_score(risultati)
