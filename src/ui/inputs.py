@@ -947,6 +947,10 @@ def build_match_state(
     fixture_historical_total: float = 0.0,
     movement_quality: float = 1.0,
     ocr_confidence_scale: float = 1.0,
+    absence_mult_h: float = 1.0,
+    absence_mult_a: float = 1.0,
+    forma_mult_h: float = 1.0,
+    forma_mult_a: float = 1.0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -1008,6 +1012,10 @@ def build_match_state(
         fixture_historical_total=fixture_historical_total,
         movement_quality=movement_quality,
         ocr_confidence_scale=ocr_confidence_scale,
+        absence_mult_h=absence_mult_h,
+        absence_mult_a=absence_mult_a,
+        forma_mult_h=forma_mult_h,
+        forma_mult_a=forma_mult_a,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )

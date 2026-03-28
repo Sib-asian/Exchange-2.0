@@ -654,20 +654,41 @@ class ConsensusConfig:
     W_COPULA: float = 0.30      # CMP + Frank copula (overdispersion)
     W_MARKOV: float = 0.20      # Markov chain (score-dependent rates)
 
-    # #1: Pesi dinamici per fase di gioco.
-    # Prematch/early (<5'): Poisson domina, Markov non ha stato significativo.
-    # Late game (>60'): Markov eccelle con punteggio attuale come contesto.
-    W_BP_EARLY: float = 0.55    # Bivariate Poisson early game
-    W_COP_EARLY: float = 0.35   # Copula early game
-    W_MK_EARLY: float = 0.10    # Markov early (pochi eventi, contributo minimo)
-    W_BP_LATE: float = 0.35     # Bivariate Poisson late game
-    W_COP_LATE: float = 0.25    # Copula late game
-    W_MK_LATE: float = 0.40     # Markov late (punteggio fissato → molto informativo)
-    EARLY_GAME_MINUTE: int = 5   # Sotto questo minuto → pesi early
-    LATE_GAME_MINUTE: int = 60   # Sopra questo minuto → pesi late
+    # #1/#6: Pesi dinamici per 4 fasi di gioco.
+    # Prematch (0'): Poisson domina, nessuno stato partita.
+    # Early (1-20'): transizione, Markov cresce.
+    # Mid (20-60'): equilibrio, Markov contribuisce moderatamente.
+    # Late (>60'): Markov eccelle con punteggio fissato come contesto.
+    W_BP_PREMATCH: float = 0.55   # Bivariate Poisson prematch (minuto=0)
+    W_COP_PREMATCH: float = 0.30  # Copula prematch
+    W_MK_PREMATCH: float = 0.15   # Markov prematch (nessuno stato)
+    W_BP_EARLY: float = 0.50      # Bivariate Poisson early (1-20')
+    W_COP_EARLY: float = 0.25     # Copula early
+    W_MK_EARLY: float = 0.25      # Markov early (pochi eventi, moderato)
+    W_BP_MID: float = 0.45        # Bivariate Poisson mid (20-60')
+    W_COP_MID: float = 0.25       # Copula mid
+    W_MK_MID: float = 0.30        # Markov mid (stato parziale, cresce)
+    W_BP_LATE: float = 0.40       # Bivariate Poisson late (>60')
+    W_COP_LATE: float = 0.20      # Copula late
+    W_MK_LATE: float = 0.40       # Markov late (punteggio fissato → molto informativo)
+    EARLY_GAME_MINUTE: int = 20   # Sotto questo minuto (escl. 0) → pesi early
+    MID_GAME_MINUTE: int = 60     # Sotto questo minuto (da EARLY a MID) → pesi mid
+    LATE_GAME_MINUTE: int = 60    # Sopra questo minuto → pesi late (alias compat.)
 
-    # Calibrazione isotonica
-    DRAW_SHRINKAGE: float = 0.97  # riduzione draw (-3%)
+    # Calibrazione isotonica — draw shrinkage dinamico
+    # Il valore fisso 0.97 è ora usato come FALLBACK solo nei test;
+    # in produzione si usa DRAW_SHRINKAGE_BASE per calcolo dinamico.
+    DRAW_SHRINKAGE: float = 0.97  # fallback / compatibilità test
+
+    # Draw shrinkage dinamico: riduzione proporzionale al totale atteso.
+    # Partite difensive (tot basso) → minor correzione; aperte (tot alto) → maggiore.
+    # Formula: draw_factor = DRAW_SHRINKAGE_BASE × (tot_cur / DRAW_SHRINKAGE_TOT_REF)
+    # Clipped in [DRAW_SHRINKAGE_MIN_FACTOR, DRAW_SHRINKAGE_MAX_FACTOR].
+    # draw_shrinkage = 1.0 - draw_factor
+    DRAW_SHRINKAGE_BASE: float = 0.030        # fattore base a tot=2.5 → -3% draw
+    DRAW_SHRINKAGE_TOT_REF: float = 2.5       # totale di riferimento
+    DRAW_SHRINKAGE_MIN_FACTOR: float = 0.010  # min: shrinkage=0.990 (tot basso)
+    DRAW_SHRINKAGE_MAX_FACTOR: float = 0.055  # max: shrinkage=0.945 (tot alto)
 
     # Logistic sharpening: α > 1 rende le probabilità estreme più estreme
     # calibrate su dati Poisson vs reali: modello sottostima certezza agli estremi
@@ -806,6 +827,52 @@ class OcrQuotesConfig:
     BTTS_QUALITY_MAX_PENALTY: float = 0.20       # max riduzione peso BTTS (-20%)
 
 
+@dataclass(frozen=True)
+class AIAdjConfig:
+    """
+    Parametri per gli aggiustamenti xG da dati AI (assenze + forma).
+
+    ABSENCE_MARKET_ALPHA: il mercato ha già prezzato ~60% dell'impatto delle assenze
+    nelle linee di apertura. Applichiamo solo il 40% residuo non catturato.
+    Questo evita il double-counting tra il prior bayesiano delle linee e i dati AI.
+
+    Riferimento: Frick & Simmons (2008), Goddard & Asimakopoulos (2004):
+    il mercato tipicamente incorpora ~50-70% dell'impatto delle notizie pubbliche.
+    """
+
+    # Fattore di attenuazione per evitare double-counting con le linee di mercato.
+    # 0.40 = applichiamo solo il 40% dell'impatto calcolato (il mercato ha già il 60%).
+    ABSENCE_MARKET_ALPHA: float = 0.40
+
+    # Moltiplicatori per ruolo × status (applicati PRIMA di ABSENCE_MARKET_ALPHA)
+    STRIKER_CONFIRMED_MULT: float = 0.88   # striker confermato assente → -12% xG
+    STRIKER_PROBABLE_MULT: float = 0.94    # striker probabile assente → -6% xG
+    GK_OPP_CONFIRMED_MULT: float = 1.08   # portiere avversario confermato assente → +8% xG avversario
+    GK_OPP_PROBABLE_MULT: float = 1.04    # portiere avversario probabile assente → +4%
+    MID_CONFIRMED_MULT: float = 0.97       # centrocampista confermato assente → -3% xG
+    MID_PROBABLE_MULT: float = 0.985       # centrocampista probabile assente → -1.5%
+    DEF_CONFIRMED_MULT: float = 0.98       # difensore confermato assente → -2% xG
+    DEF_PROBABLE_MULT: float = 0.99        # difensore probabile assente → -1%
+
+    # Clamp moltiplicatori assenze
+    ABSENCE_MULT_MIN: float = 0.82         # floor: max -18% (es. 3 striker confermati)
+    ABSENCE_MULT_MAX_GK: float = 1.12      # cap: max +12% per GK avversario assente
+
+    # Forma recente: pesi decrescenti, il risultato più recente (primo) pesa di più
+    # Somma = 1.0 = [W1, W2, W3, W4, W5] dal più recente al più antico
+    FORMA_WEIGHTS: tuple = (0.35, 0.25, 0.20, 0.12, 0.08)
+
+    # Effetto massimo della forma sul xG: ±8%
+    # Forma perfetta WWWWW → +8%, disastrosa LLLLL → -8%
+    FORMA_MAX_EFFECT: float = 0.08
+
+    # Scala per affidabilità Gemini:
+    # alta=1.0 (usa tutto), media=0.65 (taglia 35%), bassa=0.35 (quasi inutile)
+    AFFIDABILITA_ALTA: float = 1.0
+    AFFIDABILITA_MEDIA: float = 0.65
+    AFFIDABILITA_BASSA: float = 0.35
+
+
 # Istanze globali immutabili — importare da qui
 POISSON   = PoissonConfig()
 DC        = DixonColesConfig()
@@ -828,3 +895,4 @@ CLEAN_SHEET = CleanSheetConfig()
 ENGINE = EngineConfig()
 INPUT_VALIDATION = InputValidationConfig()
 OCR_QUOTES = OcrQuotesConfig()
+AI_ADJ = AIAdjConfig()

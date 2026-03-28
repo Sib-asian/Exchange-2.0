@@ -163,6 +163,53 @@ def _devig_three_way(q1: float, qx: float, q2: float) -> tuple[float, float, flo
     return (raw[0] / total, raw[1] / total, raw[2] / total)
 
 
+def _devig_shin_power(raw_probs: list[float]) -> list[float]:
+    """
+    Devigging via power method (Shin 1991, Cain et al. 2000).
+
+    Trova l'esponente k tale che sum(r_i^k) = 1, dove r_i = 1/q_i.
+    Più preciso della semplice normalizzazione per margini >3%, perché
+    redistribuisce il vig in modo non uniforme (più vig sugli outsider).
+
+    Riferimento:
+      Shin (1991): "Optimal betting odds against insider traders"
+      Cain, Law & Peel (2000): "The favourite-longshot bias and market efficiency"
+
+    Args:
+        raw_probs: Lista di 1/quota per ogni esito (somma > 1, margine bookmaker incluso).
+
+    Returns:
+        Lista di probabilità fair (somma ≈ 1.0).
+    """
+    if not raw_probs:
+        return []
+    if any(r <= 0 for r in raw_probs):
+        n = len(raw_probs)
+        return [1.0 / n] * n
+
+    S = sum(raw_probs)
+    if S <= 1.0:
+        return list(raw_probs)
+
+    # Binary search: trova k in (0, 5) tale che sum(r_i^k) = 1
+    k_lo, k_hi = 0.2, 5.0
+    for _ in range(60):
+        k = (k_lo + k_hi) / 2.0
+        total = sum(r ** k for r in raw_probs)
+        if total > 1.0:
+            k_lo = k
+        else:
+            k_hi = k
+
+    k = (k_lo + k_hi) / 2.0
+    shin_probs = [r ** k for r in raw_probs]
+    total = sum(shin_probs)
+    if total <= 0:
+        n = len(raw_probs)
+        return [1.0 / n] * n
+    return [p / total for p in shin_probs]
+
+
 def _poisson_pmf_k(mu: float, k: int) -> float:
     """P(Poisson(mu) = k) via log-gamma per stabilità numerica."""
     if mu <= 0:
@@ -194,8 +241,8 @@ def estrai_segnali_ocr_da_quote(
     """
     Estrae (mu_total_ocr, ocr_delta) dalle quote bookmaker prematch.
 
-    Usa devigging via normalizzazione per ottenere probabilità fair, poi
-    bisection per trovare total e delta impliciti nel modello Poisson.
+    Usa Shin's power method devigging (#5) per ottenere probabilità fair più accurate,
+    poi bisection per trovare total e delta impliciti nel modello Poisson.
 
     ── Total da O/U ───────────────────────────────────────────────────────
     Le quote O/U → p_over_fair → bisection su Poisson per trovare mu_total.
@@ -226,7 +273,10 @@ def estrai_segnali_ocr_da_quote(
     if quota_over > 1.0 and quota_under > 1.0:
         overround_ou = 1.0 / quota_over + 1.0 / quota_under
         if overround_ou <= OCR_QUOTES.MAX_OVERROUND_2WAY:
-            p_over_fair = _devig_two_way(quota_over, quota_under)
+            # #5: Shin's power method — più accurato della normalizzazione semplice
+            _raw_ou = [1.0 / quota_over, 1.0 / quota_under]
+            _shin_ou = _devig_shin_power(_raw_ou)
+            p_over_fair = _shin_ou[0]
 
             # k_thr: primo intero che conta come "over" sulla linea.
             half_line = linea_ou - math.floor(linea_ou)
@@ -246,7 +296,10 @@ def estrai_segnali_ocr_da_quote(
     if quota_1 > 1.0 and quota_x > 1.0 and quota_2 > 1.0:
         overround_1x2 = 1.0 / quota_1 + 1.0 / quota_x + 1.0 / quota_2
         if overround_1x2 <= OCR_QUOTES.MAX_OVERROUND_3WAY:
-            p1_fair, _, _ = _devig_three_way(quota_1, quota_x, quota_2)
+            # #5: Shin's power method per 1X2
+            _raw_1x2 = [1.0 / quota_1, 1.0 / quota_x, 1.0 / quota_2]
+            _shin_1x2 = _devig_shin_power(_raw_1x2)
+            p1_fair = _shin_1x2[0]
             tot_ref = mu_total_ocr if mu_total_ocr > 0.5 else linea_ou
 
             if tot_ref > 0.3:
