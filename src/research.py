@@ -71,7 +71,7 @@ class RicercaPartita:
 # ---------------------------------------------------------------------------
 
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-_GEMINI_SEARCH_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash"]
+_GEMINI_SEARCH_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
 
 
 def _get_gemini_api_key() -> str | None:
