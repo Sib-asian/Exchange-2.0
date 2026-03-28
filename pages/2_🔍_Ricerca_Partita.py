@@ -78,11 +78,22 @@ if cerca_btn and squadra_casa.strip() and squadra_trasf.strip():
 
     from src.research import ricerca_contesto_partita
 
-    with st.spinner(f"Gemini sta cercando informazioni su {squadra_casa} vs {squadra_trasf}..."):
-        risultato = ricerca_contesto_partita(squadra_casa, squadra_trasf, competizione)
+    # Cache key: evita ricerche duplicate per le stesse squadre nella stessa sessione
+    _cache_key = (squadra_casa.strip().lower(), squadra_trasf.strip().lower(), competizione.strip().lower())
+    _cached_r = st.session_state.get("ricerca_risultato")
+    _cached_key = st.session_state.get("_ricerca_cache_key")
 
-    # Salva in session state per uso futuro
-    st.session_state["ricerca_risultato"] = risultato
+    if _cached_r is not None and _cached_r.success and _cached_key == _cache_key:
+        # Stesso match già cercato con successo → mostra risultato cached
+        st.info("📋 Risultato già trovato per questa partita. Usa **🔄 Nuova ricerca** per aggiornare.")
+        risultato = _cached_r
+    else:
+        with st.spinner(f"Gemini sta cercando su 4 fonti in parallelo: {squadra_casa} vs {squadra_trasf}..."):
+            risultato = ricerca_contesto_partita(squadra_casa, squadra_trasf, competizione)
+
+        # Salva in session state
+        st.session_state["ricerca_risultato"] = risultato
+        st.session_state["_ricerca_cache_key"] = _cache_key
 
 # ---------------------------------------------------------------------------
 # Mostra risultati (da session state o appena calcolati)
@@ -255,5 +266,6 @@ Valuta tu stesso se applicarli in base alla tua conoscenza della partita.
         # ── Pulsante reset ────────────────────────────────────────────────
         st.divider()
         if st.button("🔄 Nuova ricerca", use_container_width=False):
-            del st.session_state["ricerca_risultato"]
+            st.session_state.pop("ricerca_risultato", None)
+            st.session_state.pop("_ricerca_cache_key", None)
             st.rerun()

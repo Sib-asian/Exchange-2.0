@@ -96,52 +96,92 @@ def _get_gemini_api_key() -> str | None:
 # Prompt — approccio a 2 stadi
 # ---------------------------------------------------------------------------
 
-def _build_prompt_raccolta(squadra_casa: str, squadra_trasf: str, competizione: str) -> str:
-    """Stadio 1: cerca fatti in prosa (con google_search). Nessun vincolo JSON."""
+# ---------------------------------------------------------------------------
+# Prompt — approccio a 2 stadi con 4 ricerche parallele mirate
+# ---------------------------------------------------------------------------
+
+def _prompt_assenze(squadra: str, competizione: str) -> str:
+    """Ricerca mirata infortuni/squalifiche per UNA squadra su fonti autorevoli."""
+    import datetime
+    oggi = datetime.date.today().strftime("%d %B %Y")
+    comp_str = f" ({competizione})" if competizione else ""
+    return f"""Data odierna: {oggi}. Cerca su questi siti in ordine:
+1. transfermarkt.com — cerca "{squadra} injuries" o "{squadra} infortuni"
+2. Sito ufficiale del club {squadra}{comp_str}
+3. bbc.co.uk/sport OPPURE skysports.com OPPURE equivalente del paese
+
+Domanda precisa: Quali giocatori di {squadra}{comp_str} sono ASSENTI o in DUBBIO per la prossima partita?
+
+Per ogni giocatore trovato indica:
+- Nome completo
+- Ruolo: portiere / difensore / centrocampista / attaccante / ala
+- Motivo: infortunio (tipo) / squalifica
+- Certezza: CONFERMATO (sicuramente fuori) / PROBABILE (quasi certo) / DUBBIO (incerto)
+- Fonte e data della notizia
+
+Se non trovi assenze certe scrivi esplicitamente "Nessuna assenza rilevata per {squadra}".
+Non inventare — usa solo ciò che trovi nelle fonti."""
+
+
+def _prompt_forma(squadra_casa: str, squadra_trasf: str, competizione: str) -> str:
+    """Ricerca mirata forma recente di entrambe le squadre su Flashscore/SofaScore."""
+    import datetime
+    oggi = datetime.date.today().strftime("%d %B %Y")
+    comp_str = f" ({competizione})" if competizione else ""
+    return f"""Data odierna: {oggi}. Cerca su flashscore.com e sofascore.com:
+
+Per {squadra_casa}{comp_str} — ultimi 5 risultati:
+Cerca "{squadra_casa} results 2025" o "{squadra_casa} risultati".
+Per ogni partita: data, avversario, risultato (W vittoria/D pareggio/L sconfitta), gol fatti-subiti, casa o trasferta.
+
+Per {squadra_trasf}{comp_str} — stessa struttura.
+Cerca "{squadra_trasf} results 2025" o "{squadra_trasf} risultati".
+
+Riporta i dati ESATTAMENTE come li trovi, con date precise.
+Se non trovi dati recenti (ultimi 30 giorni), dillo esplicitamente."""
+
+
+def _prompt_h2h(squadra_casa: str, squadra_trasf: str, competizione: str) -> str:
+    """Ricerca mirata head-to-head su 11v11.com e Soccerway."""
+    import datetime
+    oggi = datetime.date.today().strftime("%d %B %Y")
+    comp_str = f" ({competizione})" if competizione else ""
+    return f"""Data odierna: {oggi}. Cerca su 11v11.com, soccerway.com e flashscore.com:
+
+Scontri diretti storici tra {squadra_casa} e {squadra_trasf}{comp_str}.
+Cerca: "{squadra_casa} vs {squadra_trasf} head to head" su 11v11.com.
+
+Per le ultime 6-8 partite dirette indica:
+- Data, competizione, risultato esatto (es. 2-1), gol totali
+
+Poi calcola:
+- Vittorie casa / pareggi / vittorie trasferta
+- Media gol totali per partita (somma tutti i gol ÷ numero partite)
+
+Se non trovi H2H, dillo esplicitamente. Non inventare risultati."""
+
+
+def _prompt_contesto(squadra_casa: str, squadra_trasf: str, competizione: str) -> str:
+    """Ricerca data/orario/stadio e contesto motivazionale."""
     import datetime
     oggi = datetime.date.today().strftime("%d %B %Y")
     comp_str = competizione if competizione else "competizione non specificata"
+    return f"""Data odierna: {oggi}. Trova informazioni su {squadra_casa} vs {squadra_trasf} ({comp_str}):
 
-    return f"""Data odierna: {oggi}
+1. DATA E ORARIO: Quando si gioca questa partita? Cerca il calendario ufficiale della {comp_str}.
+   Indica data esatta, orario locale e fuso orario, stadio e città.
 
-Sei un analista sportivo esperto. Trova informazioni PRECISE e AGGIORNATE per la partita:
-{squadra_casa} vs {squadra_trasf} — {comp_str}
+2. CLASSIFICA E POSTA IN GIOCO:
+   - Posizione in classifica di {squadra_casa} e {squadra_trasf}
+   - Cosa c'è in palio? (lotta salvezza / titolo / playoff / qualificazione europea / nulla)
+   - Una squadra è già matematicamente salva/retrocessa/qualificata?
 
-Esegui ricerche approfondite per ciascuno dei 6 punti seguenti:
+3. METEO: Previsioni meteo per la città dello stadio nel giorno della partita.
+   Temperatura, precipitazioni, vento.
 
---- PUNTO 1: DATA E ORARIO PARTITA ---
-Cerca quando si gioca esattamente questa partita: data, orario, stadio, città.
-Questo è fondamentale per ancorare tutte le ricerche successive al momento corretto.
+4. ALTRO CONTESTO: È un derby? Rivalità storica? Turnover atteso per impegni ravvicinati?
 
---- PUNTO 2: IDENTIFICAZIONE SQUADRE ---
-Verifica che "{squadra_casa}" e "{squadra_trasf}" siano le squadre corrette per "{comp_str}".
-Se il nome è ambiguo (es. "Milan" → AC Milan o altra squadra?) chiarisci con paese e divisione.
-
---- PUNTO 3: ASSENZE CERTIFICATE ---
-Cerca su: siti ufficiali dei club, Transfermarkt, BBC Sport, Sky Sports, AS.com, Gazzetta.
-Per {squadra_casa}: chi è OUT per infortunio o squalifica? Distingui → CONFERMATO / PROBABILE / DUBBIO.
-Per {squadra_trasf}: stessa ricerca. Indica il ruolo del giocatore (attaccante, portiere, ecc.).
-
---- PUNTO 4: FORMA RECENTE ---
-Cerca su: Flashscore, SofaScore, Livescore.
-{squadra_casa} — ultimi 5 risultati: data, avversario, risultato (W/D/L), gol fatti/subiti.
-{squadra_trasf} — stessa struttura. Indica se le partite erano in casa o trasferta.
-
---- PUNTO 5: HEAD-TO-HEAD ---
-Cerca su: Flashscore, SofaScore, 11v11.com.
-Ultime 5-8 partite dirette tra {squadra_casa} e {squadra_trasf}:
-data, competizione, risultato esatto, gol totali. Calcola la media gol negli H2H.
-
---- PUNTO 6: CONTESTO E MOTIVAZIONE ---
-- È un derby storico o rivalità accesa?
-- Cosa c'è in palio: salvezza, titolo, qualificazione europea, coppa?
-- Una squadra è già retrocessa/qualificata (motivazione ridotta)?
-- Turnover atteso (partita di coppa prima/dopo)?
-- Previsioni meteo per città e data della partita?
-
-Per ogni informazione indica: fonte (sito) e data dell'informazione.
-Sii approfondito e preciso. Se non trovi dati certi su un punto, dillo esplicitamente.
-"""
+Sii preciso sulle date. Se la partita non è ancora confermata nel calendario, dillo."""
 
 
 def _build_prompt_formato(
@@ -154,8 +194,8 @@ def _build_prompt_formato(
     comp_str = f" ({competizione})" if competizione else ""
     return f"""Analisi partita {squadra_casa} vs {squadra_trasf}{comp_str}.
 
-Fatti trovati dalla ricerca:
-{fatti[:2500]}
+Fatti trovati da 4 ricerche specifiche (assenze casa, assenze trasferta, forma/H2H, contesto):
+{fatti[:4000]}
 
 Basandoti SOLO sui fatti sopra, compila questo JSON. Regole:
 - assenze_casa/trasf: lista stringhe "Nome Cognome (ruolo) — CONFERMATO/PROBABILE"
@@ -457,19 +497,52 @@ def ricerca_contesto_partita(
     sc = squadra_casa.strip()
     st_t = squadra_trasf.strip()
     comp = competizione.strip()
-    _raw_stage1 = ""
     _raw_stage2 = ""
+    fonti_totali: list[str] = []
 
     try:
-        # Stadio 1: raccolta fatti con google_search (risposta in prosa libera)
-        prompt_raccolta = _build_prompt_raccolta(sc, st_t, comp)
-        _raw_stage1, fonti = _chiama_gemini_con_ricerca(prompt_raccolta)
+        # Stadio 1: 4 ricerche parallele mirate su fonti specifiche.
+        # Ogni ricerca si concentra su un aspetto → molto più precisa di un'unica ricerca generica.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # Stadio 2: formattazione JSON senza google_search (Gemini segue le istruzioni)
+        _prompts = {
+            "assenze_casa":  _prompt_assenze(sc, comp),
+            "assenze_trasf": _prompt_assenze(st_t, comp),
+            "forma_h2h":     _prompt_forma(sc, st_t, comp),
+            "contesto":      _prompt_contesto(sc, st_t, comp),
+        }
+
+        _risultati: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=4) as _ex:
+            _futures = {
+                _ex.submit(_chiama_gemini_con_ricerca, prompt): nome
+                for nome, prompt in _prompts.items()
+            }
+            for _fut in as_completed(_futures):
+                _nome = _futures[_fut]
+                try:
+                    _testo, _fonti = _fut.result()
+                    _risultati[_nome] = _testo
+                    fonti_totali.extend(_fonti)
+                except Exception as _e:
+                    _risultati[_nome] = f"[Ricerca {_nome} fallita: {_e}]"
+
+        # Unisci i risultati delle 4 ricerche in un unico blocco di fatti per Stage 2
+        _raw_stage1 = (
+            f"=== ASSENZE {sc.upper()} ===\n{_risultati.get('assenze_casa', 'N/D')}\n\n"
+            f"=== ASSENZE {st_t.upper()} ===\n{_risultati.get('assenze_trasf', 'N/D')}\n\n"
+            f"=== FORMA RECENTE + HEAD-TO-HEAD ===\n{_risultati.get('forma_h2h', 'N/D')}\n\n"
+            f"=== CONTESTO (data, classifica, meteo) ===\n{_risultati.get('contesto', 'N/D')}"
+        )
+
+        # Stadio 2: formattazione JSON senza google_search
         prompt_formato = _build_prompt_formato(_raw_stage1, sc, st_t, comp)
         _raw_stage2 = _chiama_gemini_solo_testo(prompt_formato)
 
-        return _parse_risposta(_raw_stage2, fonti, sc, st_t, comp)
+        # Deduplica fonti (max 8)
+        _fonti_uniche = list(dict.fromkeys(fonti_totali))[:8]
+        return _parse_risposta(_raw_stage2, _fonti_uniche, sc, st_t, comp)
+
     except Exception as e:
         return RicercaPartita(
             squadra_casa=squadra_casa,
@@ -477,7 +550,7 @@ def ricerca_contesto_partita(
             competizione=competizione,
             success=False,
             error=str(e),
-            raw_response=f"[STADIO 1]\n{_raw_stage1[:800]}\n\n[STADIO 2]\n{_raw_stage2[:800]}",
+            raw_response=f"[STADIO 2]\n{_raw_stage2[:800]}",
         )
 
 
