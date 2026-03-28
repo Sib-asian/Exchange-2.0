@@ -81,6 +81,47 @@ if lines.get("blocking_errors") and INPUT_VALIDATION.BLOCK_ON_CRITICAL_ERRORS:
     st.stop()
 st.divider()
 
+# ── Step 1b: Ricerca Pre-Partita (opzionale, da pagina 🔍) ─────────────────
+_ricerca = st.session_state.get("ricerca_risultato")
+_ricerca_ok = _ricerca is not None and _ricerca.success
+
+if _ricerca_ok:
+    with st.expander(
+        f"🔍 Ricerca attiva: {_ricerca.squadra_casa} vs {_ricerca.squadra_trasf}",
+        expanded=False,
+    ):
+        _aff_icon = {"alta": "🟢", "media": "🟡", "bassa": "🔴"}.get(_ricerca.affidabilita, "⚪")
+        st.caption(f"Affidabilità: {_aff_icon} {_ricerca.affidabilita.upper()}")
+
+        _rc1, _rc2 = st.columns(2)
+        with _rc1:
+            if _ricerca.assenze_casa:
+                st.markdown(f"**Assenze {_ricerca.squadra_casa}**: " + ", ".join(_ricerca.assenze_casa))
+            if _ricerca.forma_casa:
+                st.markdown(f"**Forma {_ricerca.squadra_casa}**: {_ricerca.forma_casa}")
+        with _rc2:
+            if _ricerca.assenze_trasf:
+                st.markdown(f"**Assenze {_ricerca.squadra_trasf}**: " + ", ".join(_ricerca.assenze_trasf))
+            if _ricerca.forma_trasf:
+                st.markdown(f"**Forma {_ricerca.squadra_trasf}**: {_ricerca.forma_trasf}")
+
+        if _ricerca.h2h_media_gol > 0:
+            st.markdown(f"**H2H media gol**: {_ricerca.h2h_media_gol:.1f}")
+        if _ricerca.contesto:
+            st.markdown(f"**Contesto**: {_ricerca.contesto}")
+        if _ricerca.adj_tot != 0 or _ricerca.adj_ah != 0:
+            st.markdown(
+                f"**Aggiustamenti suggeriti**: Δ Total `{_ricerca.adj_tot:+.2f}` · Δ Spread `{_ricerca.adj_ah:+.2f}`"
+            )
+            if _ricerca.note_aggiustamento:
+                st.caption(_ricerca.note_aggiustamento)
+
+        if st.button("❌ Rimuovi ricerca", key="remove_ricerca"):
+            del st.session_state["ricerca_risultato"]
+            st.rerun()
+
+    st.divider()
+
 # ── Step 2: Screenshot Quote (Prematch) ──────────────────────────────────────
 with st.expander("📷 Carica Screenshot Quote (prematch)", expanded=False):
     extracted_data = render_image_upload()
@@ -120,6 +161,15 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     _fixture_prior = 0.0
     _movement_quality = 1.0
     _ocr_confidence_scale = 1.0
+    _ricerca_adj_tot = 0.0
+    _ricerca_adj_ah = 0.0
+
+    # Usa dati dalla Ricerca Pre-Partita se disponibili
+    if _ricerca_ok:
+        if _ricerca.h2h_media_gol > 0:
+            _fixture_prior = _ricerca.h2h_media_gol
+        _ricerca_adj_tot = _ricerca.adj_tot
+        _ricerca_adj_ah = _ricerca.adj_ah
 
     _has_ocr_teams = (
         extracted_data is not None
@@ -127,19 +177,23 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
         and bool(extracted_data.squadra_casa)
         and bool(extracted_data.squadra_trasf)
     )
+    # Fallback: usa nomi squadre dalla ricerca se OCR non li ha riconosciuti
+    _has_ricerca_teams = _ricerca_ok and bool(_ricerca.squadra_casa) and bool(_ricerca.squadra_trasf)
+    _has_teams = _has_ocr_teams or _has_ricerca_teams
     _is_prematch = _live_min == 0
 
-    if _has_ocr_teams:
+    if _has_teams:
         from concurrent.futures import ThreadPoolExecutor
+
+        from src.research import _get_gemini_api_key as _check_key
         from src.research import (
             cerca_prior_storico,
             interpreta_movimento_linee,
             valida_quote_ocr,
         )
-        from src.research import _get_gemini_api_key as _check_key
 
-        _squadra_casa = extracted_data.squadra_casa
-        _squadra_trasf = extracted_data.squadra_trasf
+        _squadra_casa = extracted_data.squadra_casa if _has_ocr_teams else _ricerca.squadra_casa
+        _squadra_trasf = extracted_data.squadra_trasf if _has_ocr_teams else _ricerca.squadra_trasf
 
         # Delta AH puro: rimuove l'offset meccanico del punteggio
         _gol_diff_live = _live_gh - _live_ga
@@ -173,8 +227,8 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
                             else:
                                 _f_ocr = None
 
-                            # B: prior storico H2H (solo prematch)
-                            if _is_prematch:
+                            # B: prior storico H2H (solo prematch, skip se già dalla Ricerca)
+                            if _is_prematch and _fixture_prior <= 0:
                                 _f_prior = _executor.submit(
                                     cerca_prior_storico,
                                     _squadra_casa, _squadra_trasf,
@@ -194,7 +248,7 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
                         # Raccogli risultati
                         _ocr_val = _f_ocr.result() if _f_ocr else {"confidence_scale": 1.0, "flags": []}
-                        _fix_val = _f_prior.result() if _f_prior else 0.0
+                        _fix_val = _f_prior.result() if _f_prior else _fixture_prior
                         _mov_val = _f_mov.result() if _f_mov else 1.0
 
                         _new_cache = {
@@ -234,9 +288,20 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
             _mov_desc = "sharp/notizie" if _movement_quality > 1.0 else "rumore/pubblico"
             st.info(f"📈 **Movimento linee Gemini**: segnale {_mov_desc} (qualità: {_movement_quality:.2f}×).")
 
+    # ── Applica aggiustamenti dalla Ricerca Pre-Partita ─────────────────────
+    _adj_lines = dict(lines)  # copia per non mutare l'originale
+    if _ricerca_adj_tot != 0 or _ricerca_adj_ah != 0:
+        _adj_lines["tot_op"] = lines["tot_op"] + _ricerca_adj_tot
+        _adj_lines["ah_op"] = lines["ah_op"] + _ricerca_adj_ah
+        st.info(
+            f"🔍 **Ricerca applicata**: tot_op {lines['tot_op']:.2f} → {_adj_lines['tot_op']:.2f} "
+            f"({_ricerca_adj_tot:+.2f}) · ah_op {lines['ah_op']:.2f} → {_adj_lines['ah_op']:.2f} "
+            f"({_ricerca_adj_ah:+.2f})"
+        )
+
     try:
         state = build_match_state(
-            match, lines, linea_ou, bankroll, comm_rate,
+            match, _adj_lines, linea_ou, bankroll, comm_rate,
             ocr_imp_total=_ocr_total,
             ocr_quota_1=_ocr_q1,
             ocr_quota_x=_ocr_qx,
