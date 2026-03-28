@@ -34,6 +34,11 @@ class RicercaPartita:
     squadra_trasf: str = ""
     competizione: str = ""
 
+    # Data e orario trovati da Gemini
+    data_partita: str = ""   # es. "29 marzo 2026"
+    ora_partita: str = ""    # es. "20:45"
+    stadio: str = ""         # es. "San Siro, Milano"
+
     # Infortuni / squalifiche trovati
     assenze_casa: list[str] = field(default_factory=list)
     assenze_trasf: list[str] = field(default_factory=list)
@@ -102,35 +107,39 @@ def _build_prompt_raccolta(squadra_casa: str, squadra_trasf: str, competizione: 
 Sei un analista sportivo esperto. Trova informazioni PRECISE e AGGIORNATE per la partita:
 {squadra_casa} vs {squadra_trasf} — {comp_str}
 
-Esegui ricerche separate e approfondite per ciascuno dei 5 punti seguenti:
+Esegui ricerche approfondite per ciascuno dei 6 punti seguenti:
 
---- PUNTO 1: IDENTIFICAZIONE SQUADRE ---
+--- PUNTO 1: DATA E ORARIO PARTITA ---
+Cerca quando si gioca esattamente questa partita: data, orario, stadio, città.
+Questo è fondamentale per ancorare tutte le ricerche successive al momento corretto.
+
+--- PUNTO 2: IDENTIFICAZIONE SQUADRE ---
 Verifica che "{squadra_casa}" e "{squadra_trasf}" siano le squadre corrette per "{comp_str}".
-Se il nome è ambiguo (es. "Milan" → AC Milan o altra squadra?) chiarisci subito con paese e divisione.
+Se il nome è ambiguo (es. "Milan" → AC Milan o altra squadra?) chiarisci con paese e divisione.
 
---- PUNTO 2: ASSENZE CERTIFICATE (OGGI {oggi}) ---
+--- PUNTO 3: ASSENZE CERTIFICATE ---
 Cerca su: siti ufficiali dei club, Transfermarkt, BBC Sport, Sky Sports, AS.com, Gazzetta.
 Per {squadra_casa}: chi è OUT per infortunio o squalifica? Distingui → CONFERMATO / PROBABILE / DUBBIO.
 Per {squadra_trasf}: stessa ricerca. Indica il ruolo del giocatore (attaccante, portiere, ecc.).
 
---- PUNTO 3: FORMA RECENTE ---
+--- PUNTO 4: FORMA RECENTE ---
 Cerca su: Flashscore, SofaScore, Livescore.
 {squadra_casa} — ultimi 5 risultati: data, avversario, risultato (W/D/L), gol fatti/subiti.
 {squadra_trasf} — stessa struttura. Indica se le partite erano in casa o trasferta.
 
---- PUNTO 4: HEAD-TO-HEAD ---
+--- PUNTO 5: HEAD-TO-HEAD ---
 Cerca su: Flashscore, SofaScore, 11v11.com.
 Ultime 5-8 partite dirette tra {squadra_casa} e {squadra_trasf}:
 data, competizione, risultato esatto, gol totali. Calcola la media gol negli H2H.
 
---- PUNTO 5: CONTESTO E MOTIVAZIONE ---
+--- PUNTO 6: CONTESTO E MOTIVAZIONE ---
 - È un derby storico o rivalità accesa?
 - Cosa c'è in palio: salvezza, titolo, qualificazione europea, coppa?
 - Una squadra è già retrocessa/qualificata (motivazione ridotta)?
 - Turnover atteso (partita di coppa prima/dopo)?
 - Previsioni meteo per città e data della partita?
 
-Per ogni informazione trovata indica: fonte (sito) e data dell'informazione.
+Per ogni informazione indica: fonte (sito) e data dell'informazione.
 Sii approfondito e preciso. Se non trovi dati certi su un punto, dillo esplicitamente.
 """
 
@@ -169,7 +178,7 @@ Basandoti SOLO sui fatti sopra, compila questo JSON. Regole:
 - note_aggiustamento: spiegazione breve degli adj applicati
 
 Rispondi con SOLO questo JSON raw (NO markdown, NO backtick, NO testo fuori dal JSON):
-{{"assenze_casa":[],"assenze_trasf":[],"forma_casa":"","forma_trasf":"","h2h_sommario":"","h2h_media_gol":0.0,"contesto":"","adj_tot":0.0,"adj_ah":0.0,"affidabilita":"bassa","note_aggiustamento":""}}
+{{"data_partita":"","ora_partita":"","stadio":"","assenze_casa":[],"assenze_trasf":[],"forma_casa":"","forma_trasf":"","h2h_sommario":"","h2h_media_gol":0.0,"contesto":"","adj_tot":0.0,"adj_ah":0.0,"affidabilita":"bassa","note_aggiustamento":""}}
 """
 
 
@@ -377,6 +386,9 @@ def _parse_risposta(testo: str, fonti: list[str], squadra_casa: str, squadra_tra
         squadra_casa=squadra_casa,
         squadra_trasf=squadra_trasf,
         competizione=competizione,
+        data_partita=str(dati.get("data_partita", "")),
+        ora_partita=str(dati.get("ora_partita", "")),
+        stadio=str(dati.get("stadio", "")),
         assenze_casa=dati.get("assenze_casa", []),
         assenze_trasf=dati.get("assenze_trasf", []),
         forma_casa=dati.get("forma_casa", ""),

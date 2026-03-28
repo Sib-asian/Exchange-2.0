@@ -53,19 +53,6 @@ competizione = st.text_input(
     help="Aiuta Gemini a trovare le informazioni giuste per la competizione corretta",
 )
 
-col_data, col_ora = st.columns(2)
-with col_data:
-    data_partita = st.text_input(
-        "📅 Data partita (opzionale)",
-        placeholder="es. 29 marzo 2026",
-        help="Specifica la data per trovare esattamente questa partita e non confonderla con altre",
-    )
-with col_ora:
-    ora_partita = st.text_input(
-        "🕐 Orario (opzionale)",
-        placeholder="es. 20:45",
-        help="Orario del calcio d'inizio",
-    )
 
 st.divider()
 
@@ -91,14 +78,8 @@ if cerca_btn and squadra_casa.strip() and squadra_trasf.strip():
 
     from src.research import ricerca_contesto_partita
 
-    _comp_extended = competizione
-    if data_partita.strip():
-        _comp_extended += f" — {data_partita.strip()}"
-        if ora_partita.strip():
-            _comp_extended += f" ore {ora_partita.strip()}"
-
     with st.spinner(f"Gemini sta cercando informazioni su {squadra_casa} vs {squadra_trasf}..."):
-        risultato = ricerca_contesto_partita(squadra_casa, squadra_trasf, _comp_extended)
+        risultato = ricerca_contesto_partita(squadra_casa, squadra_trasf, competizione)
 
     # Salva in session state per uso futuro
     st.session_state["ricerca_risultato"] = risultato
@@ -125,6 +106,17 @@ if "ricerca_risultato" in st.session_state:
         comp_str = f" · {r.competizione}" if r.competizione else ""
         st.success(f"✅ Ricerca completata{comp_str}")
         st.subheader(f"{r.squadra_casa}  vs  {r.squadra_trasf}")
+
+        # ── Data / orario / stadio ────────────────────────────────────────
+        _meta = []
+        if r.data_partita:
+            _meta.append(f"📅 {r.data_partita}")
+        if r.ora_partita:
+            _meta.append(f"🕐 {r.ora_partita}")
+        if r.stadio:
+            _meta.append(f"🏟️ {r.stadio}")
+        if _meta:
+            st.markdown("  ·  ".join(_meta))
 
         # ── Affidabilità ──────────────────────────────────────────────────
         aff_color = {"alta": "🟢", "media": "🟡", "bassa": "🔴"}.get(r.affidabilita, "⚪")
