@@ -1091,13 +1091,16 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
 
 def render_live_semplice() -> dict:
     """
-    Render compatto per i dati live: minuto, gol, screenshot statistiche.
-    Rossi e gialli in un expander opzionale.
-    I valori dei tiri/corner/possesso vengono da session_state (popolati dallo screenshot).
+    Render compatto per i dati live.
+
+    Minuto + gol: sempre manuali.
+    Tiri/corner/possesso/attacchi: letti dallo screenshot (Gemini).
+    Nessun st.rerun() → l'expander rimane aperto dopo il caricamento.
 
     Returns:
         Dict con tutti i campi live (compatibile con build_match_state).
     """
+    # ── Minuto + Punteggio ────────────────────────────────────────────────────
     col_m, col_h, col_a = st.columns(3)
     with col_m:
         minuto = st.slider("Minuto", 0, 90, key="live_minuto")
@@ -1106,22 +1109,91 @@ def render_live_semplice() -> dict:
     with col_a:
         gol_trasf = st.number_input("Gol Trasf.", min_value=0, max_value=20, key="live_gol_trasf")
 
-    # Screenshot live (auto-popola tiri/corner/possesso/attacchi/cartellini)
-    render_live_screenshot_upload()
+    # ── Cartellini rossi (impatto diretto sul modello) ────────────────────────
+    cr1, cr2 = st.columns(2)
+    with cr1:
+        st.number_input("🟥 Rossi Casa", min_value=0, max_value=4, key="live_rossi_casa")
+    with cr2:
+        st.number_input("🟥 Rossi Trasf.", min_value=0, max_value=4, key="live_rossi_trasf")
 
-    # Cartellini rossi (impatto importante sul modello — separati dal resto)
-    with st.expander("🟥 Cartellini rossi / avanzate", expanded=False):
-        cr1, cr2 = st.columns(2)
-        with cr1:
-            rossi_casa = st.number_input("Rossi Casa", min_value=0, max_value=4, key="live_rossi_casa")
-        with cr2:
-            rossi_trasf = st.number_input("Rossi Trasf.", min_value=0, max_value=4, key="live_rossi_trasf")
-        cy1, cy2 = st.columns(2)
-        with cy1:
-            gialli_casa = st.number_input("Gialli Casa", min_value=0, max_value=20, key="live_gialli_casa")
-        with cy2:
-            gialli_trasf = st.number_input("Gialli Trasf.", min_value=0, max_value=20, key="live_gialli_trasf")
-    # Leggi tutti gli altri valori dal session_state (popolati dallo screenshot)
+    st.divider()
+
+    # ── Screenshot live (Gemini estrae tiri/corner/possesso/attacchi) ─────────
+    st.markdown("**📷 Screenshot statistiche live**")
+    uploaded = st.file_uploader(
+        "Carica screenshot (Nowgoal, FlashScore, SofaScore...)",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="live_stats_uploader",
+        label_visibility="collapsed",
+    )
+
+    if uploaded is not None:
+        file_id = f"live_{uploaded.name}_{uploaded.size}"
+
+        # Processa solo se è un file nuovo
+        if st.session_state.get("last_live_file_id") != file_id:
+            with st.spinner("Gemini legge le statistiche..."):
+                try:
+                    from src.ocr import extract_live_stats_from_bytes
+                    img_bytes = uploaded.read()
+                    extracted = extract_live_stats_from_bytes(
+                        img_bytes, extension=_get_extension(uploaded.type or "image/png"),
+                    )
+                    st.session_state["last_live_file_id"] = file_id
+                    st.session_state["live_stats_data"] = extracted
+                    if extracted.extraction_success:
+                        # Scrivi in session_state SENZA rerun — l'expander resta aperto
+                        _push_live_data_to_session(extracted)
+                except Exception as e:
+                    st.error(f"❌ Errore lettura screenshot: {e}")
+
+        # Mostra riepilogo di quanto estratto
+        cached = st.session_state.get("live_stats_data")
+        if cached and cached.extraction_success:
+            _sh = st.session_state.get("live_sot_h", 0)
+            _sa = st.session_state.get("live_sot_a", 0)
+            _ch = st.session_state.get("live_corner_h", 0)
+            _ca = st.session_state.get("live_corner_a", 0)
+            _ph = st.session_state.get("live_poss_h", 0.0)
+            _pa = st.session_state.get("live_poss_a", 0.0)
+            _ah = st.session_state.get("live_att_per_h", 0)
+            _aa = st.session_state.get("live_att_per_a", 0)
+            st.success(
+                f"✅ Letto dallo screen — "
+                f"Tiri porta: **{_sh}–{_sa}** · "
+                f"Corner: **{_ch}–{_ca}** · "
+                f"Possesso: **{_ph:.0f}%–{_pa:.0f}%** · "
+                f"Att. peric.: **{_ah}–{_aa}**"
+            )
+            # Mostra tutti i valori estratti in una tabella compatta
+            with st.expander("Vedi tutti i valori estratti", expanded=False):
+                _t1, _t2 = st.columns(2)
+                with _t1:
+                    st.markdown("**Casa**")
+                    st.write(f"Tiri in porta: {_sh}")
+                    st.write(f"Tiri fuori: {st.session_state.get('live_soff_h', 0)}")
+                    st.write(f"Tiri bloccati: {st.session_state.get('live_blk_h', 0)}")
+                    st.write(f"Corner: {_ch}")
+                    st.write(f"Possesso: {_ph:.0f}%")
+                    st.write(f"Att. peric.: {_ah}")
+                    st.write(f"Att. totali: {st.session_state.get('live_att_h', 0)}")
+                    st.write(f"Gialli: {st.session_state.get('live_gialli_casa', 0)}")
+                    st.write(f"Falli: {st.session_state.get('live_falli_casa', 0)}")
+                with _t2:
+                    st.markdown("**Trasferta**")
+                    st.write(f"Tiri in porta: {_sa}")
+                    st.write(f"Tiri fuori: {st.session_state.get('live_soff_a', 0)}")
+                    st.write(f"Tiri bloccati: {st.session_state.get('live_blk_a', 0)}")
+                    st.write(f"Corner: {_ca}")
+                    st.write(f"Possesso: {_pa:.0f}%")
+                    st.write(f"Att. peric.: {_aa}")
+                    st.write(f"Att. totali: {st.session_state.get('live_att_a', 0)}")
+                    st.write(f"Gialli: {st.session_state.get('live_gialli_trasf', 0)}")
+                    st.write(f"Falli: {st.session_state.get('live_falli_trasf', 0)}")
+        elif cached:
+            st.warning(f"⚠️ Lettura parziale: {cached.error_message}")
+
+    # ── Leggi tutti i valori dal session_state ────────────────────────────────
     def _ss(k: str, default=0):
         return st.session_state.get(k, default)
 
@@ -1129,10 +1201,10 @@ def render_live_semplice() -> dict:
         "minuto":           minuto,
         "gol_casa":         gol_casa,
         "gol_trasf":        gol_trasf,
-        "rossi_casa":       st.session_state.get("live_rossi_casa", 0),
-        "rossi_trasf":      st.session_state.get("live_rossi_trasf", 0),
-        "gialli_casa":      st.session_state.get("live_gialli_casa", 0),
-        "gialli_trasf":     st.session_state.get("live_gialli_trasf", 0),
+        "rossi_casa":       _ss("live_rossi_casa"),
+        "rossi_trasf":      _ss("live_rossi_trasf"),
+        "gialli_casa":      _ss("live_gialli_casa"),
+        "gialli_trasf":     _ss("live_gialli_trasf"),
         "sot_h":            _ss("live_sot_h"),
         "soff_h":           _ss("live_soff_h"),
         "sot_a":            _ss("live_sot_a"),
