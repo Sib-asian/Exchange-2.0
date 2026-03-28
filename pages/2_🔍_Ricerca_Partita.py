@@ -53,6 +53,7 @@ competizione = st.text_input(
     help="Aiuta Gemini a trovare le informazioni giuste per la competizione corretta",
 )
 
+
 st.divider()
 
 # ---------------------------------------------------------------------------
@@ -105,6 +106,17 @@ if "ricerca_risultato" in st.session_state:
         comp_str = f" · {r.competizione}" if r.competizione else ""
         st.success(f"✅ Ricerca completata{comp_str}")
         st.subheader(f"{r.squadra_casa}  vs  {r.squadra_trasf}")
+
+        # ── Data / orario / stadio ────────────────────────────────────────
+        _meta = []
+        if r.data_partita:
+            _meta.append(f"📅 {r.data_partita}")
+        if r.ora_partita:
+            _meta.append(f"🕐 {r.ora_partita}")
+        if r.stadio:
+            _meta.append(f"🏟️ {r.stadio}")
+        if _meta:
+            st.markdown("  ·  ".join(_meta))
 
         # ── Affidabilità ──────────────────────────────────────────────────
         aff_color = {"alta": "🟢", "media": "🟡", "bassa": "🔴"}.get(r.affidabilita, "⚪")

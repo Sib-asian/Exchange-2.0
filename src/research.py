@@ -34,6 +34,11 @@ class RicercaPartita:
     squadra_trasf: str = ""
     competizione: str = ""
 
+    # Data e orario trovati da Gemini
+    data_partita: str = ""   # es. "29 marzo 2026"
+    ora_partita: str = ""    # es. "20:45"
+    stadio: str = ""         # es. "San Siro, Milano"
+
     # Infortuni / squalifiche trovati
     assenze_casa: list[str] = field(default_factory=list)
     assenze_trasf: list[str] = field(default_factory=list)
@@ -71,7 +76,7 @@ class RicercaPartita:
 # ---------------------------------------------------------------------------
 
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-_GEMINI_SEARCH_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+_GEMINI_SEARCH_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash-latest"]
 
 
 def _get_gemini_api_key() -> str | None:
@@ -93,18 +98,49 @@ def _get_gemini_api_key() -> str | None:
 
 def _build_prompt_raccolta(squadra_casa: str, squadra_trasf: str, competizione: str) -> str:
     """Stadio 1: cerca fatti in prosa (con google_search). Nessun vincolo JSON."""
-    comp_str = f" ({competizione})" if competizione else ""
-    return f"""Sei un analista sportivo. Cerca informazioni AGGIORNATE sulla partita:
+    import datetime
+    oggi = datetime.date.today().strftime("%d %B %Y")
+    comp_str = competizione if competizione else "competizione non specificata"
 
-{squadra_casa} vs {squadra_trasf}{comp_str}
+    return f"""Data odierna: {oggi}
 
-Usa Google per trovare:
-1. Infortuni, squalifiche, assenze confermate OGGI per entrambe le squadre
-2. Forma recente (ultimi 5 risultati) di entrambe le squadre — indica W/D/L per ogni partita
-3. Head-to-head recente (ultime 3-5 partite dirette): risultati, gol segnati
-4. Contesto speciale: derby, lotta salvezza/titolo, campo neutro, meteo avverso
+Sei un analista sportivo esperto. Trova informazioni PRECISE e AGGIORNATE per la partita:
+{squadra_casa} vs {squadra_trasf} — {comp_str}
 
-Rispondi liberamente con tutte le informazioni che trovi. Sii preciso e conciso.
+Esegui ricerche approfondite per ciascuno dei 6 punti seguenti:
+
+--- PUNTO 1: DATA E ORARIO PARTITA ---
+Cerca quando si gioca esattamente questa partita: data, orario, stadio, città.
+Questo è fondamentale per ancorare tutte le ricerche successive al momento corretto.
+
+--- PUNTO 2: IDENTIFICAZIONE SQUADRE ---
+Verifica che "{squadra_casa}" e "{squadra_trasf}" siano le squadre corrette per "{comp_str}".
+Se il nome è ambiguo (es. "Milan" → AC Milan o altra squadra?) chiarisci con paese e divisione.
+
+--- PUNTO 3: ASSENZE CERTIFICATE ---
+Cerca su: siti ufficiali dei club, Transfermarkt, BBC Sport, Sky Sports, AS.com, Gazzetta.
+Per {squadra_casa}: chi è OUT per infortunio o squalifica? Distingui → CONFERMATO / PROBABILE / DUBBIO.
+Per {squadra_trasf}: stessa ricerca. Indica il ruolo del giocatore (attaccante, portiere, ecc.).
+
+--- PUNTO 4: FORMA RECENTE ---
+Cerca su: Flashscore, SofaScore, Livescore.
+{squadra_casa} — ultimi 5 risultati: data, avversario, risultato (W/D/L), gol fatti/subiti.
+{squadra_trasf} — stessa struttura. Indica se le partite erano in casa o trasferta.
+
+--- PUNTO 5: HEAD-TO-HEAD ---
+Cerca su: Flashscore, SofaScore, 11v11.com.
+Ultime 5-8 partite dirette tra {squadra_casa} e {squadra_trasf}:
+data, competizione, risultato esatto, gol totali. Calcola la media gol negli H2H.
+
+--- PUNTO 6: CONTESTO E MOTIVAZIONE ---
+- È un derby storico o rivalità accesa?
+- Cosa c'è in palio: salvezza, titolo, qualificazione europea, coppa?
+- Una squadra è già retrocessa/qualificata (motivazione ridotta)?
+- Turnover atteso (partita di coppa prima/dopo)?
+- Previsioni meteo per città e data della partita?
+
+Per ogni informazione indica: fonte (sito) e data dell'informazione.
+Sii approfondito e preciso. Se non trovi dati certi su un punto, dillo esplicitamente.
 """
 
 
@@ -116,19 +152,33 @@ def _build_prompt_formato(
 ) -> str:
     """Stadio 2: formatta i fatti come JSON (senza google_search)."""
     comp_str = f" ({competizione})" if competizione else ""
-    # Tronca i fatti a 1500 chars per lasciare spazio all'output
-    return f"""Dati partita {squadra_casa} vs {squadra_trasf}{comp_str}:
-{fatti[:1500]}
+    return f"""Analisi partita {squadra_casa} vs {squadra_trasf}{comp_str}.
 
-Rispondi con SOLO questo JSON (nessun altro testo, nessun markdown):
-{{"assenze_casa":[],"assenze_trasf":[],"forma_casa":"","forma_trasf":"","h2h_sommario":"","h2h_media_gol":0.0,"contesto":"","adj_tot":0.0,"adj_ah":0.0,"affidabilita":"bassa","note_aggiustamento":""}}
+Fatti trovati dalla ricerca:
+{fatti[:2500]}
 
-Compila i campi con i dati trovati. Regole:
-- adj_tot: range -0.50/+0.30. Attaccante out=-0.25, derby=-0.15, nessuna info=0.0
-- adj_ah: range -0.25/+0.25. Casa in crisi=+0.15, nessuna info=0.0
-- affidabilita: "alta" se info recenti, "media" se generiche, "bassa" se poche
-- Campi senza dati: usa [] o "" o 0.0
-- Output SOLO il JSON raw, NO markdown, NO backtick
+Basandoti SOLO sui fatti sopra, compila questo JSON. Regole:
+- assenze_casa/trasf: lista stringhe "Nome Cognome (ruolo) — CONFERMATO/PROBABILE"
+- forma_casa/trasf: stringa W/D/L ultimi 5 es. "WDLWL"
+- h2h_sommario: frase breve es. "Casa 3V 2P 1S nelle ultime 6, media 2.8 gol"
+- h2h_media_gol: float calcolato dagli H2H trovati, 0.0 se non trovato
+- contesto: stringa con meteo/motivazione/derby se rilevante, "" altrimenti
+- adj_tot: float [-0.50, +0.30]
+  * Attaccante titolare out → -0.20/-0.25 per squadra
+  * Portiere out → +0.10 per quella squadra
+  * Derby/alta tensione → -0.10 (partite tese, meno gol)
+  * Motivazione ridotta (già retrocessa/qualificata) → -0.15
+  * H2H media alta (>3.0) → +0.10
+  * Meteo avverso (pioggia/vento) → -0.10
+- adj_ah: float [-0.25, +0.25]
+  * Casa senza attaccante titolare → +0.10 (avvantaggia trasferta)
+  * Trasferta in crisi forma (3+ sconfitte) → -0.10 (avvantaggia casa)
+  * Casa senza motivazione → +0.15
+- affidabilita: "alta" se 3+ fonti recenti confermate, "media" se 1-2 fonti, "bassa" se scarse/vecchie
+- note_aggiustamento: spiegazione breve degli adj applicati
+
+Rispondi con SOLO questo JSON raw (NO markdown, NO backtick, NO testo fuori dal JSON):
+{{"data_partita":"","ora_partita":"","stadio":"","assenze_casa":[],"assenze_trasf":[],"forma_casa":"","forma_trasf":"","h2h_sommario":"","h2h_media_gol":0.0,"contesto":"","adj_tot":0.0,"adj_ah":0.0,"affidabilita":"bassa","note_aggiustamento":""}}
 """
 
 
@@ -336,6 +386,9 @@ def _parse_risposta(testo: str, fonti: list[str], squadra_casa: str, squadra_tra
         squadra_casa=squadra_casa,
         squadra_trasf=squadra_trasf,
         competizione=competizione,
+        data_partita=str(dati.get("data_partita", "")),
+        ora_partita=str(dati.get("ora_partita", "")),
+        stadio=str(dati.get("stadio", "")),
         assenze_casa=dati.get("assenze_casa", []),
         assenze_trasf=dati.get("assenze_trasf", []),
         forma_casa=dati.get("forma_casa", ""),
