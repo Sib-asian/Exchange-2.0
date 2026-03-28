@@ -663,8 +663,10 @@ def render_asian_lines(gol_casa: int = 0, gol_trasf: int = 0, minuto: int = 0, t
     with col_a1:
         st.markdown("**Apertura — full 90'**")
         ah_op  = st.number_input("AH Apertura",     value=-0.25, step=0.25,
+                                  key="lines_ah_op",
                                   help="Handicap asiatico alla quota di apertura (intera partita).")
         tot_op = st.number_input("Totale Apertura", value=2.50,  step=0.25,
+                                  key="lines_tot_op",
                                   help="Over/Under alla quota di apertura (gol totali intera partita).")
 
     with col_a2:
@@ -866,6 +868,7 @@ def render_bankroll() -> tuple[float, float, float]:
     with col_bk:
         bankroll = st.number_input(
             "Bankroll (€)", value=UI.BANKROLL_DEFAULT, step=UI.BANKROLL_STEP, min_value=1.0,
+            key="bankroll_value",
         )
     with col_cm:
         comm_pct = st.number_input(
@@ -874,6 +877,7 @@ def render_bankroll() -> tuple[float, float, float]:
             min_value=0.0,
             max_value=UI.COMM_MAX,
             step=UI.COMM_STEP,
+            key="comm_pct_value",
             help="Betfair Standard: 2-5%. Usata per calcolare l'edge netto.",
         )
     return bankroll, comm_pct, comm_pct / 100.0

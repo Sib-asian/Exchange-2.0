@@ -6,6 +6,16 @@ Entry point Streamlit. Orchestra input → engine → output.
 import streamlit as st
 
 from src.config import INPUT_VALIDATION, SIGNALS, UI
+from src.session_storage import (
+    PartitaSalvata,
+    build_partita_id,
+    build_saved_at_label,
+    collect_widget_state,
+    delete_partita,
+    load_partite,
+    restore_widget_state,
+    save_partita,
+)
 from src.engine import analizza
 from src.models.kelly import calcola_kelly_fraction
 from src.signals import (
@@ -57,6 +67,61 @@ st.set_page_config(
 )
 st.title(f"{UI.PAGE_ICON} {UI.PAGE_TITLE}")
 st.caption(f"v{UI.VERSION} · Modello bivariate Poisson + Dixon-Coles + Kelly frazionato")
+
+# ── Match Memory ─────────────────────────────────────────────────────────────
+# Selettore partite salvate. I dati persistono in data/partite_salvate.json:
+# sopravvivono alla chiusura del browser/tab.
+_saved_matches = load_partite()
+
+with st.expander("📋 Partite Salvate", expanded=False):
+    if not _saved_matches:
+        st.caption("Nessuna partita salvata. Analizza una partita per salvarla automaticamente.")
+    else:
+        _match_options = {f"{p.nome}  [{p.saved_at}]": p for p in _saved_matches}
+        _selected_label = st.selectbox(
+            "Carica partita",
+            options=list(_match_options.keys()),
+            index=None,
+            placeholder="Seleziona una partita salvata...",
+            key="match_memory_selector",
+        )
+
+        col_load, col_del = st.columns([3, 1])
+        with col_load:
+            if _selected_label and st.button("Carica", key="btn_load_match", use_container_width=True):
+                _p = _match_options[_selected_label]
+                restore_widget_state(st.session_state, _p.widget_state)
+                # Ripristina la ricerca pre-partita se presente
+                if _p.ricerca is not None:
+                    from dataclasses import fields as _dc_fields
+                    from src.research import RicercaPartita as _RicercaPartita
+                    try:
+                        _r_obj = _RicercaPartita(**{
+                            k: v for k, v in _p.ricerca.items()
+                            if k in {f.name for f in _dc_fields(_RicercaPartita)}
+                        })
+                        st.session_state["ricerca_risultato"] = _r_obj
+                    except Exception:
+                        pass
+                # Segnala quale partita è attiva
+                st.session_state["active_match_id"] = _p.id
+                st.rerun()
+        with col_del:
+            if _selected_label and st.button("Elimina", key="btn_del_match", use_container_width=True, type="secondary"):
+                _p = _match_options[_selected_label]
+                delete_partita(_p.id)
+                if st.session_state.get("active_match_id") == _p.id:
+                    del st.session_state["active_match_id"]
+                st.rerun()
+
+    # Badge partita attiva
+    _active_id = st.session_state.get("active_match_id")
+    if _active_id:
+        _active_p = next((p for p in _saved_matches if p.id == _active_id), None)
+        if _active_p:
+            st.info(f"Partita attiva: **{_active_p.nome}** (salvata {_active_p.saved_at})")
+
+st.divider()
 
 # ── Step 1: Linee Asiatiche (Spread / Total) ─────────────────────────────────
 # Le linee vanno inserite per prime: servono sia al prematch sia al live.
@@ -370,6 +435,40 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
 
     with st.spinner("Calcolo matrice bivariata..."):
         risultati = analizza(state)
+
+    # ── Auto-save partita ────────────────────────────────────────────────────
+    # Salva/aggiorna automaticamente al click di ANALIZZA.
+    # Usa l'ID già assegnato alla partita attiva (se caricata dalla memoria)
+    # oppure ne crea uno nuovo basato sul nome squadre.
+    _nome_match = ""
+    if _ricerca_ok:
+        _nome_match = f"{_ricerca.squadra_casa} vs {_ricerca.squadra_trasf}"
+    elif _has_ocr_teams:
+        _nome_match = f"{extracted_data.squadra_casa} vs {extracted_data.squadra_trasf}"
+
+    if _nome_match:
+        # Usa l'ID della partita attiva se esiste, altrimenti un nuovo ID basato sul nome
+        _active_id = st.session_state.get("active_match_id")
+        if _active_id:
+            _pid = _active_id
+        else:
+            # ID stabile basato sul nome (stessa partita → stesso ID)
+            _pid = str(abs(hash(_nome_match)) % (10 ** 9))
+
+        _ricerca_dict = None
+        if _ricerca_ok:
+            from dataclasses import asdict as _asdict
+            _ricerca_dict = _asdict(_ricerca)
+
+        _p_save = PartitaSalvata(
+            id=_pid,
+            nome=_nome_match,
+            saved_at=build_saved_at_label(),
+            widget_state=collect_widget_state(st.session_state),
+            ricerca=_ricerca_dict,
+        )
+        save_partita(_p_save)
+        st.session_state["active_match_id"] = _pid
 
     shots = (state.sot_h, state.soff_h, state.sot_a, state.soff_a)
 
