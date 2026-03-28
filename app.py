@@ -81,47 +81,6 @@ if lines.get("blocking_errors") and INPUT_VALIDATION.BLOCK_ON_CRITICAL_ERRORS:
     st.stop()
 st.divider()
 
-# ── Step 1b: Ricerca Pre-Partita (opzionale, da pagina 🔍) ─────────────────
-_ricerca = st.session_state.get("ricerca_risultato")
-_ricerca_ok = _ricerca is not None and _ricerca.success
-
-if _ricerca_ok:
-    with st.expander(
-        f"🔍 Ricerca attiva: {_ricerca.squadra_casa} vs {_ricerca.squadra_trasf}",
-        expanded=False,
-    ):
-        _aff_icon = {"alta": "🟢", "media": "🟡", "bassa": "🔴"}.get(_ricerca.affidabilita, "⚪")
-        st.caption(f"Affidabilità: {_aff_icon} {_ricerca.affidabilita.upper()}")
-
-        _rc1, _rc2 = st.columns(2)
-        with _rc1:
-            if _ricerca.assenze_casa:
-                st.markdown(f"**Assenze {_ricerca.squadra_casa}**: " + ", ".join(_ricerca.assenze_casa))
-            if _ricerca.forma_casa:
-                st.markdown(f"**Forma {_ricerca.squadra_casa}**: {_ricerca.forma_casa}")
-        with _rc2:
-            if _ricerca.assenze_trasf:
-                st.markdown(f"**Assenze {_ricerca.squadra_trasf}**: " + ", ".join(_ricerca.assenze_trasf))
-            if _ricerca.forma_trasf:
-                st.markdown(f"**Forma {_ricerca.squadra_trasf}**: {_ricerca.forma_trasf}")
-
-        if _ricerca.h2h_media_gol > 0:
-            st.markdown(f"**H2H media gol**: {_ricerca.h2h_media_gol:.1f}")
-        if _ricerca.contesto:
-            st.markdown(f"**Contesto**: {_ricerca.contesto}")
-        if _ricerca.adj_tot != 0 or _ricerca.adj_ah != 0:
-            st.markdown(
-                f"**Aggiustamenti suggeriti**: Δ Total `{_ricerca.adj_tot:+.2f}` · Δ Spread `{_ricerca.adj_ah:+.2f}`"
-            )
-            if _ricerca.note_aggiustamento:
-                st.caption(_ricerca.note_aggiustamento)
-
-        if st.button("❌ Rimuovi ricerca", key="remove_ricerca"):
-            del st.session_state["ricerca_risultato"]
-            st.rerun()
-
-    st.divider()
-
 # ── Step 2: Screenshot Quote (Prematch) ──────────────────────────────────────
 with st.expander("📷 Carica Screenshot Quote (prematch)", expanded=False):
     extracted_data = render_image_upload()
@@ -132,6 +91,59 @@ st.divider()
 
 # ── Step 3: Stato Partita Live ───────────────────────────────────────────────
 match = render_match_state_live()
+st.divider()
+
+# ── Contesto Pre-Partita (badge visibile prima di ANALIZZA) ──────────────────
+# La ricerca è opzionale: se fatta dalla pagina 🔍 Ricerca Partita, i dati
+# entrano automaticamente nel calcolo senza nessuna azione aggiuntiva.
+_ricerca = st.session_state.get("ricerca_risultato")
+_ricerca_ok = _ricerca is not None and _ricerca.success
+
+if _ricerca_ok:
+    # Badge compatto sempre visibile — l'utente vede esattamente cosa entra nel calcolo
+    _aff_icon = {"alta": "🟢", "media": "🟡", "bassa": "🔴"}.get(_ricerca.affidabilita, "⚪")
+    _badge_parts = [f"{_ricerca.squadra_casa} vs {_ricerca.squadra_trasf} {_aff_icon}"]
+    if _ricerca.h2h_media_gol > 0:
+        _badge_parts.append(f"H2H {_ricerca.h2h_media_gol:.1f} gol/p")
+    if _ricerca.adj_tot != 0:
+        _badge_parts.append(f"Δtot {_ricerca.adj_tot:+.2f}")
+    if _ricerca.adj_ah != 0:
+        _badge_parts.append(f"ΔAH {_ricerca.adj_ah:+.2f}")
+    _abs_tot = len(_ricerca.assenze_casa) + len(_ricerca.assenze_trasf)
+    if _abs_tot:
+        _badge_parts.append(f"{_abs_tot} assenz{'a' if _abs_tot == 1 else 'e'}")
+
+    _bcol, _xcol = st.columns([6, 1])
+    with _bcol:
+        st.success("🔍 Ricerca attiva · " + " · ".join(_badge_parts))
+    with _xcol:
+        if st.button("✕ Rimuovi", key="remove_ricerca"):
+            del st.session_state["ricerca_risultato"]
+            st.rerun()
+
+    with st.expander("Vedi dettagli ricerca", expanded=False):
+        _dc1, _dc2 = st.columns(2)
+        with _dc1:
+            if _ricerca.assenze_casa:
+                st.markdown("**Assenze " + _ricerca.squadra_casa + "**")
+                for a in _ricerca.assenze_casa:
+                    st.markdown(f"- ❌ {a}")
+            if _ricerca.forma_casa:
+                st.markdown(f"**Forma {_ricerca.squadra_casa}**: `{_ricerca.forma_casa}`")
+        with _dc2:
+            if _ricerca.assenze_trasf:
+                st.markdown("**Assenze " + _ricerca.squadra_trasf + "**")
+                for a in _ricerca.assenze_trasf:
+                    st.markdown(f"- ❌ {a}")
+            if _ricerca.forma_trasf:
+                st.markdown(f"**Forma {_ricerca.squadra_trasf}**: `{_ricerca.forma_trasf}`")
+        if _ricerca.contesto:
+            st.info(f"**Contesto**: {_ricerca.contesto}")
+        if _ricerca.note_aggiustamento:
+            st.caption(f"Aggiustamenti: {_ricerca.note_aggiustamento}")
+else:
+    st.page_link("pages/2_🔍_Ricerca_Partita.py", label="💡 Aggiungi contesto pre-partita (assenze, H2H, forma)", icon="🔍")
+
 st.divider()
 
 # ── Analisi ──────────────────────────────────────────────────────────────────
@@ -293,11 +305,6 @@ if st.button("ANALIZZA", use_container_width=True, type="primary"):
     if _ricerca_adj_tot != 0 or _ricerca_adj_ah != 0:
         _adj_lines["tot_op"] = lines["tot_op"] + _ricerca_adj_tot
         _adj_lines["ah_op"] = lines["ah_op"] + _ricerca_adj_ah
-        st.info(
-            f"🔍 **Ricerca applicata**: tot_op {lines['tot_op']:.2f} → {_adj_lines['tot_op']:.2f} "
-            f"({_ricerca_adj_tot:+.2f}) · ah_op {lines['ah_op']:.2f} → {_adj_lines['ah_op']:.2f} "
-            f"({_ricerca_adj_ah:+.2f})"
-        )
 
     try:
         state = build_match_state(
