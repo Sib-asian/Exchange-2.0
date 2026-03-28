@@ -261,7 +261,7 @@ def render_riepilogo_modello(
         _fav = f"Trasf. · {risultati.p2:.0%}"
         _fav_delta = f"vs Casa {risultati.p1:.0%}"
     else:
-        _fav = f"Equilibrata"
+        _fav = "Equilibrata"
         _fav_delta = f"1: {risultati.p1:.0%} · X: {risultati.px:.0%} · 2: {risultati.p2:.0%}"
     col_xg3.metric("Favorita", _fav, _fav_delta)
 
