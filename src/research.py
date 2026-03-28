@@ -401,20 +401,22 @@ def ricerca_contesto_partita(
             error="GEMINI_API_KEY non configurata. Aggiungila nei secrets di Streamlit.",
         )
 
-    try:
-        sc = squadra_casa.strip()
-        st_t = squadra_trasf.strip()
-        comp = competizione.strip()
+    sc = squadra_casa.strip()
+    st_t = squadra_trasf.strip()
+    comp = competizione.strip()
+    _raw_stage1 = ""
+    _raw_stage2 = ""
 
+    try:
         # Stadio 1: raccolta fatti con google_search (risposta in prosa libera)
         prompt_raccolta = _build_prompt_raccolta(sc, st_t, comp)
-        fatti, fonti = _chiama_gemini_con_ricerca(prompt_raccolta)
+        _raw_stage1, fonti = _chiama_gemini_con_ricerca(prompt_raccolta)
 
         # Stadio 2: formattazione JSON senza google_search (Gemini segue le istruzioni)
-        prompt_formato = _build_prompt_formato(fatti, sc, st_t, comp)
-        testo_json = _chiama_gemini_solo_testo(prompt_formato)
+        prompt_formato = _build_prompt_formato(_raw_stage1, sc, st_t, comp)
+        _raw_stage2 = _chiama_gemini_solo_testo(prompt_formato)
 
-        return _parse_risposta(testo_json, fonti, sc, st_t, comp)
+        return _parse_risposta(_raw_stage2, fonti, sc, st_t, comp)
     except Exception as e:
         return RicercaPartita(
             squadra_casa=squadra_casa,
@@ -422,6 +424,7 @@ def ricerca_contesto_partita(
             competizione=competizione,
             success=False,
             error=str(e),
+            raw_response=f"[STADIO 1]\n{_raw_stage1[:500]}\n\n[STADIO 2]\n{_raw_stage2[:500]}",
         )
 
 

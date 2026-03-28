@@ -92,6 +92,9 @@ if "ricerca_risultato" in st.session_state:
 
     if not r.success:
         st.error(f"❌ Ricerca fallita: {r.error}")
+        if r.raw_response:
+            with st.expander("🔍 Debug: risposta raw Gemini", expanded=True):
+                st.code(r.raw_response, language="text")
         if "API key" in r.error:
             st.warning(
                 "Aggiungi **GEMINI_API_KEY** nei secrets di Streamlit: "
