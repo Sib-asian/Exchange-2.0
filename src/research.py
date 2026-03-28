@@ -116,34 +116,19 @@ def _build_prompt_formato(
 ) -> str:
     """Stadio 2: formatta i fatti come JSON (senza google_search)."""
     comp_str = f" ({competizione})" if competizione else ""
-    return f"""Hai raccolto queste informazioni sulla partita {squadra_casa} vs {squadra_trasf}{comp_str}:
+    # Tronca i fatti a 1500 chars per lasciare spazio all'output
+    return f"""Dati partita {squadra_casa} vs {squadra_trasf}{comp_str}:
+{fatti[:1500]}
 
----
-{fatti[:3000]}
----
+Rispondi con SOLO questo JSON (nessun altro testo, nessun markdown):
+{{"assenze_casa":[],"assenze_trasf":[],"forma_casa":"","forma_trasf":"","h2h_sommario":"","h2h_media_gol":0.0,"contesto":"","adj_tot":0.0,"adj_ah":0.0,"affidabilita":"bassa","note_aggiustamento":""}}
 
-Ora compila SOLO questo JSON con i dati trovati (non aggiungere nessun altro testo):
-
-{{
-  "assenze_casa": ["Nome giocatore (ruolo) - motivo"],
-  "assenze_trasf": ["Nome giocatore (ruolo) - motivo"],
-  "forma_casa": "WDLWW",
-  "forma_trasf": "LLWDW",
-  "h2h_sommario": "Descrizione breve ultimi H2H",
-  "h2h_media_gol": 2.4,
-  "contesto": "Contesto in 1-2 frasi",
-  "adj_tot": 0.0,
-  "adj_ah": 0.0,
-  "affidabilita": "alta",
-  "note_aggiustamento": "Spiegazione aggiustamenti in italiano"
-}}
-
-REGOLE AGGIUSTAMENTI:
-- adj_tot (range -0.50/+0.30): centravanti out=-0.25, derby=-0.15, nessuna info=0.0
-- adj_ah (range -0.25/+0.25): casa in crisi=+0.15, trasferta senza vittorie=-0.10, nessuna info=0.0
-- affidabilita: "alta"=info fresche <48h, "media"=generiche, "bassa"=poche info
-
-IMPORTANTE: se un campo non ha dati usa [] o "" o 0.0. Output SOLO il JSON.
+Compila i campi con i dati trovati. Regole:
+- adj_tot: range -0.50/+0.30. Attaccante out=-0.25, derby=-0.15, nessuna info=0.0
+- adj_ah: range -0.25/+0.25. Casa in crisi=+0.15, nessuna info=0.0
+- affidabilita: "alta" se info recenti, "media" se generiche, "bassa" se poche
+- Campi senza dati: usa [] o "" o 0.0
+- Output SOLO il JSON raw, NO markdown, NO backtick
 """
 
 
@@ -223,8 +208,8 @@ def _chiama_gemini_solo_testo(prompt: str) -> str:
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.0,      # deterministico: vogliamo solo il JSON
-            "maxOutputTokens": 1024,
+            "temperature": 0.1,      # quasi deterministico (0.0 non supportato da tutti i modelli)
+            "maxOutputTokens": 4096,
         },
     }
 
@@ -491,7 +476,7 @@ Compila SOLO questo JSON:
 {{"confidence_scale": 0.95, "flags": ["anomalia se presente"], "quote_trovate": "descrizione"}}
 
 confidence_scale: 1.0=concordi(<5%), 0.90=diff 5-10%, 0.80=diff 10-20%, 0.70=molto diverse o non trovate.
-Se non trovate usa confidence_scale=0.90 e flags=[]. Output SOLO il JSON.
+Se non trovate usa confidence_scale=0.90 e flags=[]. Output SOLO il JSON raw, NO markdown, NO backtick.
 """
 
     try:
@@ -549,7 +534,7 @@ Calcola la media gol e compila SOLO questo JSON:
 {{"media_gol": 2.4, "n_partite": 6, "affidabilita": "alta", "note": "descrizione"}}
 
 affidabilita: "alta"=5+ partite recenti, "media"=3-4, "bassa"=meno di 3 o dati vecchi.
-Se non hai dati usa media_gol=0.0 e n_partite=0. Output SOLO il JSON.
+Se non hai dati usa media_gol=0.0 e n_partite=0. Output SOLO il JSON raw, NO markdown, NO backtick.
 """
 
     try:
@@ -632,7 +617,7 @@ Compila SOLO questo JSON:
 {{"movement_quality": 1.0, "tipo": "incerto", "motivo": "spiegazione"}}
 
 movement_quality: sharp/news confermati=1.15-1.30, parziali=1.05-1.15, ambiguo=0.95-1.05,
-public/nessuna info=0.85-0.95, nessuna info trovata=1.0. Output SOLO il JSON.
+public/nessuna info=0.85-0.95, nessuna info trovata=1.0. Output SOLO il JSON raw, NO markdown, NO backtick.
 """
 
     try:
