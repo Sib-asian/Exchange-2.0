@@ -664,13 +664,9 @@ def analizza(
     # Fix #6.4: Usa parametro dal config per la radice
     model_confidence = min(1.0, _product ** ENGINE.CONFIDENCE_ROOT_POWER)
 
-    # FIX: Rileva se le linee sembrano non aggiornate dopo i gol.
-    # Caso 1: linee flat + gol segnati (mercato non ha reagito)
-    # Caso 2: #6 molti gol (≥3) senza adeguato movimento di linea, anche dal min 10.
-    lines_need_update = (
-        (flat_lines and gol_tot_scored > 0 and state.minuto >= 15)
-        or (gol_tot_scored >= 3 and abs(delta_ah) < 0.5 and state.minuto >= 10)
-    )
+    # L'utente usa sempre le linee di apertura/chiusura manualmente inserite
+    # e non aggiorna le linee live — l'avviso non ha senso in questo workflow.
+    lines_need_update = False
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,
