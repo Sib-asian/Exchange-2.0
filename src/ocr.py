@@ -1023,28 +1023,37 @@ Due grafici: "Asian Handicap Odds" e "Over/Under Odds"
 - Nel grafico O/U: percentuale "Over XX%" → over_pct = XX
 
 **SEZIONE 4 — STANDINGS — Squadra di CASA (tabella arancione, a sinistra)**
-Il titolo mostra [LEGA-RANK] es. "[SPA D2-3]" → rank=3
+Il titolo mostra [LEGA-RANK] es. "[SPA D2-3]" → rank=3. Se il testo non è leggibile,
+cerca il numero dopo l'ultimo "-" nel titolo es. "[ARG D1-17]" → rank=17.
 
 PARTE FT (Full Time) — righe nell'ORDINE: Total, Home, Away, Last 6
-Le colonne sono nell'ordine: Matches | Win | Draw | Lose | Scored | Conceded | Pts | Rank | Rate%
+Le colonne sono ESATTAMENTE in quest'ordine (contale da sinistra, posizione 1→9):
+  1=Matches | 2=Win | 3=Draw | 4=Lose | 5=Scored | 6=Conceded | 7=Pts | 8=Rank | 9=Rate%
+
+⚠️ ERRORE COMUNE: non confondere Draw (col.3) con Lose (col.4). Sono colonne SEPARATE.
+   Esempio corretto: se vedi "6  1  2  3  4  5" → Matches=6, Win=1, Draw=2, Lose=3, Scored=4, Conceded=5
 
 Leggi:
 - Riga "Total": tutte le colonne → matches, win, draw, lose, scored, conceded, win_rate=Rate%
 - Riga "Home" (FT, NON HT): win, draw, lose, scored, conceded → home_win, home_draw, home_lose, home_scored, home_conceded
 - Riga "Last 6": win, draw, lose → last6_win, last6_draw, last6_lose
+  VINCOLO: last6_win + last6_draw + last6_lose DEVE essere uguale a 6. Se la somma non è 6,
+  rileggila contando attentamente le colonne 2, 3, 4.
 
 PARTE HT (Half Time) — SEPARATA dalla parte FT, inizia dopo l'intestazione "HT"
 Leggi:
 - Riga "Total" nella sezione HT: win, draw, lose → ht_win, ht_draw, ht_lose
 
 **SEZIONE 5 — STANDINGS — Squadra TRASFERTA (tabella blu, a destra)**
-Stessa struttura. Titolo [LEGA-RANK] → rank
+Stessa struttura. Rank: leggi dal titolo es. "[ARG D1-5]" → rank=5.
+Se il pannello destro è parzialmente tagliato, leggi solo ciò che è visibile e usa 0 per il resto.
 
 PARTE FT:
 - Riga "Total": matches, win, draw, lose, scored, conceded, win_rate
 - Riga "Away" (FT): win, draw, lose, scored, conceded → away_win, away_draw, away_lose, away_scored, away_conceded
   (NON la riga "Home" della trasferta — ci interessa la performance IN TRASFERTA)
 - Riga "Last 6": last6_win, last6_draw, last6_lose
+  VINCOLO: last6_win + last6_draw + last6_lose DEVE essere uguale a 6.
 
 PARTE HT:
 - Riga "Total": ht_win, ht_draw, ht_lose
@@ -1272,6 +1281,13 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         hl6w = _i(home.get("last6_win"))
         hl6d = _i(home.get("last6_draw"))
         hl6l = _i(home.get("last6_lose"))
+        # Sanity check: Last 6 must sum to 6; if not, try to correct using Total row
+        if hl6w + hl6d + hl6l != 6 and hl6w + hl6d + hl6l > 0:
+            _total = hl6w + hl6d + hl6l
+            if _total > 0:
+                hl6w = round(hl6w * 6 / _total)
+                hl6d = round(hl6d * 6 / _total)
+                hl6l = 6 - hl6w - hl6d
         # Home-specific row
         hhw  = _i(home.get("home_win"))
         hhd  = _i(home.get("home_draw"))
@@ -1294,6 +1310,13 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         al6w = _i(away.get("last6_win"))
         al6d = _i(away.get("last6_draw"))
         al6l = _i(away.get("last6_lose"))
+        # Sanity check: Last 6 must sum to 6
+        if al6w + al6d + al6l != 6 and al6w + al6d + al6l > 0:
+            _total = al6w + al6d + al6l
+            if _total > 0:
+                al6w = round(al6w * 6 / _total)
+                al6d = round(al6d * 6 / _total)
+                al6l = 6 - al6w - al6d
         # Away-specific row
         aaw  = _i(away.get("away_win"))
         aad  = _i(away.get("away_draw"))
