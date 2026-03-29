@@ -223,8 +223,11 @@ class TimeDecayConfig:
     # Asimmetria score effect (Brechot & Flepp 2020, Robberechts 2021):
     # la squadra in svantaggio preme con tiri di bassa qualità (pressing disperato),
     # mentre la squadra in vantaggio mantiene qualità ma riduce volume.
-    SCORE_DOWN_MULTIPLIER: float = 0.65   # squadra in svantaggio: meno boost (pressing bassa qualità)
-    SCORE_UP_MULTIPLIER: float = 1.15     # squadra in vantaggio: mantiene qualità difensiva
+    SCORE_DOWN_MULTIPLIER: float = 0.65   # squadra in svantaggio: boost (pressing disperato)
+    # Asimmetria: la squadra che difende riduce il volume meno di quanto quella che preme aumenta.
+    # Pressing team (losing): +0.65*residual (urgency boost)
+    # Defending team (winning): -0.40*residual (small reduction, parking the bus = controlled)
+    SCORE_DEFENSE_MULT: float = 0.40      # squadra in vantaggio: riduzione difensiva (< SCORE_DOWN)
 
     # Goal intensity: il residuo cala in partite ad alto punteggio
     # (l'AH live ha già incorporato la volatilità, il residuo cattura solo il delta)
@@ -330,6 +333,12 @@ class MomentumConfig:
 
     # Cap del momentum
     MOMENTUM_CAP: float = 6.0
+
+    # Soglia "market shock": momentum superiore a questa soglia indica
+    # un movimento anomalo delle linee (informazione asimmetrica, infortuni,
+    # notizie non ancora riflesse nelle statistiche live).
+    # > 4.0 = movimento estremo, molto raro in partite normali.
+    MOMENTUM_SHOCK_THRESHOLD: float = 4.0
 
     # Contributo massimo del momentum statistico (dominio tiri/attacchi).
     # Aggiunto al momentum di mercato quando la dominanza è > 40%.
@@ -586,6 +595,14 @@ class UIConfig:
 
     # Massimo gol totali nella distribuzione
     MAX_GOL_DIST: int = 10
+
+    # Correzione overdispersion per Correct Score con molti gol.
+    # Il modello Poisson sottostima punteggi ad alto totale (i+j ≥ 3) perché
+    # la varianza reale dei gol in una partita supera la media (overdispersion).
+    # Fattori moltiplicativi per i+j = 3,4,5+: calibrati su dati top-5 leagues.
+    CS_OVERDISP_3: float = 1.05    # +5% per punteggi a 3 gol (es. 2-1, 1-2, 3-0)
+    CS_OVERDISP_4: float = 1.12    # +12% per 4 gol (es. 2-2, 3-1, 4-0)
+    CS_OVERDISP_5: float = 1.20    # +20% per 5+ gol (es. 3-2, 4-1, 5-0)
 
     # Livelli AH da mostrare nell'expander
     AH_LEVELS: tuple = (-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, +0.5, +1.0, +1.5, +2.0, +2.5)

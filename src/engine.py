@@ -208,6 +208,11 @@ class ProbabilitaModello:
     # True se ci sono gol ma le linee sembrano ancora quelle d'apertura
     lines_need_update: bool = False
 
+    # Market shock: True se il momentum supera la soglia di "movimento anomalo".
+    # Indica che le linee si sono mosse molto rispetto al tempo giocato →
+    # potrebbe esserci informazione asimmetrica (infortuni, formazioni, notizie).
+    market_shock: bool = False
+
     # Intervalli di credibilità multi-modello
     credible_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
 
@@ -674,6 +679,11 @@ def analizza(
     # e non aggiorna le linee live — l'avviso non ha senso in questo workflow.
     lines_need_update = False
 
+    # Market shock: movimento anomalo delle linee rispetto al tempo giocato.
+    # Segnala possibile informazione asimmetrica (infortuni, formazioni, notizie).
+    from src.config import MOMENTUM as _MOM
+    market_shock = (state.minuto > 0 and momentum >= _MOM.MOMENTUM_SHOCK_THRESHOLD)
+
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,
         p_under=p_under, p_over=p_over,
@@ -698,4 +708,5 @@ def analizza(
         delta_ah=delta_ah,
         delta_tot=delta_tot,
         lines_need_update=lines_need_update,
+        market_shock=market_shock,
     )

@@ -232,16 +232,25 @@ def genera_segnali_rapidi(
 
         # Penalità "vantaggio ovvio": si applica a 1 Casa, 2 Trasf. e ai
         # relativi DNB (che includono solo quella squadra).
+        # La penalità decade col tempo: 1-0 al 10' è rumore, 1-0 al 65' è probabile.
+        # Formula: penalty_raw × decay dove decay = max(0.30, 1 - minuto/90)
+        #   → al minuto 0: decay=1.0 (mai attivo, minuto>0 richiesto)
+        #   → al minuto 30: decay=0.67 (penalità ridotta a 67%)
+        #   → al minuto 60: decay=0.33 (penalità a 33%)
+        #   → al minuto 70+: non applicata (cutoff)
         effective_soglia = soglia_back
         if minuto > 0 and minuto < SIGNALS.LEAD_SOGLIA_MINUTE_CUTOFF:
+            _lead_decay = max(0.30, 1.0 - minuto / 90.0)
             if etichetta in ("1 Casa", "DNB Casa") and gol_casa > gol_trasf:
                 _lead = gol_casa - gol_trasf
-                effective_soglia += min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
-                                        _lead * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
+                _raw_penalty = min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
+                                   _lead * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
+                effective_soglia += _raw_penalty * _lead_decay
             elif etichetta in ("2 Trasf.", "DNB Trasf.") and gol_trasf > gol_casa:
                 _lead = gol_trasf - gol_casa
-                effective_soglia += min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
-                                        _lead * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
+                _raw_penalty = min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
+                                   _lead * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
+                effective_soglia += _raw_penalty * _lead_decay
 
         if prob >= effective_soglia:
             segnali.append(Signal(
@@ -413,6 +422,31 @@ def _filtra_segnali_coerenti(segnali: list[Signal]) -> list[Signal]:
         if not is_close:
             filtered.append(s)
     segnali = filtered
+
+    # ── Regola 6: Clustering detection ─────────────────────────────────────
+    # Segnali altamente correlati vengono annotati (non rimossi) con un avviso
+    # per ricordare che le scommesse si muovono insieme.
+    _mercati_segnali = {s.mercato for s in segnali if s.tipo in _TIPO_BACK}
+    for s in segnali:
+        if s.tipo not in _TIPO_BACK:
+            continue
+        correlati = []
+        if s.mercato == "1 Casa" and "DNB Casa" in _mercati_segnali:
+            correlati.append("≈DNB Casa")
+        if s.mercato == "DNB Casa" and "1 Casa" in _mercati_segnali:
+            correlati.append("≈BACK 1")
+        if s.mercato == "2 Trasf." and "DNB Trasf." in _mercati_segnali:
+            correlati.append("≈DNB Trasf.")
+        if s.mercato == "DNB Trasf." and "2 Trasf." in _mercati_segnali:
+            correlati.append("≈BACK 2")
+        if "Over" in s.mercato and "BTTS Sì" in _mercati_segnali:
+            correlati.append("≈BTTS Sì")
+        if s.mercato == "BTTS Sì":
+            over_mkt = next((m for m in _mercati_segnali if "Over" in m), None)
+            if over_mkt:
+                correlati.append(f"≈{over_mkt}")
+        if correlati:
+            s.riduzioni.append("cluster: " + ", ".join(correlati))
 
     # Ordina: BACK/LAY prima, poi per forza decrescente
     ordine_tipo = {"BACK": 0, "LAY": 1, "INFO_BACK": 2, "INFO_LAY": 3}

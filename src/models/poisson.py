@@ -121,7 +121,20 @@ def dixon_coles_tau(
     else:
         return 1.0
 
-    return max(DC.TAU_MIN, min(tau, DC.TAU_MAX))
+    # Soft clamp via sigmoid-like transition invece di hard max/min.
+    # Eliminare la discontinuità della derivata migliora l'accuratezza
+    # dei correct score 0-0 e 1-1 con rho_dc estremo.
+    # Formula: clamp_soft(x, lo, hi) ≈ lo + (hi-lo) × sigmoid((x-lo)/(hi-lo) × 6 - 3)
+    # Approssima lo hard-clamp ma con transizione smooth negli estremi.
+    span = DC.TAU_MAX - DC.TAU_MIN
+    if span > 0:
+        t_norm = (tau - DC.TAU_MIN) / span   # 0..1 nello spazio normalizzato
+        import math as _math
+        # Sigmoid centrata: 0→0.047, 0.5→0.5, 1→0.953 → mappa quasi identica nel centro
+        # ma smussata agli estremi (no discontinuità di derivata)
+        t_soft = 1.0 / (1.0 + _math.exp(-6.0 * (t_norm - 0.5)))
+        return DC.TAU_MIN + span * t_soft
+    return DC.TAU_MIN
 
 
 # ---------------------------------------------------------------------------

@@ -150,14 +150,17 @@ def time_decay_dinamico(
         score_effect_mult = 1.0 - market_absorption * 0.80
         residual_base *= score_effect_mult
 
-        # Applica solo se c'è residuo significativo
+        # Applica solo se c'è residuo significativo.
+        # Asimmetria: la squadra in svantaggio pressa con urgenza (boost maggiore),
+        # quella in vantaggio controlla il gioco (riduzione minore). Empiricamente:
+        # team losing: +6-8% xG; team winning: -3-5% xG (parking the bus è controllato).
         if residual_base > 0.001:
             if diff < 0:  # casa in svantaggio
                 xg_c *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
-                xg_t *= (1.0 - residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
+                xg_t *= (1.0 - residual_base * DECAY.SCORE_DEFENSE_MULT)
             else:  # casa in vantaggio
                 xg_t *= (1.0 + residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
-                xg_c *= (1.0 - residual_base * DECAY.SCORE_DOWN_MULTIPLIER)
+                xg_c *= (1.0 - residual_base * DECAY.SCORE_DEFENSE_MULT)
 
     # 2. Cartellini rossi — effetto marginale decrescente × tempo rimanente
     # Un rosso al 10' (80 minuti restanti) ha effetto pieno: la squadra gioca
