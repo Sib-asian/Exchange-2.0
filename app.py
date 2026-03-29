@@ -85,7 +85,10 @@ _btn_prematch = st.button("ANALIZZA", use_container_width=True, type="primary", 
 st.divider()
 
 # ── Dati Live ─────────────────────────────────────────────────────────────────
-with st.expander("📺 Dati Live", expanded=False):
+# _live_expander_open viene impostato a True dopo l'upload dello screenshot
+# per mantenere l'expander aperto dopo il rerun. Pop lo consuma una volta sola.
+_live_exp_open = st.session_state.pop("_live_expander_open", False)
+with st.expander("📺 Dati Live", expanded=_live_exp_open):
     _match_live = render_live_semplice()
     _btn_live   = st.button("ANALIZZA", use_container_width=True, type="primary", key="btn_live")
 
