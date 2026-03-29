@@ -99,6 +99,12 @@ def calcola_soglie(
     base_ou = max(SIGNALS.OVER_BASE_MIN,
                   SIGNALS.OVER_BASE_THRESHOLD + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt + SIGNALS.SOGLIA_OU_OFFSET)
 
+    # Soglia minima live: in partita il mercato ha già reagito agli eventi,
+    # serve una probabilità più netta per giustificare un segnale.
+    if minuto > 0:
+        base_1x2 = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, base_1x2)
+        base_ou  = max(SIGNALS.SOGLIA_LIVE_OU_MIN,   base_ou)
+
     # Penalità disaccordo modelli: se agreement < LOW, le soglie salgono linearmente.
     # Formula: penalty = max(0, (LOW - agreement) / LOW) × PENALTY_MAX
     # Esempio: agreement=0.40, LOW=0.60 → penalty = (0.20/0.60) × 0.08 = 2.7%
@@ -145,6 +151,8 @@ def genera_segnali_rapidi(
     gol_attuali: int,
     model_confidence: float = 1.0,
     model_agreement: float = 1.0,
+    gol_casa: int = 0,
+    gol_trasf: int = 0,
 ) -> list[Signal]:
     """
     Genera segnali rapidi basati sulle probabilità del modello, senza quote exchange.
@@ -195,7 +203,22 @@ def genera_segnali_rapidi(
         q_min_back = q_fair * (1.0 + SIGNALS.MARGINE_RAPIDO)
         q_max_lay = q_fair / (1.0 + SIGNALS.MARGINE_RAPIDO)
 
-        if prob >= soglia_back:
+        # Penalità "vantaggio ovvio": alzare la soglia per il BACK sulla squadra
+        # già in vantaggio (solo live e prima del 70').
+        # Esempio: 1-0 al 30' → soglia passa da 0.63 a 0.71.
+        # La squadra che insegue e il pareggio NON vengono penalizzati.
+        effective_soglia = soglia_back
+        if minuto > 0 and minuto < SIGNALS.LEAD_SOGLIA_MINUTE_CUTOFF:
+            if etichetta == "1 Casa" and gol_casa > gol_trasf:
+                _lead = gol_casa - gol_trasf
+                effective_soglia += min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
+                                        _lead * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
+            elif etichetta == "2 Trasf." and gol_trasf > gol_casa:
+                _lead = gol_trasf - gol_casa
+                effective_soglia += min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
+                                        _lead * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
+
+        if prob >= effective_soglia:
             segnali.append(Signal(
                 tipo="INFO_BACK",
                 mercato=etichetta,
@@ -542,6 +565,8 @@ def genera_segnali_avanzati(
     momentum: float,
     model_confidence: float = 1.0,
     model_agreement: float = 1.0,
+    gol_casa: int = 0,
+    gol_trasf: int = 0,
 ) -> list[Signal]:
     """
     Genera segnali avanzati con quote exchange, Kelly criterion e EV.
@@ -601,9 +626,20 @@ def genera_segnali_avanzati(
         if s is not None:
             segnali.append(s)
 
-    # 1X2
-    _valuta("1 Casa", prob_1, quotes.q_1, soglie["1x2"], mf=_mf(SIGNALS.MOMENTUM_MKT_1X2))
-    _valuta("2 Trasf.", prob_2, quotes.q_2, soglie["1x2"], mf=_mf(SIGNALS.MOMENTUM_MKT_1X2))
+    # 1X2 — soglia adattiva per penalizzare il BACK sulla squadra già vincente
+    def _soglia_1x2_con_lead(etichetta: str) -> float:
+        s = soglie["1x2"]
+        if minuto > 0 and minuto < SIGNALS.LEAD_SOGLIA_MINUTE_CUTOFF:
+            if etichetta == "1 Casa" and gol_casa > gol_trasf:
+                s += min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
+                         (gol_casa - gol_trasf) * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
+            elif etichetta == "2 Trasf." and gol_trasf > gol_casa:
+                s += min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
+                         (gol_trasf - gol_casa) * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
+        return s
+
+    _valuta("1 Casa", prob_1, quotes.q_1, _soglia_1x2_con_lead("1 Casa"), mf=_mf(SIGNALS.MOMENTUM_MKT_1X2))
+    _valuta("2 Trasf.", prob_2, quotes.q_2, _soglia_1x2_con_lead("2 Trasf."), mf=_mf(SIGNALS.MOMENTUM_MKT_1X2))
     if quotes.q_x > 1.0:
         _valuta("X Pareggio", prob_x, quotes.q_x, soglie["1x2"], mf=_mf(SIGNALS.MOMENTUM_MKT_1X2))
 

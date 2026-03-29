@@ -178,6 +178,8 @@ if _btn_prematch or _btn_live:
         _minuto, _lou, _gol_tot,
         model_confidence=risultati.model_confidence,
         model_agreement=risultati.model_agreement,
+        gol_casa=_gol_h,
+        gol_trasf=_gol_a,
     )
     if _settled.get("ou_vinto"):
         segnali = [s for s in segnali if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]
@@ -239,6 +241,8 @@ if _btn_prematch or _btn_live:
             bankroll, comm_rate, _n_shots, risultati.momentum,
             model_confidence=risultati.model_confidence,
             model_agreement=risultati.model_agreement,
+            gol_casa=_gol_h,
+            gol_trasf=_gol_a,
         )
         if _settled.get("ou_vinto"):
             segnali_av = [s for s in segnali_av if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]
