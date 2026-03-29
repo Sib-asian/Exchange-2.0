@@ -1077,7 +1077,7 @@ def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
 
         if file_id != last_id:
             # Nuovi file → estrazione
-            images = [(f.read(), f"." + f.name.rsplit(".", 1)[-1].lower()) for f in uploaded]
+            images = [(f.read(), "." + f.name.rsplit(".", 1)[-1].lower()) for f in uploaded]
             with st.spinner("Gemini analizza lo screen..."):
                 result = extract_prematch_analysis_from_bytes(images)
 
