@@ -100,10 +100,7 @@ def calcola_correct_score(
 
     # Rinormalizza dopo la correzione
     _total_p = sum(cs_corrected.values())
-    if _total_p > 0:
-        cs_final = {k: v / _total_p for k, v in cs_corrected.items()}
-    else:
-        cs_final = cs_corrected
+    cs_final = {k: v / _total_p for k, v in cs_corrected.items()} if _total_p > 0 else cs_corrected
 
     # Ordinamento deterministico: probabilità decrescente, poi per punteggio crescente
     # (evita ordine non-deterministico quando due score hanno la stessa probabilità)
