@@ -425,7 +425,8 @@ class SignalConfig:
     # Soglia minima LIVE (minuto > 0): floor più alto per evitare segnali generici.
     # In live il mercato ha già reagito agli eventi → servono probabilità più nette.
     # Esempio: 1-0 al 30' → p1=68% è "ovvio", non vale un segnale (floor=0.63).
-    SOGLIA_LIVE_BACK_MIN: float = 0.63   # +5% rispetto al prematch (0.58)
+    SOGLIA_LIVE_BACK_MIN: float = 0.63   # +5% rispetto al prematch (0.58) — per 1 e 2
+    SOGLIA_LIVE_DRAW_MIN: float = 0.58   # X (draw): nessun "lead penalty" → floor più basso
     SOGLIA_LIVE_OU_MIN: float = 0.65     # O/U live richiedono ancora più certezza
 
     # Penalità "vantaggio ovvio": alzare soglia per il BACK sulla squadra già vincente.
@@ -435,6 +436,13 @@ class SignalConfig:
     LEAD_SOGLIA_PENALTY_RATE: float = 0.08   # per gol di vantaggio
     LEAD_SOGLIA_PENALTY_CAP: float = 0.12    # cap assoluto
     LEAD_SOGLIA_MINUTE_CUTOFF: int = 70      # non applicare dopo il 69'
+
+    # Double Chance: copre 2/3 esiti → threshold più alta del 1x2
+    SOGLIA_DC: float = 0.73
+    SOGLIA_DC_LIVE_MIN: float = 0.76
+
+    # Correct Score: minimo per mostrare come segnale informativo
+    SOGLIA_CS_MIN: float = 0.12
 
     # Soglia prob massima per segnali rapidi LAY
     # Ridotta da 0.35 a 0.30 per essere più selettivi.
