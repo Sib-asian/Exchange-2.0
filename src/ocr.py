@@ -989,47 +989,91 @@ class PrematchAnalysisExtracted:
     forma_mult_a: float = 1.0             # moltiplicatore xG trasferta
 
 
-PREMATCH_ANALYSIS_PROMPT = """Analizza questo screenshot della pagina "Analysis" di Nowgoal per una partita di calcio.
+PREMATCH_ANALYSIS_PROMPT = """Sei un assistente che legge screenshot della pagina "Analysis" di Nowgoal.
 
-Estrai ESATTAMENTE questi dati dalla pagina:
+=== STRUTTURA DELLA PAGINA (importante per non confondere le sezioni) ===
 
-1. Sezione "Head to Head Statistics":
-   - Win % della squadra di casa (sinistra, es. "Win 4 (40%)" → 40)
-   - Draw % (es. "Draw 2 (20%)" → 20)
-   - Lose % / Away Win % (es. "Lose 4 (40%)" → 40)
-   - Goal Score/Loss per Game: primo numero = media gol segnati dalla casa, secondo = media gol trasferta
-   - Grafico Asian Handicap Odds: percentuale copertura casa (es. "Home 67%" → 67)
-   - Grafico Over/Under Odds: percentuale Over (es. "Over 67%" → 67)
+La pagina ha questo ordine DALL'ALTO verso il BASSO:
+1. BARRA QUOTE in cima (numeri piccoli, righe "Low/Initial/Live")
+2. STRENGTH COMPARISON (numero grande a sinistra = casa, numero grande a destra = trasferta)
+3. H2H COMPARISON (barra % con Win/Draw/Lose, poi goal per game)
+4. WHO WILL WIN (voting, mostra "AH: X")
+5. STANDINGS (tabella con due colori: arancione=casa, blu=trasferta)
+   - PRIMA metà della tabella = FT (Full Time): righe Total / Home / Away / Last 6
+   - SECONDA metà della tabella = HT (Half Time): righe Total / Home / Away / Last 6
+   - Le due sezioni FT e HT sono SEPARATE da un'intestazione "HT"
+6. HEAD TO HEAD STATISTICS (con grafici Asian Handicap Odds e Over/Under Odds)
+7. PREVIOUS SCORES STATISTICS (statistiche recenti della squadra di casa)
 
-2. Sezione "Strength Comparison" (se visibile):
-   - Punteggio casa (es. numero grande a sinistra come "60")
-   - Punteggio trasferta (es. numero grande a destra come "40")
+=== ESTRAZIONE ===
 
-3. Sezione "Standings" — per la squadra di CASA (tabella arancione/sinistra):
-   - Rank (posizione, es. "[SPA D2-10]" → 10)
-   - Total row: Matches, Win, Draw, Lose, Scored, Conceded, win_rate
-   - Home row: Win, Draw, Lose, Scored, Conceded (performance solo in casa)
-   - HT Total row: Win, Draw, Lose (risultati al primo tempo)
-   - Last 6 row: Win, Draw, Lose
+**SEZIONE 1 — STRENGTH COMPARISON**
+I due numeri grandi ai lati: casa=sinistra, trasferta=destra.
 
-4. Sezione "Standings" — per la squadra TRASFERTA (tabella blu/destra):
-   - Stessi campi della casa
-   - Away row: Win, Draw, Lose, Scored, Conceded (performance solo in trasferta)
+**SEZIONE 2 — H2H COMPARISON**
+- "Win X (Y%)" a sinistra → home_win_pct = Y
+- "Draw X (Y%)" al centro → draw_pct = Y
+- "Lose X (Y%)" a destra → away_win_pct = Y
+- "X goals   Goal Score/Loss per Game   Y goals" → avg_goals_home=X, avg_goals_away=Y
+  (il primo numero è la media gol della squadra di CASA, il secondo della TRASFERTA)
 
-5. Sezione "Previous Scores Statistics" (se visibile, sotto H2H):
-   - Squadra di casa: Win % (es. "Win 8 (80%)" → 80), media gol segnati, media gol subiti, % Over
-   - Squadra trasferta: stessi campi
+**SEZIONE 3 — HEAD TO HEAD STATISTICS (i grafici)**
+Due grafici: "Asian Handicap Odds" e "Over/Under Odds"
+- Nel grafico AH: percentuale "Home XX%" → ah_home_cover_pct = XX
+- Nel grafico O/U: percentuale "Over XX%" → over_pct = XX
 
-6. Barra quote iniziali (se visibile in cima allo screen, "Initial"):
-   - Linea AH iniziale (es. valore come "-0.5" o "1")
-   - Linea Total iniziale
+**SEZIONE 4 — STANDINGS — Squadra di CASA (tabella arancione, a sinistra)**
+Il titolo mostra [LEGA-RANK] es. "[SPA D2-3]" → rank=3
 
-Rispondi SOLO con JSON valido (usa 0 se un dato non è visibile):
+PARTE FT (Full Time) — righe nell'ORDINE: Total, Home, Away, Last 6
+Le colonne sono nell'ordine: Matches | Win | Draw | Lose | Scored | Conceded | Pts | Rank | Rate%
+
+Leggi:
+- Riga "Total": tutte le colonne → matches, win, draw, lose, scored, conceded, win_rate=Rate%
+- Riga "Home" (FT, NON HT): win, draw, lose, scored, conceded → home_win, home_draw, home_lose, home_scored, home_conceded
+- Riga "Last 6": win, draw, lose → last6_win, last6_draw, last6_lose
+
+PARTE HT (Half Time) — SEPARATA dalla parte FT, inizia dopo l'intestazione "HT"
+Leggi:
+- Riga "Total" nella sezione HT: win, draw, lose → ht_win, ht_draw, ht_lose
+
+**SEZIONE 5 — STANDINGS — Squadra TRASFERTA (tabella blu, a destra)**
+Stessa struttura. Titolo [LEGA-RANK] → rank
+
+PARTE FT:
+- Riga "Total": matches, win, draw, lose, scored, conceded, win_rate
+- Riga "Away" (FT): win, draw, lose, scored, conceded → away_win, away_draw, away_lose, away_scored, away_conceded
+  (NON la riga "Home" della trasferta — ci interessa la performance IN TRASFERTA)
+- Riga "Last 6": last6_win, last6_draw, last6_lose
+
+PARTE HT:
+- Riga "Total": ht_win, ht_draw, ht_lose
+
+**SEZIONE 6 — PREVIOUS SCORES STATISTICS**
+Questa sezione appare spesso solo per la squadra di casa. Ha un filtro che dice es.
+"Almeria • Home • Same League • Last 10".
+- Riga di riepilogo: "Win X (Y%)" → win_pct=Y, "Draw X (Z%)" → ignora, "Lose X (W%)" → ignora
+- "X.X goals  Goal Score/Loss per Game  Y.Y goals" → avg_scored=X.X, avg_conceded=Y.Y
+  (il PRIMO numero = gol segnati dalla squadra di casa, SECONDO = gol subiti)
+- Nei grafici O/U: "Over XX%" → over_pct=XX
+
+Se è visibile anche la sezione per la trasferta, estrai gli stessi campi in "prev_away".
+Se NON è visibile, usa 0 per tutti i campi "prev_away".
+
+**SEZIONE 7 — BARRA QUOTE IN CIMA**
+In cima allo screenshot c'è una riga con label "Initial" (o "Low") con piccoli numeri.
+Cerca i valori della linea AH iniziale (es. -0.5, -1, 0, 1) e Total iniziale (es. 2.5, 3).
+Spesso si vedono valori come "2.5/3" che indicano il Total iniziale.
+Se non sono leggibili, usa 0.
+
+=== OUTPUT ===
+Rispondi SOLO con JSON valido, nessun testo fuori dal JSON. Usa 0 per valori non visibili.
+
 {
   "h2h": {
     "home_win_pct": 67,
-    "draw_pct": 0,
-    "away_win_pct": 33,
+    "draw_pct": 33,
+    "away_win_pct": 0,
     "avg_goals_home": 2.3,
     "avg_goals_away": 1.0,
     "over_pct": 67,
@@ -1069,7 +1113,7 @@ Rispondi SOLO con JSON valido (usa 0 se un dato non è visibile):
     "scored": 44,
     "conceded": 43,
     "win_rate": 35.5,
-    "away_win": 5,
+    "away_win": 4,
     "away_draw": 2,
     "away_lose": 9,
     "away_scored": 19,
@@ -1088,10 +1132,10 @@ Rispondi SOLO con JSON valido (usa 0 se un dato non è visibile):
     "over_pct": 60
   },
   "prev_away": {
-    "win_pct": 30,
-    "avg_scored": 1.3,
-    "avg_conceded": 1.5,
-    "over_pct": 30
+    "win_pct": 0,
+    "avg_scored": 0,
+    "avg_conceded": 0,
+    "over_pct": 0
   },
   "lines": {
     "initial_ah": -0.5,
