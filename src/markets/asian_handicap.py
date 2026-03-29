@@ -43,9 +43,9 @@ def calcola_asian_handicap(
 
         for (a, b), p in full.items():
             diff = (a - b) + level
-            if diff > 1e-9:
+            if diff > 1e-6:
                 win += p
-            elif diff < -1e-9:
+            elif diff < -1e-6:
                 lose += p
             else:
                 push += p
