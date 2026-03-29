@@ -278,6 +278,7 @@ def _logistic_sharpen(p: float, alpha: float = 1.03) -> float:
     Con α = 1.03, una P=0.60 diventa ~0.604, una P=0.85 diventa ~0.854.
     L'effetto è molto conservativo per evitare overconfidence.
     """
+    p = max(1e-9, min(1.0 - 1e-9, p))
     if p <= 0.001 or p >= 0.999:
         return p
     logit = math.log(p / (1.0 - p))
