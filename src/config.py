@@ -566,7 +566,7 @@ class UIConfig:
     LAYOUT: str = "centered"
 
     # Linee U/O disponibili nel selectbox
-    LINEE_OU: tuple = (0.5, 1.5, 1.75, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.5, 5.5)
+    LINEE_OU: tuple = (0.5, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.5)
 
     # Tiri attesi per minuto (entrambe le squadre) — soglia warning input
     TIRI_PER_MINUTO: float = 0.65
