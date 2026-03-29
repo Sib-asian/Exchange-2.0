@@ -147,6 +147,7 @@ def genera_segnali_rapidi(
     model_agreement: float = 1.0,
     gol_casa: int = 0,
     gol_trasf: int = 0,
+    top_cs: list[tuple[tuple[int, int], float]] | None = None,
 ) -> list[Signal]:
     """
     Genera segnali rapidi basati sulle probabilità del modello, senza quote exchange.
@@ -192,15 +193,32 @@ def genera_segnali_rapidi(
 
     segnali: list[Signal] = []
 
-    mercati = [
-        ("1 Casa", prob_1, _s1),
-        ("X Pareggio", prob_x, _sx),
-        ("2 Trasf.", prob_2, _s2),
-        (f"Over {linea_ou}", prob_over, _sou_o),
-        (f"Under {linea_ou}", prob_under, _sou_u),
-        ("BTTS Sì", prob_btts, _sbtts),
-        ("BTTS No", 1.0 - prob_btts, _sbtts_no),
+    # ── DNB + Double Chance ───────────────────────────────────────────────────
+    _eps = 1e-8
+    _s_dnb = _s1  # DNB: stesso floor di BACK 1/2
+    _s_dc  = max(SIGNALS.SOGLIA_DC_LIVE_MIN, SIGNALS.SOGLIA_DC) if minuto > 0 else SIGNALS.SOGLIA_DC
+
+    p_dnb_h = prob_1 / (prob_1 + prob_2 + _eps)
+    p_dnb_a = prob_2 / (prob_1 + prob_2 + _eps)
+
+    mercati: list[tuple[str, float, float]] = [
+        ("1 Casa",         prob_1,              _s1),
+        ("X Pareggio",     prob_x,              _sx),
+        ("2 Trasf.",       prob_2,              _s2),
+        (f"Over {linea_ou}",  prob_over,         _sou_o),
+        (f"Under {linea_ou}", prob_under,        _sou_u),
+        ("BTTS Sì",        prob_btts,           _sbtts),
+        ("BTTS No",        1.0 - prob_btts,     _sbtts_no),
+        ("DNB Casa",       p_dnb_h,             _s_dnb),
+        ("DNB Trasf.",     p_dnb_a,             _s_dnb),
     ]
+    # DC: solo se entrambi i componenti del mercato sono significativi
+    if prob_1 > 0.20 and prob_x > 0.15:
+        mercati.append(("DC 1X", prob_1 + prob_x, _s_dc))
+    if prob_2 > 0.20 and prob_x > 0.15:
+        mercati.append(("DC X2", prob_x + prob_2, _s_dc))
+    if prob_1 > 0.20 and prob_2 > 0.15:
+        mercati.append(("DC 12", prob_1 + prob_2, _s_dc))
 
     for etichetta, prob, soglia_back in mercati:
         q_fair = 1.0 / prob if prob > SIGNALS.MIN_PROB_FOR_QUOTE else SIGNALS.MAX_QUOTE_FALLBACK
@@ -212,17 +230,15 @@ def genera_segnali_rapidi(
         q_min_back = q_fair * (1.0 + SIGNALS.MARGINE_RAPIDO)
         q_max_lay = q_fair / (1.0 + SIGNALS.MARGINE_RAPIDO)
 
-        # Penalità "vantaggio ovvio": alzare la soglia per il BACK sulla squadra
-        # già in vantaggio (solo live e prima del 70').
-        # Esempio: 1-0 al 30' → soglia passa da 0.63 a 0.71.
-        # La squadra che insegue e il pareggio NON vengono penalizzati.
+        # Penalità "vantaggio ovvio": si applica a 1 Casa, 2 Trasf. e ai
+        # relativi DNB (che includono solo quella squadra).
         effective_soglia = soglia_back
         if minuto > 0 and minuto < SIGNALS.LEAD_SOGLIA_MINUTE_CUTOFF:
-            if etichetta == "1 Casa" and gol_casa > gol_trasf:
+            if etichetta in ("1 Casa", "DNB Casa") and gol_casa > gol_trasf:
                 _lead = gol_casa - gol_trasf
                 effective_soglia += min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
                                         _lead * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
-            elif etichetta == "2 Trasf." and gol_trasf > gol_casa:
+            elif etichetta in ("2 Trasf.", "DNB Trasf.") and gol_trasf > gol_casa:
                 _lead = gol_trasf - gol_casa
                 effective_soglia += min(SIGNALS.LEAD_SOGLIA_PENALTY_CAP,
                                         _lead * SIGNALS.LEAD_SOGLIA_PENALTY_RATE)
@@ -233,7 +249,7 @@ def genera_segnali_rapidi(
                 mercato=etichetta,
                 prob_mod=prob,
                 quota_fair=q_fair,
-                quota_exc=q_min_back,  # Quota minima cercata
+                quota_exc=q_min_back,
             ))
         elif prob <= SIGNALS.SOGLIA_LAY_MAX and q_fair >= SIGNALS.LAY_MIN_FAIR_Q:
             segnali.append(Signal(
@@ -241,8 +257,22 @@ def genera_segnali_rapidi(
                 mercato=etichetta,
                 prob_mod=prob,
                 quota_fair=q_fair,
-                quota_exc=q_max_lay,  # Quota massima cercata
+                quota_exc=q_max_lay,
             ))
+
+    # ── Correct Score ─────────────────────────────────────────────────────────
+    if top_cs:
+        cs_score, cs_prob = top_cs[0]
+        if cs_prob >= SIGNALS.SOGLIA_CS_MIN:
+            q_fair_cs = 1.0 / cs_prob
+            if q_fair_cs >= SIGNALS.QUICK_SIGNAL_MIN_FAIR_Q:
+                segnali.append(Signal(
+                    tipo="INFO_BACK",
+                    mercato=f"CS {cs_score[0]}-{cs_score[1]}",
+                    prob_mod=cs_prob,
+                    quota_fair=q_fair_cs,
+                    quota_exc=q_fair_cs * (1.0 + SIGNALS.MARGINE_RAPIDO),
+                ))
 
     return _filtra_segnali_coerenti(segnali)
 
@@ -253,6 +283,8 @@ def genera_segnali_rapidi(
 
 # Gruppi di mercati mutualmente esclusivi: un solo BACK è ammesso per gruppo.
 _GRUPPO_1X2 = {"1 Casa", "X Pareggio", "2 Trasf."}
+_GRUPPO_DNB = {"DNB Casa", "DNB Trasf."}
+_GRUPPO_DC  = {"DC 1X", "DC X2", "DC 12"}
 _TIPO_BACK = {"BACK", "INFO_BACK"}
 _TIPO_LAY  = {"LAY", "INFO_LAY"}
 
@@ -305,6 +337,18 @@ def _filtra_segnali_coerenti(segnali: list[Signal]) -> list[Signal]:
     if len(lay_1x2) > 1:
         best_lay = max(lay_1x2, key=_forza)
         segnali = [s for s in segnali if s not in lay_1x2 or s is best_lay]
+
+    # ── Regola 1b: DNB — una sola direzione (Casa o Trasf.) ──────────────────
+    back_dnb = [s for s in segnali if s.mercato in _GRUPPO_DNB and s.tipo in _TIPO_BACK]
+    if len(back_dnb) > 1:
+        best_dnb = max(back_dnb, key=_forza)
+        segnali = [s for s in segnali if s not in back_dnb or s is best_dnb]
+
+    # ── Regola 1c: DC — una sola variante (1X, X2 o 12) ─────────────────────
+    back_dc = [s for s in segnali if s.mercato in _GRUPPO_DC and s.tipo in _TIPO_BACK]
+    if len(back_dc) > 1:
+        best_dc = max(back_dc, key=_forza)
+        segnali = [s for s in segnali if s not in back_dc or s is best_dc]
 
     # ── Regola 2: O/U — una sola direzione ──────────────────────────────────
     back_over = [s for s in segnali if "Over" in s.mercato and s.tipo in _TIPO_BACK]

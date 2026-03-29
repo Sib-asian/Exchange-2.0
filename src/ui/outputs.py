@@ -12,6 +12,7 @@ Centralizza tutta la logica di output dell'interfaccia utente:
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import streamlit as st
@@ -148,90 +149,146 @@ def render_analisi_dinamica(
     risultati: ProbabilitaModello,
     state: MatchState,
     gol_tot: int,
+    scenario_h: ProbabilitaModello | None = None,
+    scenario_a: ProbabilitaModello | None = None,
 ) -> None:
     """
     Sezione sempre visibile con insight dinamici:
-      - Chi sta dominando (live)
-      - Prossimo gol: P(home) / P(away)
-      - Mercati O/U disponibili calcolati da gol_tot_dist
+      1. Prossimo gol P(home/away) + P(gol nei 15')
+      2. Chi sta dominando (live) + momentum linee
+      3. xG breakdown sorgenti (solo se tiri disponibili)
+      4. AH linee vicine
+      5. Mercati O/U disponibili da gol_tot_dist
+      6. Scenario prossimo gol (expander, solo live)
     """
     minuto = state.minuto
 
-    # ── Prossimo gol ──────────────────────────────────────────────────────────
+    # ── 1. Prossimo gol ───────────────────────────────────────────────────────
     xg_h = risultati.xg_h_final
     xg_a = risultati.xg_a_final
     if xg_h + xg_a > 0.01:
         p_ng_h = xg_h / (xg_h + xg_a)
-        p_ng_a = 1.0 - p_ng_h
-        # Usa accumulato tiri se disponibile (più preciso del solo modello linee)
         if risultati.xg_h_accum + risultati.xg_a_accum > 0.01:
             acc_h = risultati.xg_h_accum
             acc_a = risultati.xg_a_accum
-            p_ng_h = (0.5 * p_ng_h + 0.5 * acc_h / (acc_h + acc_a))
-            p_ng_a = 1.0 - p_ng_h
+            p_ng_h = 0.5 * p_ng_h + 0.5 * acc_h / (acc_h + acc_a)
+        p_ng_a = 1.0 - p_ng_h
 
         st.markdown("**Prossimo gol**")
         cng1, cng2 = st.columns(2)
-        cng1.metric("P(gol Casa)", f"{p_ng_h:.0%}", delta=f"{p_ng_h - 0.5:+.0%} vs 50%", delta_color="normal")
-        cng2.metric("P(gol Trasf.)", f"{p_ng_a:.0%}", delta=f"{p_ng_a - 0.5:+.0%} vs 50%", delta_color="normal")
+        cng1.metric("P(gol Casa)",  f"{p_ng_h:.0%}", delta=f"{p_ng_h-0.5:+.0%} vs 50%", delta_color="normal")
+        cng2.metric("P(gol Trasf.)", f"{p_ng_a:.0%}", delta=f"{p_ng_a-0.5:+.0%} vs 50%", delta_color="normal")
 
-    # ── Chi sta dominando ─────────────────────────────────────────────────────
+        # P(gol nei prossimi 15' e 30')
+        if minuto > 0:
+            min_rimasti = max(1, 90 - minuto)
+            lam_tot = xg_h + xg_a
+            p15 = 1.0 - math.exp(-lam_tot * min(15, min_rimasti) / min_rimasti)
+            p30 = 1.0 - math.exp(-lam_tot * min(30, min_rimasti) / min_rimasti)
+            st.caption(
+                f"Prob. gol nei prossimi **15'**: {p15:.0%}  ·  "
+                f"nei prossimi **30'**: {p30:.0%}"
+            )
+
+    # ── 2. Chi sta dominando + momentum linee ─────────────────────────────────
     if minuto > 0:
-        indicatori: list[float] = []  # positivo = casa, negativo = trasf.
+        indicatori: list[float] = []
 
         n_shots = state.sot_h + state.soff_h + state.sot_a + state.soff_a
         if n_shots > 0:
             shots_h = state.sot_h + state.soff_h
             shots_a = state.sot_a + state.soff_a
             indicatori.append((shots_h - shots_a) / (shots_h + shots_a))
-
         if state.possesso_h > 0 and state.possesso_a > 0:
             indicatori.append((state.possesso_h - state.possesso_a) / 100.0)
-
         att_tot = state.att_pericolosi_h + state.att_pericolosi_a
         if att_tot > 0:
             indicatori.append((state.att_pericolosi_h - state.att_pericolosi_a) / att_tot)
 
+        caption_parts = []
         if indicatori:
-            score = sum(indicatori) / len(indicatori)  # [-1, +1]
+            score = sum(indicatori) / len(indicatori)
             if abs(score) < 0.08:
                 dom_label = "Partita equilibrata"
-                dom_detail = ""
             elif score > 0:
-                forza = "nettamente" if score > 0.25 else "leggermente"
-                dom_label = f"Casa domina {forza}"
-                dom_detail = _dom_detail(state, score)
+                dom_label = f"Casa domina {'nettamente' if score > 0.25 else 'leggermente'}"
             else:
-                forza = "nettamente" if score < -0.25 else "leggermente"
-                dom_label = f"Trasf. domina {forza}"
-                dom_detail = _dom_detail(state, score)
-            st.caption(f"Pressione: **{dom_label}**{dom_detail}")
+                dom_label = f"Trasf. domina {'nettamente' if score < -0.25 else 'leggermente'}"
+            caption_parts.append(f"Pressione: **{dom_label}**{_dom_detail(state, score)}")
 
-    # ── Mercati O/U disponibili ───────────────────────────────────────────────
+        # Momentum linee di mercato
+        if abs(risultati.delta_ah) >= 0.20:
+            if risultati.delta_ah > 0:
+                caption_parts.append(f"Mercato riduce favore casa (AH {risultati.delta_ah:+.2f})")
+            else:
+                caption_parts.append(f"Mercato aumenta favore casa (AH {risultati.delta_ah:+.2f})")
+
+        if caption_parts:
+            st.caption("  ·  ".join(caption_parts))
+
+    # ── 3. xG sorgenti (solo live con tiri) ───────────────────────────────────
+    if minuto > 0 and risultati.xg_h_accum + risultati.xg_a_accum > 0.01:
+        st.caption(
+            f"xG — linee: {risultati.xg_h_base:.2f}/{risultati.xg_a_base:.2f}  ·  "
+            f"tiri accum.: {risultati.xg_h_accum:.2f}/{risultati.xg_a_accum:.2f}  ·  "
+            f"blend finale: **{risultati.xg_h_final:.2f}/{risultati.xg_a_final:.2f}** "
+            f"(α_D={risultati.alpha_d:.2f})"
+        )
+
+    # ── 4. AH linee vicine ────────────────────────────────────────────────────
+    ah_cur = state.ah_cur
+    ah_rows = []
+    for delta in (-0.25, 0.0, +0.25):
+        alt = ah_cur + delta
+        ph, pa = _prob_ah_cover(risultati.p1, risultati.px, risultati.p2, alt)
+        tag = " ◄" if delta == 0.0 else ""
+        ah_rows.append((f"AH {alt:+g}{tag}", ph, pa))
+
+    if ah_rows:
+        st.markdown("**AH linee vicine**")
+        cols = st.columns(len(ah_rows))
+        for i, (lbl, ph, pa) in enumerate(ah_rows):
+            cols[i].metric(lbl, f"Casa {ph:.0%}", delta=f"Trasf. {pa:.0%}", delta_color="off")
+
+    # ── 5. Mercati O/U disponibili ────────────────────────────────────────────
     dist = risultati.gol_tot_dist
     if dist:
-        # Accumula P(remaining >= k) per k = 1, 2, 3, 4
-        cum: dict[int, float] = {}
         total_p = sum(dist.values())
-        for k in range(1, 6):
-            cum[k] = sum(v for key, v in dist.items() if key >= k) / (total_p if total_p > 0 else 1.0)
-
-        # Linee finali rilevanti = current goals + remaining needed
-        mercati_ou: list[tuple[str, float, bool]] = []  # (label, prob, is_over)
+        cum: dict[int, float] = {
+            k: sum(v for key, v in dist.items() if key >= k) / (total_p or 1.0)
+            for k in range(1, 6)
+        }
+        mercati_ou = []
         for extra in (1, 2, 3):
-            linea_finale = gol_tot + extra - 0.5   # es. 2 gol → Over 2.5, Over 3.5, Over 4.5
-            p_over_k = cum.get(extra, 0.0)
-            p_under_k = 1.0 - p_over_k
-            mercati_ou.append((f"Over {linea_finale:.1f}", p_over_k, True))
-            mercati_ou.append((f"Under {linea_finale:.1f}", p_under_k, False))
+            linea_f = gol_tot + extra - 0.5
+            p_o = cum.get(extra, 0.0)
+            mercati_ou += [(f"Over {linea_f:.1f}", p_o), (f"Under {linea_f:.1f}", 1.0 - p_o)]
 
-        # Mostra solo quelli con probabilità interessante (15%–85%)
-        interessanti = [(lbl, p) for lbl, p, _ in mercati_ou if 0.15 <= p <= 0.85]
+        interessanti = [(lbl, p) for lbl, p in mercati_ou if 0.15 <= p <= 0.85]
         if interessanti:
             st.markdown("**Mercati O/U disponibili**")
             cols = st.columns(min(len(interessanti), 4))
             for i, (lbl, p) in enumerate(interessanti[:4]):
                 cols[i].metric(lbl, f"{p:.0%}")
+
+    # ── 6. Scenario prossimo gol ──────────────────────────────────────────────
+    if minuto > 0 and scenario_h and scenario_a:
+        with st.expander("🎯 Scenario: se segna subito..."):
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                st.markdown(f"**Casa segna** → {state.gol_casa+1}–{state.gol_trasf}")
+                sc1.metric("1 Casa",  f"{scenario_h.p1:.0%}", f"{scenario_h.p1-risultati.p1:+.0%}")
+                sc1.metric("X",       f"{scenario_h.px:.0%}", f"{scenario_h.px-risultati.px:+.0%}")
+                sc1.metric("2 Trasf.",f"{scenario_h.p2:.0%}", f"{scenario_h.p2-risultati.p2:+.0%}")
+                ah_sh, ah_sa = _prob_ah_cover(scenario_h.p1, scenario_h.px, scenario_h.p2, ah_cur)
+                sc1.caption(f"AH Casa {ah_sh:.0%} · AH Trasf. {ah_sa:.0%}")
+            with sc2:
+                st.markdown(f"**Trasf. segna** → {state.gol_casa}–{state.gol_trasf+1}")
+                sc2.metric("1 Casa",  f"{scenario_a.p1:.0%}", f"{scenario_a.p1-risultati.p1:+.0%}")
+                sc2.metric("X",       f"{scenario_a.px:.0%}", f"{scenario_a.px-risultati.px:+.0%}")
+                sc2.metric("2 Trasf.",f"{scenario_a.p2:.0%}", f"{scenario_a.p2-risultati.p2:+.0%}")
+                ah_ah, ah_aa = _prob_ah_cover(scenario_a.p1, scenario_a.px, scenario_a.p2, ah_cur)
+                sc2.caption(f"AH Casa {ah_ah:.0%} · AH Trasf. {ah_aa:.0%}")
 
 
 def _dom_detail(state: MatchState, score: float) -> str:

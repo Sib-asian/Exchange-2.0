@@ -437,6 +437,13 @@ class SignalConfig:
     LEAD_SOGLIA_PENALTY_CAP: float = 0.12    # cap assoluto
     LEAD_SOGLIA_MINUTE_CUTOFF: int = 70      # non applicare dopo il 69'
 
+    # Double Chance: copre 2/3 esiti → threshold più alta del 1x2
+    SOGLIA_DC: float = 0.73
+    SOGLIA_DC_LIVE_MIN: float = 0.76
+
+    # Correct Score: minimo per mostrare come segnale informativo
+    SOGLIA_CS_MIN: float = 0.12
+
     # Soglia prob massima per segnali rapidi LAY
     # Ridotta da 0.35 a 0.30 per essere più selettivi.
     SOGLIA_LAY_MAX: float = 0.30

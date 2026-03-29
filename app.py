@@ -142,8 +142,18 @@ if _btn_prematch or _btn_live:
         st.stop()
 
     with st.spinner("Calcolo..."):
+        from dataclasses import replace as _dc_replace
         from src.engine import analizza
         risultati = analizza(state)
+        # Scenari "se segna subito" (solo live)
+        _scen_h: object = None
+        _scen_a: object = None
+        if state.minuto > 0:
+            try:
+                _scen_h = analizza(_dc_replace(state, gol_casa=state.gol_casa + 1))
+                _scen_a = analizza(_dc_replace(state, gol_trasf=state.gol_trasf + 1))
+            except Exception:
+                _scen_h = _scen_a = None
 
     # Auto-save (usa un ID fisso per sessione basato sulle linee)
     _pid = st.session_state.get("active_match_id") or str(
@@ -191,7 +201,7 @@ if _btn_prematch or _btn_live:
     st.divider()
     render_pronostici_rapidi(risultati, _lou, _minuto, _gol_h, _gol_a, linea_ah=lines["ah_cur"])
 
-    render_analisi_dinamica(risultati, state, _gol_tot)
+    render_analisi_dinamica(risultati, state, _gol_tot, _scen_h, _scen_a)
 
     _settled = render_mercati_chiusi(_gol_tot, _lou, _gol_h, _gol_a, _minuto, risultati.p_btts)
 
@@ -203,6 +213,7 @@ if _btn_prematch or _btn_live:
         model_agreement=risultati.model_agreement,
         gol_casa=_gol_h,
         gol_trasf=_gol_a,
+        top_cs=risultati.top_cs,
     )
     if _settled.get("ou_vinto"):
         segnali = [s for s in segnali if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]
