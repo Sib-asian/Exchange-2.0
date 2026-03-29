@@ -99,12 +99,6 @@ def calcola_soglie(
     base_ou = max(SIGNALS.OVER_BASE_MIN,
                   SIGNALS.OVER_BASE_THRESHOLD + SIGNALS.SOGLIA_BACK_SLOPE * frac_sqrt + SIGNALS.SOGLIA_OU_OFFSET)
 
-    # Soglia minima live: in partita il mercato ha già reagito agli eventi,
-    # serve una probabilità più netta per giustificare un segnale.
-    if minuto > 0:
-        base_1x2 = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, base_1x2)
-        base_ou  = max(SIGNALS.SOGLIA_LIVE_OU_MIN,   base_ou)
-
     # Penalità disaccordo modelli: se agreement < LOW, le soglie salgono linearmente.
     # Formula: penalty = max(0, (LOW - agreement) / LOW) × PENALTY_MAX
     # Esempio: agreement=0.40, LOW=0.60 → penalty = (0.20/0.60) × 0.08 = 2.7%
@@ -181,16 +175,27 @@ def genera_segnali_rapidi(
         return []
 
     soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement)
+
+    # Floor live per segnali RAPIDI (senza quote exchange):
+    # in partita il mercato ha già prezzato gli eventi recenti → servono
+    # probabilità più nette. Per i segnali avanzati (con quote) l'edge è
+    # il filtro principale e il floor non si applica.
+    _s1x2 = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, soglie["1x2"]) if minuto > 0 else soglie["1x2"]
+    _sou_o = max(SIGNALS.SOGLIA_LIVE_OU_MIN,  soglie["ou_over"]) if minuto > 0 else soglie["ou_over"]
+    _sou_u = max(SIGNALS.SOGLIA_LIVE_OU_MIN,  soglie["ou_under"]) if minuto > 0 else soglie["ou_under"]
+    _sbtts = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, soglie["btts_si"]) if minuto > 0 else soglie["btts_si"]
+    _sbtts_no = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, soglie["btts_no"]) if minuto > 0 else soglie["btts_no"]
+
     segnali: list[Signal] = []
 
     mercati = [
-        ("1 Casa", prob_1, soglie["1x2"]),
-        ("X Pareggio", prob_x, soglie["1x2"]),
-        ("2 Trasf.", prob_2, soglie["1x2"]),
-        (f"Over {linea_ou}", prob_over, soglie["ou_over"]),
-        (f"Under {linea_ou}", prob_under, soglie["ou_under"]),
-        ("BTTS Sì", prob_btts, soglie["btts_si"]),
-        ("BTTS No", 1.0 - prob_btts, soglie["btts_no"]),
+        ("1 Casa", prob_1, _s1x2),
+        ("X Pareggio", prob_x, _s1x2),
+        ("2 Trasf.", prob_2, _s1x2),
+        (f"Over {linea_ou}", prob_over, _sou_o),
+        (f"Under {linea_ou}", prob_under, _sou_u),
+        ("BTTS Sì", prob_btts, _sbtts),
+        ("BTTS No", 1.0 - prob_btts, _sbtts_no),
     ]
 
     for etichetta, prob, soglia_back in mercati:

@@ -760,26 +760,40 @@ def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
             data = json.loads(json_str)
         except json.JSONDecodeError:
             repaired = json_str.rstrip().rstrip(",")
-            # Chiudi array aperti (es. "ev":[...]) prima di chiudere l'oggetto
+
+            # 1. Chiudi array aperti (es. "ev":[...])
             open_brackets = repaired.count("[") - repaired.count("]")
             if open_brackets > 0:
-                # Rimuovi eventuale ultimo elemento incompleto dell'array
-                # (cerca l'ultimo { non chiuso nell'array)
+                # Rimuovi l'ultimo elemento incompleto dell'array se necessario
                 last_open = repaired.rfind("{", repaired.rfind("["))
                 last_close = repaired.rfind("}")
                 if last_open > last_close:
                     repaired = repaired[:last_open].rstrip().rstrip(",")
                 repaired += "]" * open_brackets
-            # Chiudi oggetti aperti
+
+            # 2. Se ci sono oggetti non chiusi, rimuovi l'ultimo entry incompleto.
+            # Esempio: '{"a":1,"b":2,"c_incomp' → taglia all'ultima virgola → '{"a":1,"b":2'
+            if repaired.count("{") > repaired.count("}"):
+                last_comma = repaired.rfind(",")
+                if last_comma != -1:
+                    # Verifica che dopo la virgola ci sia un entry incompleto
+                    # (non vogliamo troncare un array come "ev":[...],)
+                    after_comma = repaired[last_comma + 1:].strip()
+                    if after_comma and not after_comma.startswith("{") and not after_comma.startswith("["):
+                        repaired = repaired[:last_comma]
+
+            # 3. Chiudi oggetti ancora aperti
             open_braces = repaired.count("{") - repaired.count("}")
             if open_braces > 0:
                 repaired = repaired.rstrip().rstrip(",")
                 repaired += "}" * open_braces
+
             try:
                 data = json.loads(repaired)
             except json.JSONDecodeError:
-                # Fallback: oggetto vuoto (verrà restituito extraction_success=False)
-                data = {}
+                # Nessun tentativo di repair ha funzionato: rilancia l'eccezione
+                # originale così che il blocco esterno restituisca extraction_success=False.
+                raise
 
         # Normalizza chiavi: Gemini potrebbe usare nomi inglesi o varianti
         data = _normalize_live_stats_keys(data)
