@@ -141,6 +141,110 @@ def render_pronostici_rapidi(
 
 
 # ---------------------------------------------------------------------------
+# Analisi Dinamica Live
+# ---------------------------------------------------------------------------
+
+def render_analisi_dinamica(
+    risultati: ProbabilitaModello,
+    state: MatchState,
+    gol_tot: int,
+) -> None:
+    """
+    Sezione sempre visibile con insight dinamici:
+      - Chi sta dominando (live)
+      - Prossimo gol: P(home) / P(away)
+      - Mercati O/U disponibili calcolati da gol_tot_dist
+    """
+    minuto = state.minuto
+
+    # ── Prossimo gol ──────────────────────────────────────────────────────────
+    xg_h = risultati.xg_h_final
+    xg_a = risultati.xg_a_final
+    if xg_h + xg_a > 0.01:
+        p_ng_h = xg_h / (xg_h + xg_a)
+        p_ng_a = 1.0 - p_ng_h
+        # Usa accumulato tiri se disponibile (più preciso del solo modello linee)
+        if risultati.xg_h_accum + risultati.xg_a_accum > 0.01:
+            acc_h = risultati.xg_h_accum
+            acc_a = risultati.xg_a_accum
+            p_ng_h = (0.5 * p_ng_h + 0.5 * acc_h / (acc_h + acc_a))
+            p_ng_a = 1.0 - p_ng_h
+
+        st.markdown("**Prossimo gol**")
+        cng1, cng2 = st.columns(2)
+        cng1.metric("P(gol Casa)", f"{p_ng_h:.0%}", delta=f"{p_ng_h - 0.5:+.0%} vs 50%", delta_color="normal")
+        cng2.metric("P(gol Trasf.)", f"{p_ng_a:.0%}", delta=f"{p_ng_a - 0.5:+.0%} vs 50%", delta_color="normal")
+
+    # ── Chi sta dominando ─────────────────────────────────────────────────────
+    if minuto > 0:
+        indicatori: list[float] = []  # positivo = casa, negativo = trasf.
+
+        n_shots = state.sot_h + state.soff_h + state.sot_a + state.soff_a
+        if n_shots > 0:
+            shots_h = state.sot_h + state.soff_h
+            shots_a = state.sot_a + state.soff_a
+            indicatori.append((shots_h - shots_a) / (shots_h + shots_a))
+
+        if state.possesso_h > 0 and state.possesso_a > 0:
+            indicatori.append((state.possesso_h - state.possesso_a) / 100.0)
+
+        att_tot = state.att_pericolosi_h + state.att_pericolosi_a
+        if att_tot > 0:
+            indicatori.append((state.att_pericolosi_h - state.att_pericolosi_a) / att_tot)
+
+        if indicatori:
+            score = sum(indicatori) / len(indicatori)  # [-1, +1]
+            if abs(score) < 0.08:
+                dom_label = "Partita equilibrata"
+                dom_detail = ""
+            elif score > 0:
+                forza = "nettamente" if score > 0.25 else "leggermente"
+                dom_label = f"Casa domina {forza}"
+                dom_detail = _dom_detail(state, score)
+            else:
+                forza = "nettamente" if score < -0.25 else "leggermente"
+                dom_label = f"Trasf. domina {forza}"
+                dom_detail = _dom_detail(state, score)
+            st.caption(f"Pressione: **{dom_label}**{dom_detail}")
+
+    # ── Mercati O/U disponibili ───────────────────────────────────────────────
+    dist = risultati.gol_tot_dist
+    if dist:
+        # Accumula P(remaining >= k) per k = 1, 2, 3, 4
+        cum: dict[int, float] = {}
+        total_p = sum(dist.values())
+        for k in range(1, 6):
+            cum[k] = sum(v for key, v in dist.items() if key >= k) / (total_p if total_p > 0 else 1.0)
+
+        # Linee finali rilevanti = current goals + remaining needed
+        mercati_ou: list[tuple[str, float, bool]] = []  # (label, prob, is_over)
+        for extra in (1, 2, 3):
+            linea_finale = gol_tot + extra - 0.5   # es. 2 gol → Over 2.5, Over 3.5, Over 4.5
+            p_over_k = cum.get(extra, 0.0)
+            p_under_k = 1.0 - p_over_k
+            mercati_ou.append((f"Over {linea_finale:.1f}", p_over_k, True))
+            mercati_ou.append((f"Under {linea_finale:.1f}", p_under_k, False))
+
+        # Mostra solo quelli con probabilità interessante (15%–85%)
+        interessanti = [(lbl, p) for lbl, p, _ in mercati_ou if 0.15 <= p <= 0.85]
+        if interessanti:
+            st.markdown("**Mercati O/U disponibili**")
+            cols = st.columns(min(len(interessanti), 4))
+            for i, (lbl, p) in enumerate(interessanti[:4]):
+                cols[i].metric(lbl, f"{p:.0%}")
+
+
+def _dom_detail(state: MatchState, score: float) -> str:
+    """Costruisce una breve stringa con i dati che guidano il giudizio di dominio."""
+    parts = []
+    if state.sot_h + state.soff_h + state.sot_a + state.soff_a > 0:
+        parts.append(f"tiri {state.sot_h + state.soff_h}–{state.sot_a + state.soff_a}")
+    if state.possesso_h > 0:
+        parts.append(f"poss. {state.possesso_h:.0f}%–{state.possesso_a:.0f}%")
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+# ---------------------------------------------------------------------------
 # Quote Fair
 # ---------------------------------------------------------------------------
 

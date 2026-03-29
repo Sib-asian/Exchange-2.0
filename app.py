@@ -165,6 +165,7 @@ if _btn_prematch or _btn_live:
         render_lines_need_update,
         render_mercati_chiusi,
         render_pronostici_rapidi,
+        render_analisi_dinamica,
         render_segnali_rapidi,
     )
 
@@ -189,6 +190,8 @@ if _btn_prematch or _btn_live:
 
     st.divider()
     render_pronostici_rapidi(risultati, _lou, _minuto, _gol_h, _gol_a, linea_ah=lines["ah_cur"])
+
+    render_analisi_dinamica(risultati, state, _gol_tot)
 
     _settled = render_mercati_chiusi(_gol_tot, _lou, _gol_h, _gol_a, _minuto, risultati.p_btts)
 
