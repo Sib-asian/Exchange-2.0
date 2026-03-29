@@ -548,7 +548,11 @@ def _extract_live_stats_with_gemini(image_path: Path) -> LiveStatsExtracted:
                 {"text": LIVE_STATS_PROMPT},
             ],
         }],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 4096,
+            "response_mime_type": "application/json",
+        },
     }
     payload = json.dumps(request_body).encode("utf-8")
 
@@ -741,15 +745,13 @@ def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
 
         json_str = json_str.strip()
 
-        # Trova inizio JSON
-        lines = json_str.split("\n")
-        for i, line in enumerate(lines):
-            if line.strip().startswith("{"):
-                json_str = "\n".join(lines[i:])
-                break
-
-        if "```" in json_str:
-            json_str = json_str.split("```")[0]
+        # Estrai il JSON tra il primo { e l'ultimo } (ignora testo prima/dopo)
+        first_brace = json_str.find("{")
+        last_brace  = json_str.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            json_str = json_str[first_brace : last_brace + 1]
+        elif first_brace != -1:
+            json_str = json_str[first_brace:]
 
         json_str = json_str.strip()
 
@@ -757,17 +759,27 @@ def _parse_live_stats_response(response: str) -> LiveStatsExtracted:
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError:
-            # Rimuovi l'ultima riga incompleta e chiudi il JSON
-            json_lines = json_str.rstrip().split("\n")
-            while json_lines and not json_lines[-1].strip().endswith((",", "}", ":")):
-                json_lines.pop()
-            # Rimuovi trailing comma dall'ultima riga valida
-            if json_lines:
-                json_lines[-1] = json_lines[-1].rstrip().rstrip(",")
-            repaired = "\n".join(json_lines)
-            if not repaired.rstrip().endswith("}"):
-                repaired += "\n}"
-            data = json.loads(repaired)
+            repaired = json_str.rstrip().rstrip(",")
+            # Chiudi array aperti (es. "ev":[...]) prima di chiudere l'oggetto
+            open_brackets = repaired.count("[") - repaired.count("]")
+            if open_brackets > 0:
+                # Rimuovi eventuale ultimo elemento incompleto dell'array
+                # (cerca l'ultimo { non chiuso nell'array)
+                last_open = repaired.rfind("{", repaired.rfind("["))
+                last_close = repaired.rfind("}")
+                if last_open > last_close:
+                    repaired = repaired[:last_open].rstrip().rstrip(",")
+                repaired += "]" * open_brackets
+            # Chiudi oggetti aperti
+            open_braces = repaired.count("{") - repaired.count("}")
+            if open_braces > 0:
+                repaired = repaired.rstrip().rstrip(",")
+                repaired += "}" * open_braces
+            try:
+                data = json.loads(repaired)
+            except json.JSONDecodeError:
+                # Fallback: oggetto vuoto (verrà restituito extraction_success=False)
+                data = {}
 
         # Normalizza chiavi: Gemini potrebbe usare nomi inglesi o varianti
         data = _normalize_live_stats_keys(data)
