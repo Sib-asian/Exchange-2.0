@@ -794,6 +794,24 @@ def blend_xg_shots(
             mu_h_shots = max(POISSON.EPS, mu_h_shots + adv_shift)
             mu_a_shots = max(POISSON.EPS, mu_a_shots - adv_shift)
 
+    # ── Possesso dominante → volume offensivo aggiuntivo ─────────────────────
+    # Il possesso è già usato nel differenziale (D) tramite adv_signals.
+    # Qui aggiungiamo un boost sul volume ASSOLUTO della squadra dominante:
+    # un team con ≥65% di possesso genera più azioni offensive totali
+    # (più tiri, più corner, più pressing) → xG accumulate higher.
+    # Range: +0% a 60% poss → +5% a 70%+ poss (scalato col tempo per affidabilità).
+    if possesso_h > 0 and possesso_a > 0:
+        poss_dom_frac = max(possesso_h, possesso_a) / 100.0
+        if poss_dom_frac > 0.60:
+            poss_boost = min(0.05, (poss_dom_frac - 0.60) * 0.50)
+            # Scala con il tempo: a 30' (frac=0.33) → ×0.50; a 60' (frac=0.67) → ×1.0
+            poss_time_scale = min(1.0, frac_giocata * 1.5)
+            effective_boost = poss_boost * poss_time_scale
+            if possesso_h >= possesso_a:
+                mu_h_shots = max(POISSON.EPS, mu_h_shots * (1.0 + effective_boost))
+            else:
+                mu_a_shots = max(POISSON.EPS, mu_a_shots * (1.0 + effective_boost))
+
     # Blend in spazio T+D
     t_line = mu_h_line + mu_a_line
     d_line = mu_h_line - mu_a_line
