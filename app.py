@@ -188,7 +188,7 @@ if _btn_prematch or _btn_live:
             st.warning(f"⚠️ Recovery time ({_minuto}'): previsioni meno affidabili.")
 
     st.divider()
-    render_pronostici_rapidi(risultati, _lou, _minuto, _gol_h, _gol_a)
+    render_pronostici_rapidi(risultati, _lou, _minuto, _gol_h, _gol_a, linea_ah=lines["ah_cur"])
 
     _settled = render_mercati_chiusi(_gol_tot, _lou, _gol_h, _gol_a, _minuto, risultati.p_btts)
 

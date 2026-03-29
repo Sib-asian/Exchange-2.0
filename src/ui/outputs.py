@@ -26,6 +26,47 @@ if TYPE_CHECKING:
     from src.engine import MatchState
 
 
+def _prob_ah_cover(p1: float, px: float, p2: float, linea_ah: float) -> tuple[float, float]:
+    """
+    Restituisce (p_home_eq, p_away_eq) per l'AH dato.
+
+    Usa la formula EV per le linee quarter (±0.25, ±0.75):
+      Q_fair_home = 1 + (P(X)/2 + P(2)) / P(1)   per linea -0.25
+    Per le linee intere (0, ±0.5) usa le probabilità dirette.
+    P_eq = 1 / Q_fair, e p_home + p_away = 1 (no push nelle quarter).
+    """
+    eps = 1e-6
+    ah = round(linea_ah * 4) / 4   # normalizza a multipli di 0.25
+
+    # AH -0.5 (home dà 0.5 gol): home vince solo se vince la partita
+    if ah <= -0.5:
+        p_h = p1
+        p_a = px + p2
+    # AH 0 (PK): pareggio = push
+    elif ah == 0.0:
+        denom = p1 + p2
+        if denom < eps:
+            p_h = p_a = 0.5
+        else:
+            p_h = p1 / denom
+            p_a = p2 / denom
+    # AH -0.25 (quarter verso -0.5): pareggio = metà perdita per home
+    elif ah < 0.0:  # -0.25
+        denom = p1 + px / 2.0 + p2
+        p_h = p1 / denom if denom > eps else 0.5
+        p_a = 1.0 - p_h
+    # AH +0.25 (quarter verso 0): pareggio = metà vincita per home
+    elif 0.0 < ah < 0.5:
+        denom = p1 + px / 2.0 + p2
+        p_h = (p1 + px / 2.0) / denom if denom > eps else 0.5
+        p_a = 1.0 - p_h
+    else:  # AH >= +0.5: home copre anche con pari o meglio
+        p_h = p1 + px
+        p_a = p2
+
+    return (round(p_h, 4), round(p_a, 4))
+
+
 def _q_fair(prob: float) -> float:
     return 1.0 / prob if prob > 0.001 else 999.0
 
@@ -40,6 +81,7 @@ def render_pronostici_rapidi(
     minuto: int = 0,
     gol_casa: int = 0,
     gol_trasf: int = 0,
+    linea_ah: float = -0.25,
 ) -> None:
     """
     Blocco percentuali pulito per tutti i mercati principali.
@@ -55,6 +97,28 @@ def render_pronostici_rapidi(
     c1.metric("1 — Casa",     f"{risultati.p1:.0%}")
     cx.metric("X — Pareggio", f"{risultati.px:.0%}")
     c2.metric("2 — Trasf.",   f"{risultati.p2:.0%}")
+
+    st.divider()
+
+    # AH cover probability — sempre visibile, direttamente sull'Asian Handicap
+    p_ah_h, p_ah_a = _prob_ah_cover(risultati.p1, risultati.px, risultati.p2, linea_ah)
+    ah_sign = "+" if linea_ah >= 0 else ""
+    cah1, cah2 = st.columns(2)
+    delta_h = p_ah_h - 0.5
+    delta_a = p_ah_a - 0.5
+    cah1.metric(
+        f"AH Casa ({ah_sign}{linea_ah:g})",
+        f"{p_ah_h:.0%}",
+        delta=f"{delta_h:+.0%} vs 50%",
+        delta_color="normal",
+    )
+    _ah_away_sign = "+" if linea_ah <= 0 else "-"
+    cah2.metric(
+        f"AH Trasf. ({_ah_away_sign}{abs(linea_ah):g})",
+        f"{p_ah_a:.0%}",
+        delta=f"{delta_a:+.0%} vs 50%",
+        delta_color="normal",
+    )
 
     st.divider()
 
