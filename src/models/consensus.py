@@ -203,12 +203,25 @@ def compute_model_credible_intervals(
     probs_copula = _probs_from_matrix(full_copula, gol_casa, gol_trasf, linea_ou)
     probs_markov = _probs_from_matrix(full_markov, gol_casa, gol_trasf, linea_ou)
 
+    # Credible interval via deviazione standard pesata dei 3 modelli.
+    # Min/max sovrastima il CI perché un outlier sposta sempre un estremo.
+    # Approccio migliorato: CI = consensus ± k*σ_pesata
+    #   - k=1.5: copre ~87% di una distribuzione normale → conservativo ma non esagerato
+    #   - I 3 modelli non sono indipendenti (stessi input) → non usare k=2 (troppo largo)
+    # I pesi riflettono l'affidabilità relativa dei modelli.
+    _W = [CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID]
+    _K = 1.5   # fattore di copertura (0.87 prob)
+
     ci: dict[str, tuple[float, float]] = {}
     for key in probs_bp:
         vals = [probs_bp[key], probs_copula[key], probs_markov[key]]
-        lo = min(vals)
-        hi = max(vals)
-        ci[key] = (max(0.0, lo), min(1.0, hi))
+        # Media pesata (≈ consensus)
+        mu = sum(_W[i] * vals[i] for i in range(3))
+        # Varianza pesata
+        var = sum(_W[i] * (vals[i] - mu) ** 2 for i in range(3))
+        sigma = math.sqrt(var)
+        half = _K * sigma
+        ci[key] = (max(0.0, mu - half), min(1.0, mu + half))
 
     return ci
 

@@ -734,6 +734,15 @@ def render_momentum(
     # Decomposizione AH vs Total (Fix #14):
     # Delta AH → suggerisce revisione forza relativa → impatto su 1X2 / AH
     # Delta Total → suggerisce revisione gol attesi → impatto su Over/Under
+    # Market shock warning
+    from src.config import MOMENTUM as _MOM_CFG
+    if momentum >= _MOM_CFG.MOMENTUM_SHOCK_THRESHOLD:
+        st.error(
+            "⚡ **MARKET SHOCK** — Le linee si sono mosse in modo anomalo rispetto al tempo giocato. "
+            "Possibile informazione asimmetrica (infortuni, formazioni, notizie non registrate). "
+            "I segnali del modello hanno affidabilità ridotta fino all'aggiornamento delle linee."
+        )
+
     if abs(delta_ah) > 0.05 or abs(delta_tot) > 0.05:
         ah_dir = ("+" if delta_ah > 0 else "") + f"{delta_ah:+.2f}"
         tot_dir = ("+" if delta_tot > 0 else "") + f"{delta_tot:+.2f}"
@@ -747,6 +756,28 @@ def render_momentum(
 # ---------------------------------------------------------------------------
 # Segnali
 # ---------------------------------------------------------------------------
+
+def _bet_difficulty(quota_fair: float) -> tuple[str, str]:
+    """
+    Calcola un indicatore di difficoltà nel trovare il segnale a valore.
+
+    La difficoltà dipende dalla liquidità del mercato:
+    - Quote basse (< 1.5): mercato molto liquido, hard to beat (spread stretto)
+    - Quote medie (1.5-4.0): bilanciato
+    - Quote alte (> 4.0): mercato meno efficiente, più facile trovare value
+
+    Returns:
+        (emoji, label) descrittivi della difficoltà.
+    """
+    if quota_fair < 1.50:
+        return "🔴", "Alta liquidità — spread stretto"
+    elif quota_fair < 2.50:
+        return "🟡", "Liquidità media"
+    elif quota_fair < 4.00:
+        return "🟢", "Buona liquidità"
+    else:
+        return "🔵", "Mercato di nicchia — spread più ampio"
+
 
 def render_segnali_rapidi(segnali: list[Signal]) -> bool:
     """
@@ -762,18 +793,25 @@ def render_segnali_rapidi(segnali: list[Signal]) -> bool:
     for s in segnali:
         # Fix #13: mostra probabilità implicita della quota target (1/quota)
         prob_impl_back = 1.0 / s.quota_exc if s.quota_exc > 1.0 else 0.0
+        diff_emoji, diff_label = _bet_difficulty(s.quota_fair)
+        cluster_note = ""
+        cluster_items = [r for r in s.riduzioni if r.startswith("cluster:")]
+        if cluster_items:
+            cluster_note = f"\n\n⚠️ _Correlato con: {cluster_items[0].replace('cluster: ', '')}_"
         if s.tipo == "INFO_BACK":
             impl_txt = f" · Prob. implicita @{s.quota_exc:.2f} = {prob_impl_back:.1%}" if prob_impl_back > 0 else ""
             st.success(
                 f"**BACK candidato — {s.mercato}** · Modello {s.prob_mod:.1%} · Fair @{s.quota_fair:.2f}\n\n"
-                f"✅ Cerca sull'exchange **almeno @{s.quota_exc:.2f}**{impl_txt}"
+                f"✅ Cerca sull'exchange **almeno @{s.quota_exc:.2f}**{impl_txt}\n\n"
+                f"{diff_emoji} {diff_label}{cluster_note}"
             )
         elif s.tipo == "INFO_LAY":
             prob_impl_lay = 1.0 / s.quota_exc if s.quota_exc > 1.0 else 0.0
             impl_txt = f" · Prob. implicita = {prob_impl_lay:.1%}" if prob_impl_lay > 0 else ""
             st.warning(
                 f"**LAY candidato — {s.mercato}** · Modello {s.prob_mod:.1%} · Fair @{s.quota_fair:.2f}\n\n"
-                f"✅ Banca se la quota sull'exchange è **al massimo @{s.quota_exc:.2f}**{impl_txt}"
+                f"✅ Banca se la quota sull'exchange è **al massimo @{s.quota_exc:.2f}**{impl_txt}\n\n"
+                f"{diff_emoji} {diff_label}{cluster_note}"
             )
 
     return True
