@@ -180,7 +180,11 @@ def genera_segnali_rapidi(
     # in partita il mercato ha già prezzato gli eventi recenti → servono
     # probabilità più nette. Per i segnali avanzati (con quote) l'edge è
     # il filtro principale e il floor non si applica.
-    _s1x2 = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, soglie["1x2"]) if minuto > 0 else soglie["1x2"]
+    # Nota: X (draw) usa un floor più basso perché non soffre del problema
+    # "segnale ovvio" (es. BACK 1 al 1-0) che il floor 0.63 vuole evitare.
+    _s1    = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, soglie["1x2"]) if minuto > 0 else soglie["1x2"]
+    _sx    = max(SIGNALS.SOGLIA_LIVE_DRAW_MIN, soglie["1x2"]) if minuto > 0 else soglie["1x2"]
+    _s2    = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, soglie["1x2"]) if minuto > 0 else soglie["1x2"]
     _sou_o = max(SIGNALS.SOGLIA_LIVE_OU_MIN,  soglie["ou_over"]) if minuto > 0 else soglie["ou_over"]
     _sou_u = max(SIGNALS.SOGLIA_LIVE_OU_MIN,  soglie["ou_under"]) if minuto > 0 else soglie["ou_under"]
     _sbtts = max(SIGNALS.SOGLIA_LIVE_BACK_MIN, soglie["btts_si"]) if minuto > 0 else soglie["btts_si"]
@@ -189,9 +193,9 @@ def genera_segnali_rapidi(
     segnali: list[Signal] = []
 
     mercati = [
-        ("1 Casa", prob_1, _s1x2),
-        ("X Pareggio", prob_x, _s1x2),
-        ("2 Trasf.", prob_2, _s1x2),
+        ("1 Casa", prob_1, _s1),
+        ("X Pareggio", prob_x, _sx),
+        ("2 Trasf.", prob_2, _s2),
         (f"Over {linea_ou}", prob_over, _sou_o),
         (f"Under {linea_ou}", prob_under, _sou_u),
         ("BTTS Sì", prob_btts, _sbtts),

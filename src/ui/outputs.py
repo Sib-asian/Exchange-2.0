@@ -628,8 +628,6 @@ def render_mercati_chiusi(
     }
 
     if gol_attuali >= linea_ou:
-        st.success(f"✅ Over {linea_ou} già **VINTO** — {gol_attuali:.0f} gol totali. Mercato chiuso.")
-        st.error(f"❌ Under {linea_ou} già **PERSO**. Mercato chiuso.")
         settled["ou_vinto"] = True
 
     btts_si_settled = gol_casa > 0 and gol_trasf > 0
@@ -640,13 +638,20 @@ def render_mercati_chiusi(
     )
 
     if btts_si_settled:
-        st.success("✅ BTTS SÌ già VINTO — entrambe le squadre hanno segnato. Mercato chiuso.")
-        st.error("❌ BTTS NO già PERSO. Mercato chiuso.")
         settled["btts_si_settled"] = True
     elif btts_no_settled:
-        st.error("❌ BTTS SÌ quasi impossibile. Mercato chiuso praticamente.")
-        st.success("✅ BTTS NO quasi VINTO — non entrare ora.")
         settled["btts_no_settled"] = True
+
+    # Mostra i mercati già chiusi in un'unica riga compatta
+    chiusi = []
+    if settled["ou_vinto"]:
+        chiusi.append(f"Over {linea_ou} ✅ vinto · Under {linea_ou} ❌ perso")
+    if settled["btts_si_settled"]:
+        chiusi.append("BTTS Sì ✅ vinto · BTTS No ❌ perso")
+    elif settled["btts_no_settled"]:
+        chiusi.append("BTTS Sì ❌ quasi impossibile · BTTS No ✅ quasi vinto")
+    if chiusi:
+        st.info("Mercati chiusi: " + " · ".join(chiusi))
 
     return settled
 
