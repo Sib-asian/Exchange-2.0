@@ -326,22 +326,23 @@ def _push_live_data_to_session(data: LiveStatsExtracted) -> None:
     NON sovrascrive minuto, gol e rossi se lo screenshot non li contiene
     (valore 0) — l'utente li inserisce manualmente prima di caricare lo screen.
     """
-    # Minuto e punteggio: scrivi se estratti dalla pagina detail di Nowgoal
-    # (che mostra il minuto reale, es. "1st Half - 32").
+    # Minuto e punteggio: scrivi se estratti dalla pagina detail di Nowgoal.
+    # IMPORTANTE: non scrivere direttamente ai widget-bound keys qui —
+    # usa _pending_live_data che viene applicato PRIMA del render dei widget.
     # Il minuto 0 è il default — non sovrascrivere se non rilevato.
+    pending: dict = {}
     if data.minuto > 0:
-        st.session_state["live_minuto"] = data.minuto
-    # Punteggio: sempre (anche 0-0 è informativo)
-    st.session_state["live_gol_casa"]  = data.gol_casa
-    st.session_state["live_gol_trasf"] = data.gol_trasf
+        pending["live_minuto"] = data.minuto
+    pending["live_gol_casa"]  = data.gol_casa
+    pending["live_gol_trasf"] = data.gol_trasf
 
     # Cartellini: sempre (derivati dagli eventi o conteggio diretto)
-    st.session_state["live_rossi_casa"]   = data.rossi_casa
-    st.session_state["live_rossi_trasf"]  = data.rossi_trasf
-    st.session_state["live_gialli_casa"]  = data.gialli_casa
-    st.session_state["live_gialli_trasf"] = data.gialli_trasf
+    pending["live_rossi_casa"]   = data.rossi_casa
+    pending["live_rossi_trasf"]  = data.rossi_trasf
+    pending["live_gialli_casa"]  = data.gialli_casa
+    pending["live_gialli_trasf"] = data.gialli_trasf
 
-    # Statistiche live
+    # Statistiche live (scritte direttamente — non hanno widget in render_live_semplice)
     st.session_state["live_sot_h"] = data.tiri_porta_casa
     st.session_state["live_soff_h"] = data.tiri_fuori_casa
     st.session_state["live_sot_a"] = data.tiri_porta_trasf
@@ -356,10 +357,12 @@ def _push_live_data_to_session(data: LiveStatsExtracted) -> None:
     st.session_state["live_att_per_a"] = data.attacchi_pericolosi_trasf
     st.session_state["live_att_h"] = data.attacchi_casa
     st.session_state["live_att_a"] = data.attacchi_trasf
-    st.session_state["live_gialli_casa"] = data.gialli_casa
-    st.session_state["live_gialli_trasf"] = data.gialli_trasf
     st.session_state["live_falli_casa"] = data.falli_casa
     st.session_state["live_falli_trasf"] = data.falli_trasf
+
+    # Salva i valori widget-bound in una chiave pending: verranno applicati
+    # PRIMA del render dei widget al prossimo ciclo (dopo st.rerun())
+    st.session_state["_pending_live_data"] = pending
 
 
 def render_live_screenshot_upload() -> LiveStatsExtracted | None:
@@ -1112,6 +1115,16 @@ def render_live_semplice() -> dict:
     Returns:
         Dict con tutti i campi live (compatibile con build_match_state).
     """
+    # ── Applica valori pending PRIMA di rendere i widget ─────────────────────
+    # _pending_live_data viene scritto da _push_live_data_to_session() e
+    # contiene i valori estratti dallo screenshot (minuto, gol, cartellini).
+    # Va applicato qui, PRIMA che i widget vengano istanziati, altrimenti
+    # Streamlit lancia "cannot be modified after widget instantiated".
+    _pending = st.session_state.pop("_pending_live_data", None)
+    if _pending:
+        for _k, _v in _pending.items():
+            st.session_state[_k] = _v
+
     # ── Minuto + Punteggio ────────────────────────────────────────────────────
     col_m, col_h, col_a = st.columns(3)
     with col_m:
@@ -1154,8 +1167,10 @@ def render_live_semplice() -> dict:
                     st.session_state["last_live_file_id"] = file_id
                     st.session_state["live_stats_data"] = extracted
                     if extracted.extraction_success:
-                        # Scrivi in session_state SENZA rerun — l'expander resta aperto
                         _push_live_data_to_session(extracted)
+                        # Segnala che l'expander deve restare aperto dopo il rerun
+                        st.session_state["_live_expander_open"] = True
+                        st.rerun()
                 except Exception as e:
                     st.error(f"❌ Errore lettura screenshot: {e}")
 
