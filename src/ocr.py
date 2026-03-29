@@ -900,6 +900,396 @@ def extract_live_stats_from_bytes(
 
 
 # ============================================================================
+# Prematch Analysis Extraction (Nowgoal tab "Analysis")
+# ============================================================================
+
+@dataclass
+class PrematchAnalysisExtracted:
+    """Dati estratti dallo screen Analysis di Nowgoal (pre-partita)."""
+
+    extraction_success: bool = False
+    error_message: str = ""
+    raw_response: str = ""
+
+    # H2H
+    h2h_home_win_pct: float = 0.0    # 0-100
+    h2h_draw_pct: float = 0.0
+    h2h_away_win_pct: float = 0.0
+    h2h_avg_goals_home: float = 0.0  # gol medi segnati dalla casa in H2H
+    h2h_avg_goals_away: float = 0.0  # gol medi segnati dalla trasferta in H2H
+
+    # Standings casa
+    home_rank: int = 0
+    home_matches: int = 0
+    home_win: int = 0
+    home_draw: int = 0
+    home_lose: int = 0
+    home_scored: int = 0
+    home_conceded: int = 0
+    home_win_rate: float = 0.0       # Rate % dalla tabella classifica
+    home_last6_win: int = 0
+    home_last6_draw: int = 0
+    home_last6_lose: int = 0
+
+    # Standings trasferta
+    away_rank: int = 0
+    away_matches: int = 0
+    away_win: int = 0
+    away_draw: int = 0
+    away_lose: int = 0
+    away_scored: int = 0
+    away_conceded: int = 0
+    away_win_rate: float = 0.0
+    away_last6_win: int = 0
+    away_last6_draw: int = 0
+    away_last6_lose: int = 0
+
+    # Parametri derivati → entrano direttamente nel MatchState
+    fixture_historical_total: float = 0.0  # media gol H2H totali
+    forma_mult_h: float = 1.0              # moltiplicatore xG casa
+    forma_mult_a: float = 1.0             # moltiplicatore xG trasferta
+
+
+PREMATCH_ANALYSIS_PROMPT = """Analizza questo screenshot della pagina "Analysis" di Nowgoal per una partita di calcio.
+
+Estrai ESATTAMENTE questi dati dalla pagina:
+
+1. Sezione "Head to Head Statistics":
+   - Win % della squadra di casa (sinistra, es. "Win 4 (40%)" → 40)
+   - Draw % (es. "Draw 2 (20%)" → 20)
+   - Lose % / Away Win % (es. "Lose 4 (40%)" → 40)
+   - Goal Score/Loss per Game: primo numero = media gol segnati dalla casa, secondo = media gol trasferta
+     (es. "1.1 goals  Goal Score/Loss per Game  1.1 goals" → avg_goals_home=1.1, avg_goals_away=1.1)
+
+2. Sezione "Standings" — per la squadra di CASA (tabella arancione/sinistra):
+   - Rank (posizione in classifica, es. "[SPA D2-10]" → rank=10)
+   - Total row: Matches, Win, Draw, Lose, Scored, Conceded, win_rate (Rate %)
+   - Last 6 row: Win, Draw, Lose
+
+3. Sezione "Standings" — per la squadra TRASFERTA (tabella blu/destra):
+   - Stessi campi della casa
+
+Rispondi SOLO con JSON valido (usa 0 se un dato non è visibile):
+{
+  "h2h": {
+    "home_win_pct": 40,
+    "draw_pct": 20,
+    "away_win_pct": 40,
+    "avg_goals_home": 1.1,
+    "avg_goals_away": 1.1
+  },
+  "home": {
+    "rank": 10,
+    "matches": 31,
+    "win": 12,
+    "draw": 9,
+    "lose": 10,
+    "scored": 33,
+    "conceded": 30,
+    "win_rate": 38.7,
+    "last6_win": 4,
+    "last6_draw": 1,
+    "last6_lose": 1
+  },
+  "away": {
+    "rank": 7,
+    "matches": 31,
+    "win": 13,
+    "draw": 12,
+    "lose": 6,
+    "scored": 40,
+    "conceded": 24,
+    "win_rate": 41.9,
+    "last6_win": 3,
+    "last6_draw": 2,
+    "last6_lose": 1
+  }
+}"""
+
+
+def _forma_mult_from_standings(
+    win: int, draw: int, lose: int,
+    last6_win: int, last6_draw: int, last6_lose: int,
+    scored: int, conceded: int, matches: int,
+) -> float:
+    """
+    Calcola forma_mult [0.92, 1.08] da dati standings.
+
+    Fonti di segnale (ponderate):
+    - Last 6 (60%): forma recente, più predittiva
+    - Overall win rate (25%): qualità assoluta della squadra
+    - Goal difference rate (15%): efficienza offensiva/difensiva
+    """
+    if matches <= 0:
+        return 1.0
+
+    # Last 6: punti su massimo possibile
+    last6_tot = last6_win + last6_draw + last6_lose
+    if last6_tot > 0:
+        last6_pts_rate = (last6_win * 3 + last6_draw) / (last6_tot * 3)
+        last6_score = (last6_pts_rate - 0.50) * 2   # [-1, +1]
+    else:
+        last6_score = 0.0
+
+    # Overall win rate (baseline ~38% per squadra media)
+    win_rate = (win * 3 + draw) / (matches * 3)
+    overall_score = (win_rate - 0.38) / 0.38        # [-1, +1] circa
+
+    # Goal difference per partita
+    gd_rate = (scored - conceded) / matches
+    goal_score = max(-1.0, min(1.0, gd_rate / 1.5))  # [-1, +1]
+
+    combined = 0.60 * last6_score + 0.25 * overall_score + 0.15 * goal_score
+    combined = max(-1.0, min(1.0, combined))
+
+    # Max ±8% (stesso di FORMA_MAX_EFFECT in config)
+    return max(0.92, min(1.08, 1.0 + combined * 0.08))
+
+
+def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracted:
+    """Parsa la risposta di Gemini per l'analisi prematch."""
+    if not response or not response.strip():
+        return PrematchAnalysisExtracted(
+            extraction_success=False, error_message="Risposta vuota",
+        )
+
+    try:
+        json_str = response.strip()
+
+        # Rimuovi markdown code blocks
+        if "```json" in json_str:
+            json_str = json_str.split("```json")[1]
+            if "```" in json_str:
+                json_str = json_str.split("```")[0]
+        elif "```" in json_str:
+            parts = json_str.split("```")
+            if len(parts) >= 2:
+                json_str = parts[1]
+
+        # Estrai tra primo { e ultimo }
+        first_brace = json_str.find("{")
+        last_brace  = json_str.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            json_str = json_str[first_brace : last_brace + 1]
+        elif first_brace != -1:
+            json_str = json_str[first_brace:]
+
+        json_str = json_str.strip()
+
+        # Parse con repair
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            repaired = json_str.rstrip().rstrip(",")
+            if repaired.count("{") > repaired.count("}"):
+                last_comma = repaired.rfind(",")
+                if last_comma != -1:
+                    after = repaired[last_comma + 1:].strip()
+                    if after and not after.startswith("{") and not after.startswith("["):
+                        repaired = repaired[:last_comma]
+            open_braces = repaired.count("{") - repaired.count("}")
+            if open_braces > 0:
+                repaired = repaired.rstrip().rstrip(",") + "}" * open_braces
+            try:
+                data = json.loads(repaired)
+            except json.JSONDecodeError:
+                raise
+
+        def _f(val: Any, default: float = 0.0) -> float:
+            try:
+                return float(val) if val is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        def _i(val: Any, default: int = 0) -> int:
+            try:
+                return int(float(val)) if val is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        h2h  = data.get("h2h", {})
+        home = data.get("home", {})
+        away = data.get("away", {})
+
+        # Campi estratti
+        h2h_home_win = _f(h2h.get("home_win_pct"))
+        h2h_draw     = _f(h2h.get("draw_pct"))
+        h2h_away_win = _f(h2h.get("away_win_pct"))
+        h2h_avg_h    = _f(h2h.get("avg_goals_home"))
+        h2h_avg_a    = _f(h2h.get("avg_goals_away"))
+
+        hm  = _i(home.get("matches"))
+        hw  = _i(home.get("win"))
+        hd  = _i(home.get("draw"))
+        hl  = _i(home.get("lose"))
+        hsc = _i(home.get("scored"))
+        hco = _i(home.get("conceded"))
+        hwr = _f(home.get("win_rate"))
+        hl6w = _i(home.get("last6_win"))
+        hl6d = _i(home.get("last6_draw"))
+        hl6l = _i(home.get("last6_lose"))
+
+        am  = _i(away.get("matches"))
+        aw  = _i(away.get("win"))
+        ad  = _i(away.get("draw"))
+        al  = _i(away.get("lose"))
+        asc = _i(away.get("scored"))
+        aco = _i(away.get("conceded"))
+        awr = _f(away.get("win_rate"))
+        al6w = _i(away.get("last6_win"))
+        al6d = _i(away.get("last6_draw"))
+        al6l = _i(away.get("last6_lose"))
+
+        # Parametri derivati
+        fixture_total = h2h_avg_h + h2h_avg_a  # media gol totali H2H
+        forma_h = _forma_mult_from_standings(hw, hd, hl, hl6w, hl6d, hl6l, hsc, hco, hm)
+        forma_a = _forma_mult_from_standings(aw, ad, al, al6w, al6d, al6l, asc, aco, am)
+
+        return PrematchAnalysisExtracted(
+            extraction_success=True,
+            raw_response=response,
+            h2h_home_win_pct=h2h_home_win,
+            h2h_draw_pct=h2h_draw,
+            h2h_away_win_pct=h2h_away_win,
+            h2h_avg_goals_home=h2h_avg_h,
+            h2h_avg_goals_away=h2h_avg_a,
+            home_rank=_i(home.get("rank")),
+            home_matches=hm, home_win=hw, home_draw=hd, home_lose=hl,
+            home_scored=hsc, home_conceded=hco, home_win_rate=hwr,
+            home_last6_win=hl6w, home_last6_draw=hl6d, home_last6_lose=hl6l,
+            away_rank=_i(away.get("rank")),
+            away_matches=am, away_win=aw, away_draw=ad, away_lose=al,
+            away_scored=asc, away_conceded=aco, away_win_rate=awr,
+            away_last6_win=al6w, away_last6_draw=al6d, away_last6_lose=al6l,
+            fixture_historical_total=fixture_total,
+            forma_mult_h=forma_h,
+            forma_mult_a=forma_a,
+        )
+
+    except json.JSONDecodeError as e:
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message=f"JSON error: {e}",
+            raw_response=response,
+        )
+    except Exception as e:
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message=f"Parse error: {e}",
+            raw_response=response,
+        )
+
+
+def _extract_prematch_analysis_with_gemini(image_paths: list[Path]) -> PrematchAnalysisExtracted:
+    """Estrae analisi prematch da uno o due screenshot usando Gemini.
+
+    Accetta una lista di 1-2 immagini (per schermate lunghe).
+    Entrambe le immagini vengono inviate nello stesso prompt.
+    """
+    import time
+
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message="Gemini: API key non configurata",
+        )
+
+    mime_map = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif",
+    }
+
+    parts: list[dict] = []
+    for path in image_paths[:2]:  # max 2 immagini
+        try:
+            with open(path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+            mime = mime_map.get(path.suffix.lower(), "image/jpeg")
+            parts.append({"inline_data": {"mime_type": mime, "data": img_b64}})
+        except Exception as e:
+            return PrematchAnalysisExtracted(
+                extraction_success=False,
+                error_message=f"Gemini: errore lettura file {path.name}: {e}",
+            )
+
+    parts.append({"text": PREMATCH_ANALYSIS_PROMPT})
+
+    request_body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 2048,
+            "response_mime_type": "application/json",
+        },
+    }
+    payload = json.dumps(request_body).encode("utf-8")
+
+    last_error = ""
+    for model in _GEMINI_MODELS:
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    url, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    resp_data = json.loads(resp.read().decode("utf-8"))
+
+                if "candidates" in resp_data and resp_data["candidates"]:
+                    parts_resp = resp_data["candidates"][0].get("content", {}).get("parts", [])
+                    if parts_resp:
+                        text = parts_resp[0].get("text", "")
+                        if text:
+                            return _parse_prematch_analysis_response(text)
+                last_error = f"Gemini ({model}): risposta vuota"
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                last_error = f"Gemini ({model}): HTTP {e.code}"
+                break
+            except Exception as e:
+                last_error = f"Gemini ({model}): {e}"
+                break
+
+    return PrematchAnalysisExtracted(extraction_success=False, error_message=last_error)
+
+
+def extract_prematch_analysis_from_bytes(
+    images: list[tuple[bytes, str]],
+) -> PrematchAnalysisExtracted:
+    """
+    Estrae analisi prematch da uno o due screenshot (bytes).
+
+    Args:
+        images: lista di (bytes_immagine, extension) — max 2 elementi.
+                Extension es. ".png", ".jpg".
+    """
+    tmp_paths: list[Path] = []
+    try:
+        for img_bytes, ext in images[:2]:
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=ext, prefix="prematch_ocr_",
+            ) as tmp:
+                tmp.write(img_bytes)
+                tmp_paths.append(Path(tmp.name))
+
+        return _extract_prematch_analysis_with_gemini(tmp_paths)
+    except Exception as e:
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message=f"Errore temp file: {e}",
+        )
+    finally:
+        for p in tmp_paths:
+            with contextlib.suppress(OSError):
+                os.unlink(p)
+
+
+# ============================================================================
 # Main Extraction Functions
 # ============================================================================
 

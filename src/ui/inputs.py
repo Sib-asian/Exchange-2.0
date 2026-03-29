@@ -22,8 +22,10 @@ from src.engine import ExchangeQuotes, MatchState
 from src.ocr import (
     ExtractedData,
     LiveStatsExtracted,
+    PrematchAnalysisExtracted,
     extract_from_bytes,
     extract_live_stats_from_bytes,
+    extract_prematch_analysis_from_bytes,
     validate_extracted_data,
 )
 
@@ -1043,6 +1045,93 @@ def build_match_state(
 # ---------------------------------------------------------------------------
 # Nuovi renderer semplificati
 # ---------------------------------------------------------------------------
+
+def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
+    """
+    Uploader per lo screen Analysis di Nowgoal (pre-partita).
+
+    Accetta 1 o 2 screenshot (pagina lunga → due immagini).
+    Restituisce PrematchAnalysisExtracted se l'estrazione ha avuto successo,
+    None se l'utente non ha caricato nulla.
+    I dati estratti vengono salvati in session_state["prematch_analysis"].
+    """
+    st.caption("📊 Screen **Analysis** di Nowgoal · Carica prima del fischio (opzionale)")
+
+    uploaded = st.file_uploader(
+        "Screen Analisi pre-partita",
+        type=["png", "jpg", "jpeg", "webp"],
+        accept_multiple_files=True,
+        key="prematch_analysis_upload",
+        label_visibility="collapsed",
+        help="Carica 1 o 2 screenshot della tab 'Analysis' di Nowgoal. "
+             "Gemini estrae H2H, classifica e forma delle squadre.",
+    )
+
+    # Recupera dati già estratti in precedenza (da session_state o ricaricamento)
+    cached: PrematchAnalysisExtracted | None = st.session_state.get("prematch_analysis")
+
+    if uploaded:
+        # Calcola un ID univoco basato su nomi + dimensioni dei file
+        file_id = "_".join(f"{f.name}_{f.size}" for f in uploaded)
+        last_id = st.session_state.get("_prematch_analysis_file_id", "")
+
+        if file_id != last_id:
+            # Nuovi file → estrazione
+            images = [(f.read(), f"." + f.name.rsplit(".", 1)[-1].lower()) for f in uploaded]
+            with st.spinner("Gemini analizza lo screen..."):
+                result = extract_prematch_analysis_from_bytes(images)
+
+            st.session_state["_prematch_analysis_file_id"] = file_id
+            if result.extraction_success:
+                st.session_state["prematch_analysis"] = result
+                cached = result
+            else:
+                st.error(f"Estrazione fallita: {result.error_message}")
+                return cached
+        else:
+            # File già processati
+            result = cached
+
+    # Mostra riepilogo se disponibile
+    if cached and cached.extraction_success:
+        _render_prematch_analysis_summary(cached)
+        return cached
+
+    return None
+
+
+def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
+    """Mostra un riepilogo compatto dei dati estratti dallo screen Analysis."""
+    with st.expander("✅ Dati Analisi estratti", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        c1.metric("H2H Casa", f"{data.h2h_home_win_pct:.0f}%")
+        c2.metric("H2H X", f"{data.h2h_draw_pct:.0f}%")
+        c3.metric("H2H Trasf.", f"{data.h2h_away_win_pct:.0f}%")
+
+        if data.h2h_avg_goals_home > 0 or data.h2h_avg_goals_away > 0:
+            tot = data.h2h_avg_goals_home + data.h2h_avg_goals_away
+            st.caption(f"Media gol H2H: {data.h2h_avg_goals_home:.1f} + {data.h2h_avg_goals_away:.1f} = **{tot:.1f}** per partita")
+
+        if data.home_rank > 0 or data.away_rank > 0:
+            r1, r2 = st.columns(2)
+            r1.caption(
+                f"**Casa** — {data.home_rank}° · {data.home_win_rate:.1f}% win rate · "
+                f"Last 6: {data.home_last6_win}W {data.home_last6_draw}D {data.home_last6_lose}L"
+            )
+            r2.caption(
+                f"**Trasf.** — {data.away_rank}° · {data.away_win_rate:.1f}% win rate · "
+                f"Last 6: {data.away_last6_win}W {data.away_last6_draw}D {data.away_last6_lose}L"
+            )
+
+        fm1, fm2 = st.columns(2)
+        fm1.metric("Forma mult. Casa", f"{data.forma_mult_h:.3f}")
+        fm2.metric("Forma mult. Trasf.", f"{data.forma_mult_a:.3f}")
+
+        if st.button("🗑 Rimuovi analisi", key="_remove_prematch_analysis"):
+            st.session_state.pop("prematch_analysis", None)
+            st.session_state.pop("_prematch_analysis_file_id", None)
+            st.rerun()
+
 
 def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
     """

@@ -9,9 +9,11 @@ from src.config import SIGNALS, UI
 from src.session_storage import (
     PartitaSalvata,
     build_saved_at_label,
+    collect_prematch_analysis,
     collect_widget_state,
     delete_partita,
     load_partite,
+    restore_prematch_analysis,
     restore_widget_state,
     save_partita,
 )
@@ -34,6 +36,7 @@ if _saved:
         if _sel and st.button("Carica", key="btn_load", use_container_width=True):
             _p = _opts[_sel]
             restore_widget_state(st.session_state, _p.widget_state)
+            restore_prematch_analysis(st.session_state, _p.prematch_analysis)
             st.session_state["active_match_id"] = _p.id
             st.rerun()
     with _cd:
@@ -55,6 +58,7 @@ from src.ui.inputs import (
     render_bankroll,
     render_linee_semplici,
     render_live_semplice,
+    render_prematch_analysis_screen,
 )
 
 # ── Linee ─────────────────────────────────────────────────────────────────────
@@ -76,6 +80,11 @@ with st.expander("⚙️ Bankroll e commissione", expanded=False):
 bankroll  = float(st.session_state.get("bankroll_value", UI.BANKROLL_DEFAULT))
 comm_pct  = float(st.session_state.get("comm_pct_value", UI.COMM_DEFAULT))
 comm_rate = comm_pct / 100.0
+
+st.divider()
+
+# ── Analisi Prematch (Nowgoal Analysis tab) ───────────────────────────────────
+render_prematch_analysis_screen()
 
 st.divider()
 
@@ -116,8 +125,18 @@ if _btn_prematch or _btn_live:
 
     _lou = _linea_ou(lines["tot_cur_raw"])
 
+    _pa = st.session_state.get("prematch_analysis")
+    _forma_h = float(getattr(_pa, "forma_mult_h", 1.0)) if _pa else 1.0
+    _forma_a = float(getattr(_pa, "forma_mult_a", 1.0)) if _pa else 1.0
+    _hist_tot = float(getattr(_pa, "fixture_historical_total", 0.0)) if _pa else 0.0
+
     try:
-        state = build_match_state(_match, lines, _lou, bankroll, comm_rate)
+        state = build_match_state(
+            _match, lines, _lou, bankroll, comm_rate,
+            forma_mult_h=_forma_h,
+            forma_mult_a=_forma_a,
+            fixture_historical_total=_hist_tot,
+        )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
         st.stop()
@@ -134,6 +153,7 @@ if _btn_prematch or _btn_live:
         id=_pid, nome=f"AH {lines['ah_op']:+.2f} · Tot {lines['tot_op']:.2f}",
         saved_at=build_saved_at_label(),
         widget_state=collect_widget_state(st.session_state),
+        prematch_analysis=collect_prematch_analysis(st.session_state),
     ))
     st.session_state["active_match_id"] = _pid
 

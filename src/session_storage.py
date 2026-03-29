@@ -33,6 +33,10 @@ class PartitaSalvata:
     # Risultato della Ricerca Pre-Partita serializzato (None se non disponibile)
     ricerca: dict[str, Any] | None = None
 
+    # Dati estratti dallo screen Analysis di Nowgoal (pre-partita)
+    # Contiene: fixture_historical_total, forma_mult_h/a, H2H %, standings
+    prematch_analysis: dict[str, Any] | None = None
+
 
 # ---------------------------------------------------------------------------
 # I/O su file JSON
@@ -163,3 +167,73 @@ def restore_widget_state(session_state: Any, widget_state: dict[str, Any]) -> No
     """
     for k, v in widget_state.items():
         session_state[k] = v
+
+
+def collect_prematch_analysis(session_state: Any) -> dict[str, Any] | None:
+    """
+    Serializza i dati estratti dallo screen Analysis (PrematchAnalysisExtracted)
+    per il salvataggio su JSON.
+
+    Salva solo i campi numerici derivati — non l'immagine né la raw_response.
+    """
+    pa = session_state.get("prematch_analysis")
+    if pa is None or not getattr(pa, "extraction_success", False):
+        return None
+    return {
+        "fixture_historical_total": pa.fixture_historical_total,
+        "forma_mult_h": pa.forma_mult_h,
+        "forma_mult_a": pa.forma_mult_a,
+        "h2h_home_win_pct": pa.h2h_home_win_pct,
+        "h2h_draw_pct": pa.h2h_draw_pct,
+        "h2h_away_win_pct": pa.h2h_away_win_pct,
+        "h2h_avg_goals_home": pa.h2h_avg_goals_home,
+        "h2h_avg_goals_away": pa.h2h_avg_goals_away,
+        "home_rank": pa.home_rank,
+        "home_win_rate": pa.home_win_rate,
+        "home_last6_win": pa.home_last6_win,
+        "home_last6_draw": pa.home_last6_draw,
+        "home_last6_lose": pa.home_last6_lose,
+        "away_rank": pa.away_rank,
+        "away_win_rate": pa.away_win_rate,
+        "away_last6_win": pa.away_last6_win,
+        "away_last6_draw": pa.away_last6_draw,
+        "away_last6_lose": pa.away_last6_lose,
+    }
+
+
+def restore_prematch_analysis(session_state: Any, data: dict[str, Any] | None) -> None:
+    """
+    Ripristina i dati estratti dallo screen Analysis nel session_state.
+
+    Ricostruisce un oggetto PrematchAnalysisExtracted con extraction_success=True
+    dai dati serializzati, così l'UI può mostrare il riepilogo e il motore
+    può usare i parametri senza richiedere un nuovo screen.
+    """
+    if not data:
+        return
+    try:
+        from src.ocr import PrematchAnalysisExtracted
+        pa = PrematchAnalysisExtracted(
+            extraction_success=True,
+            fixture_historical_total=float(data.get("fixture_historical_total", 0.0)),
+            forma_mult_h=float(data.get("forma_mult_h", 1.0)),
+            forma_mult_a=float(data.get("forma_mult_a", 1.0)),
+            h2h_home_win_pct=float(data.get("h2h_home_win_pct", 0.0)),
+            h2h_draw_pct=float(data.get("h2h_draw_pct", 0.0)),
+            h2h_away_win_pct=float(data.get("h2h_away_win_pct", 0.0)),
+            h2h_avg_goals_home=float(data.get("h2h_avg_goals_home", 0.0)),
+            h2h_avg_goals_away=float(data.get("h2h_avg_goals_away", 0.0)),
+            home_rank=int(data.get("home_rank", 0)),
+            home_win_rate=float(data.get("home_win_rate", 0.0)),
+            home_last6_win=int(data.get("home_last6_win", 0)),
+            home_last6_draw=int(data.get("home_last6_draw", 0)),
+            home_last6_lose=int(data.get("home_last6_lose", 0)),
+            away_rank=int(data.get("away_rank", 0)),
+            away_win_rate=float(data.get("away_win_rate", 0.0)),
+            away_last6_win=int(data.get("away_last6_win", 0)),
+            away_last6_draw=int(data.get("away_last6_draw", 0)),
+            away_last6_lose=int(data.get("away_last6_lose", 0)),
+        )
+        session_state["prematch_analysis"] = pa
+    except Exception:
+        pass  # Dati corrotti o versione incompatibile: ignora
