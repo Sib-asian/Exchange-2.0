@@ -1,27 +1,31 @@
 """
-ocr.py — Estrazione automatica dati da screenshot di siti scommesse.
+ocr.py — Estrazione automatica dati da screenshot di siti scommesse e URL Nowgoal.
 
-Supporta multipli backend per l'analisi immagini (in ordine di preferenza):
+METODO PRIMARIO: REGEX (GRATUITO, senza API key, senza limiti)
+==============================================================
+L'estrazione da URL Nowgoal usa principalmente regex per:
+  - H2H (Win/Draw/Lose %, Over %, media gol)
+  - Strength Comparison
+  - Standings (Total, Home, Away, Last 6)
+  - Previous Scores Statistics
+  - Quote iniziali 1X2
+
+Supporta molteplici formati H2H:
+  - "Win 3 (30%) Draw 3 (30%) Lose 4 (40%)"
+  - "1W 3D 2L"
+  - "Win 30% Draw 30% Lose 40%"
+  - "1-3-2"
+
+Backend per analisi IMMAGINI (screenshot):
   1. z-ai CLI (gratuito, locale)
   2. Google Gemini API (gratuito 1500 req/giorno)
   3. OpenAI Vision API (a pagamento, fallback finale)
 
-Utilizza il VLM (Vision Language Model) per leggere immagini da:
-  - Siti di scommesse (Bet365, Betfair, Pinnacle, ecc.)
-  - App mobili
-  - Desktop screenshot
+Configurazione OPZIONALE:
+  - GEMINI_API_KEY: via st.secrets o variabile d'ambiente (fallback)
+  - OPENAI_API_KEY: via st.secrets o variabile d'ambiente (fallback)
 
-Estrae automaticamente:
-  - Nomi delle squadre
-  - Quote 1X2
-  - Quote Over/Under
-  - Quote BTTS (GG/NG)
-
-Configurazione:
-  - GEMINI_API_KEY: via st.secrets o variabile d'ambiente (GRATUITO)
-  - OPENAI_API_KEY: via st.secrets o variabile d'ambiente (a pagamento)
-
-Il modulo restituisce i dati in formato strutturato per l'uso nell'UI Streamlit.
+Il modulo funziona completamente SENZA configurare API key per l'estrazione da URL.
 """
 
 from __future__ import annotations
@@ -1724,11 +1728,13 @@ def _fetch_jina_reader(url: str, timeout: int = 30) -> str:
 
 def _extract_h2h_with_regex(text: str) -> dict:
     """
-    Fallback regex per estrarre dati H2H dal testo quando Gemini restituisce 0.
+    Estrae dati H2H dal testo usando regex (GRATUITO, senza API key).
     
-    Supporta due formati:
-    - Formato compatto: "1W 3D 2L / 2W 3D 1L"
+    Supporta molteplici formati:
     - Formato completo: "Win 3 (30%) Draw 3 (30%) Lose 4 (40%)"
+    - Formato compatto: "1W 3D 2L"
+    - Formato percentuale: "Win 30% Draw 30% Lose 40%"
+    - Formato misto: "1W 3D 2L" per casa e "2W 3D 1L" per trasferta
     """
     result = {
         "h2h_home_win_pct": 0.0,
@@ -1771,35 +1777,405 @@ def _extract_h2h_with_regex(text: str) -> dict:
         result["h2h_away_win_pct"] = float(match.group(3))
         return result
     
+    # Pattern 4: Formato con barra "/" tra squadre
+    # Es: "1W 3D 2L / 2W 3D 1L" - primo è casa, secondo è trasferta
+    pattern_slash = r"(\d+)W\s+(\d+)D\s+(\d+)L\s*/\s*(\d+)W\s+(\d+)D\s+(\d+)L"
+    match = re.search(pattern_slash, text, re.IGNORECASE)
+    if match:
+        w1, d1, l1 = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        total1 = w1 + d1 + l1
+        if total1 > 0:
+            result["h2h_home_win_pct"] = round(w1 / total1 * 100, 1)
+            result["h2h_draw_pct"] = round(d1 / total1 * 100, 1)
+            result["h2h_away_win_pct"] = round(l1 / total1 * 100, 1)
+            return result
+    
+    # Pattern 5: Formato "W-D-L" con trattini
+    # Es: "1-3-2" o "W1-D3-L2"
+    pattern_dash = r"(\d+)-(\d+)-(\d+)"
+    match = re.search(pattern_dash, text)
+    if match:
+        w, d, l = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        total = w + d + l
+        if total > 0 and total <= 50:  # Plausibilità: max 50 partite H2H
+            result["h2h_home_win_pct"] = round(w / total * 100, 1)
+            result["h2h_draw_pct"] = round(d / total * 100, 1)
+            result["h2h_away_win_pct"] = round(l / total * 100, 1)
+            return result
+    
+    # Pattern 6: Formato testuale esteso
+    # Es: "Home Team won 3 matches, drew 2 matches, lost 1 match"
+    pattern_text = r"(?:Home\s+)?(?:Team\s+)?won\s+(\d+).*?drew?\s+(\d+).*?lost?\s+(\d+)"
+    match = re.search(pattern_text, text, re.IGNORECASE)
+    if match:
+        w, d, l = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        total = w + d + l
+        if total > 0:
+            result["h2h_home_win_pct"] = round(w / total * 100, 1)
+            result["h2h_draw_pct"] = round(d / total * 100, 1)
+            result["h2h_away_win_pct"] = round(l / total * 100, 1)
+            return result
+    
+    return result
+
+
+def _extract_all_with_regex(text: str) -> dict:
+    """
+    Estrae TUTTI i dati prematch dal testo usando solo regex.
+    Metodo PRIMARIO - GRATUITO, senza API key, senza limiti.
+    
+    Estrae:
+    - H2H (win/draw/lose %, over %, media gol)
+    - Strength comparison
+    - Standings casa/trasferta
+    - Previous scores
+    - Quote iniziali (se presenti)
+    """
+    result = {
+        # H2H
+        "h2h_home_win_pct": 0.0,
+        "h2h_draw_pct": 0.0,
+        "h2h_away_win_pct": 0.0,
+        "h2h_over_pct": 0.0,
+        "h2h_avg_goals_home": 0.0,
+        "h2h_avg_goals_away": 0.0,
+        # Strength
+        "strength_home": 0,
+        "strength_away": 0,
+        # Standings casa
+        "home_rank": 0,
+        "home_matches": 0,
+        "home_win": 0,
+        "home_draw": 0,
+        "home_lose": 0,
+        "home_scored": 0,
+        "home_conceded": 0,
+        "home_win_rate": 0.0,
+        "home_home_win": 0,
+        "home_home_draw": 0,
+        "home_home_lose": 0,
+        "home_home_scored": 0,
+        "home_home_conceded": 0,
+        "home_last6_win": 0,
+        "home_last6_draw": 0,
+        "home_last6_lose": 0,
+        # Standings trasferta
+        "away_rank": 0,
+        "away_matches": 0,
+        "away_win": 0,
+        "away_draw": 0,
+        "away_lose": 0,
+        "away_scored": 0,
+        "away_conceded": 0,
+        "away_win_rate": 0.0,
+        "away_away_win": 0,
+        "away_away_draw": 0,
+        "away_away_lose": 0,
+        "away_away_scored": 0,
+        "away_away_conceded": 0,
+        "away_last6_win": 0,
+        "away_last6_draw": 0,
+        "away_last6_lose": 0,
+        # Previous scores
+        "prev_home_win_pct": 0.0,
+        "prev_home_avg_scored": 0.0,
+        "prev_home_avg_conceded": 0.0,
+        "prev_home_over_pct": 0.0,
+        "prev_away_win_pct": 0.0,
+        "prev_away_avg_scored": 0.0,
+        "prev_away_avg_conceded": 0.0,
+        "prev_away_over_pct": 0.0,
+        # Quote iniziali
+        "mkt_init_1": 0.0,
+        "mkt_init_x": 0.0,
+        "mkt_init_2": 0.0,
+        # Info partita
+        "home_team": "",
+        "away_team": "",
+        "league_name": "",
+        "match_date": "",
+    }
+    
+    # === H2H ===
+    h2h = _extract_h2h_with_regex(text)
+    result["h2h_home_win_pct"] = h2h["h2h_home_win_pct"]
+    result["h2h_draw_pct"] = h2h["h2h_draw_pct"]
+    result["h2h_away_win_pct"] = h2h["h2h_away_win_pct"]
+    
+    # H2H Over %
+    # Es: "Over 67%" o "Over: 67%" o "Over 5 (50%)"
+    over_match = re.search(r"Over\s*(\d+(?:\.\d+)?)\s*%?", text, re.IGNORECASE)
+    if over_match:
+        result["h2h_over_pct"] = float(over_match.group(1))
+    
+    # H2H media gol
+    # Es: "2.3 goals" o "avg 2.3" o "Goal Score/Loss per Game 2.3"
+    goals_pattern = r"(?:avg|average)?\s*(\d+[.,]\d+)\s*(?:goals?|scored)"
+    goals_matches = re.findall(goals_pattern, text, re.IGNORECASE)
+    if len(goals_matches) >= 2:
+        result["h2h_avg_goals_home"] = float(goals_matches[0].replace(",", "."))
+        result["h2h_avg_goals_away"] = float(goals_matches[1].replace(",", "."))
+    elif len(goals_matches) == 1:
+        result["h2h_avg_goals_home"] = float(goals_matches[0].replace(",", "."))
+    
+    # === STRENGTH ===
+    # Es: "Strength: 60 vs 40" o due numeri grandi separati
+    strength_match = re.search(r"(\d{1,3})\s*(?:vs|VS|-|–|/)\s*(\d{1,3})", text)
+    if strength_match:
+        s1, s2 = int(strength_match.group(1)), int(strength_match.group(2))
+        if 0 <= s1 <= 100 and 0 <= s2 <= 100:
+            result["strength_home"] = s1
+            result["strength_away"] = s2
+    
+    # === STANDINGS ===
+    # Cerca tabelle con righe Total/Home/Away/Last 6
+    
+    # Riga Total FT: Matches, Win, Draw, Lose, Scored, Conceded
+    # Es: "Total  31  16  7  8  59  43"
+    total_pattern = r"Total\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    total_matches = re.findall(total_pattern, text, re.IGNORECASE)
+    if total_matches:
+        # Prima riga = casa, seconda = trasferta (solitamente)
+        if len(total_matches) >= 1:
+            t = total_matches[0]
+            result["home_matches"] = int(t[0])
+            result["home_win"] = int(t[1])
+            result["home_draw"] = int(t[2])
+            result["home_lose"] = int(t[3])
+            result["home_scored"] = int(t[4])
+            result["home_conceded"] = int(t[5])
+        if len(total_matches) >= 2:
+            t = total_matches[1]
+            result["away_matches"] = int(t[0])
+            result["away_win"] = int(t[1])
+            result["away_draw"] = int(t[2])
+            result["away_lose"] = int(t[3])
+            result["away_scored"] = int(t[4])
+            result["away_conceded"] = int(t[5])
+    
+    # Riga Home FT (performance in casa)
+    # Es: "Home  10  2  2  36  22" (win, draw, lose, scored, conceded)
+    home_pattern = r"(?:^|\n)\s*Home\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    home_match = re.search(home_pattern, text, re.IGNORECASE | re.MULTILINE)
+    if home_match:
+        result["home_home_win"] = int(home_match.group(1))
+        result["home_home_draw"] = int(home_match.group(2))
+        result["home_home_lose"] = int(home_match.group(3))
+        result["home_home_scored"] = int(home_match.group(4))
+        result["home_home_conceded"] = int(home_match.group(5))
+    
+    # Riga Away FT (performance in trasferta)
+    # Es: "Away  4  2  9  19  23"
+    away_pattern = r"(?:^|\n)\s*Away\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    away_match = re.search(away_pattern, text, re.IGNORECASE | re.MULTILINE)
+    if away_match:
+        result["away_away_win"] = int(away_match.group(1))
+        result["away_away_draw"] = int(away_match.group(2))
+        result["away_away_lose"] = int(away_match.group(3))
+        result["away_away_scored"] = int(away_match.group(4))
+        result["away_away_conceded"] = int(away_match.group(5))
+    
+    # Riga Last 6
+    # Es: "Last 6  4  1  1" o "Last6 4-1-1"
+    last6_pattern = r"Last\s*6\s+(\d+)\s+(\d+)\s+(\d+)"
+    last6_matches = re.findall(last6_pattern, text, re.IGNORECASE)
+    if last6_matches:
+        if len(last6_matches) >= 1:
+            l = last6_matches[0]
+            result["home_last6_win"] = int(l[0])
+            result["home_last6_draw"] = int(l[1])
+            result["home_last6_lose"] = int(l[2])
+        if len(last6_matches) >= 2:
+            l = last6_matches[1]
+            result["away_last6_win"] = int(l[0])
+            result["away_last6_draw"] = int(l[1])
+            result["away_last6_lose"] = int(l[2])
+    
+    # === RANK ===
+    # Es: "[SPA D2-3]" → rank=3 o "Rank: 3"
+    rank_pattern = r"\[[^\]]*-(\d+)\]"
+    rank_matches = re.findall(rank_pattern, text)
+    if rank_matches:
+        if len(rank_matches) >= 1:
+            result["home_rank"] = int(rank_matches[0])
+        if len(rank_matches) >= 2:
+            result["away_rank"] = int(rank_matches[1])
+    
+    # === PREVIOUS SCORES ===
+    # Es: "Win 8 (80%)" nella sezione Previous
+    prev_win_pattern = r"Win\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)"
+    prev_matches = re.findall(prev_win_pattern, text, re.IGNORECASE)
+    if prev_matches:
+        if len(prev_matches) >= 1:
+            result["prev_home_win_pct"] = float(prev_matches[0][1])
+        if len(prev_matches) >= 2:
+            result["prev_away_win_pct"] = float(prev_matches[1][1])
+    
+    # Previous Over %
+    prev_over_pattern = r"Over\s+(\d+(?:\.\d+)?)\s*%"
+    prev_over_matches = re.findall(prev_over_pattern, text, re.IGNORECASE)
+    if prev_over_matches:
+        if len(prev_over_matches) >= 1:
+            result["prev_home_over_pct"] = float(prev_over_matches[0])
+        if len(prev_over_matches) >= 2:
+            result["prev_away_over_pct"] = float(prev_over_matches[1])
+    
+    # Previous avg goals
+    # Es: "1.9 goals  Goal Score/Loss per Game  1.3 goals"
+    prev_goals = re.search(r"(\d+[.,]\d+)\s*goals?\s*(?:Score|per Game).*?(\d+[.,]\d+)\s*goals?", text, re.IGNORECASE)
+    if prev_goals:
+        result["prev_home_avg_scored"] = float(prev_goals.group(1).replace(",", "."))
+        result["prev_home_avg_conceded"] = float(prev_goals.group(2).replace(",", "."))
+    
+    # === QUOTE INIZIALI ===
+    # Es: "1 @2.10  X @3.25  2 @3.40" o "1: 2.10  X: 3.25  2: 3.40"
+    odds_pattern = r"(?:1|Home)\s*[@:]\s*(\d+[.,]\d+).*?(?:X|Draw)\s*[@:]\s*(\d+[.,]\d+).*?(?:2|Away)\s*[@:]\s*(\d+[.,]\d+)"
+    odds_match = re.search(odds_pattern, text, re.IGNORECASE)
+    if odds_match:
+        result["mkt_init_1"] = float(odds_match.group(1).replace(",", "."))
+        result["mkt_init_x"] = float(odds_match.group(2).replace(",", "."))
+        result["mkt_init_2"] = float(odds_match.group(3).replace(",", "."))
+    
+    # === INFO PARTITA ===
+    # Nomi squadre: "Team A vs Team B" o "Team A - Team B"
+    teams_match = re.search(r"^([A-Za-z][A-Za-z\s]{2,30}?)\s+(?:vs|VS|-|–)\s+([A-Za-z][A-Za-z\s]{2,30}?)", text, re.MULTILINE)
+    if teams_match:
+        result["home_team"] = teams_match.group(1).strip()
+        result["away_team"] = teams_match.group(2).strip()
+    
+    # Data: YYYY-MM-DD o DD/MM/YYYY
+    date_match = re.search(r"(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})", text)
+    if date_match:
+        result["match_date"] = date_match.group(1)
+    
+    # Lega: "League: XXX" o dopo nome squadre
+    league_match = re.search(r"(?:League|Lega|Competition)\s*[:\-]?\s*([A-Za-z][A-Za-z\s0-9]{2,30})", text, re.IGNORECASE)
+    if league_match:
+        result["league_name"] = league_match.group(1).strip()
+    
     return result
 
 
 def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtracted:
-    """Invia il testo della pagina a Gemini (text-only) e parsa la risposta."""
+    """
+    Estrae dati prematch dal testo usando REGEX come metodo PRIMARIO.
+    
+    Flusso:
+    1. Regex estrae tutti i dati possibili (GRATUITO, senza API key)
+    2. Se configurato, Gemini arricchisce i dati mancanti (opzionale)
+    3. Combina i risultati
+    
+    Questo approccio garantisce che l'estrazione funzioni sempre,
+    anche senza API key Gemini o con restrizioni geografiche.
+    """
     import time
-
+    
+    # === PASSO 1: Estrazione con REGEX (PRIMARIO) ===
+    text_truncated = page_text[:20000]
+    regex_data = _extract_all_with_regex(text_truncated)
+    
+    # Crea il risultato base dai dati regex
+    result = PrematchAnalysisExtracted(
+        extraction_success=True,
+        error_message="",
+        backend_used="regex",
+        # H2H
+        h2h_home_win_pct=regex_data["h2h_home_win_pct"],
+        h2h_draw_pct=regex_data["h2h_draw_pct"],
+        h2h_away_win_pct=regex_data["h2h_away_win_pct"],
+        h2h_over_pct=regex_data["h2h_over_pct"],
+        h2h_avg_goals_home=regex_data["h2h_avg_goals_home"],
+        h2h_avg_goals_away=regex_data["h2h_avg_goals_away"],
+        # Strength
+        strength_home=regex_data["strength_home"],
+        strength_away=regex_data["strength_away"],
+        # Standings casa
+        home_rank=regex_data["home_rank"],
+        home_matches=regex_data["home_matches"],
+        home_win=regex_data["home_win"],
+        home_draw=regex_data["home_draw"],
+        home_lose=regex_data["home_lose"],
+        home_scored=regex_data["home_scored"],
+        home_conceded=regex_data["home_conceded"],
+        home_home_win=regex_data["home_home_win"],
+        home_home_draw=regex_data["home_home_draw"],
+        home_home_lose=regex_data["home_home_lose"],
+        home_home_scored=regex_data["home_home_scored"],
+        home_home_conceded=regex_data["home_home_conceded"],
+        home_last6_win=regex_data["home_last6_win"],
+        home_last6_draw=regex_data["home_last6_draw"],
+        home_last6_lose=regex_data["home_last6_lose"],
+        # Standings trasferta
+        away_rank=regex_data["away_rank"],
+        away_matches=regex_data["away_matches"],
+        away_win=regex_data["away_win"],
+        away_draw=regex_data["away_draw"],
+        away_lose=regex_data["away_lose"],
+        away_scored=regex_data["away_scored"],
+        away_conceded=regex_data["away_conceded"],
+        away_away_win=regex_data["away_away_win"],
+        away_away_draw=regex_data["away_away_draw"],
+        away_away_lose=regex_data["away_away_lose"],
+        away_away_scored=regex_data["away_away_scored"],
+        away_away_conceded=regex_data["away_away_conceded"],
+        away_last6_win=regex_data["away_last6_win"],
+        away_last6_draw=regex_data["away_last6_draw"],
+        away_last6_lose=regex_data["away_last6_lose"],
+        # Previous scores
+        home_prev_win_pct=regex_data["prev_home_win_pct"],
+        home_prev_avg_scored=regex_data["prev_home_avg_scored"],
+        home_prev_avg_conceded=regex_data["prev_home_avg_conceded"],
+        home_prev_over_pct=regex_data["prev_home_over_pct"],
+        away_prev_win_pct=regex_data["prev_away_win_pct"],
+        away_prev_avg_scored=regex_data["prev_away_avg_scored"],
+        away_prev_avg_conceded=regex_data["prev_away_avg_conceded"],
+        away_prev_over_pct=regex_data["prev_away_over_pct"],
+        # Quote iniziali
+        mkt_init_1=regex_data["mkt_init_1"],
+        mkt_init_x=regex_data["mkt_init_x"],
+        mkt_init_2=regex_data["mkt_init_2"],
+        # Info partita
+        home_team=regex_data["home_team"],
+        away_team=regex_data["away_team"],
+        league_name=regex_data["league_name"],
+        match_date=regex_data["match_date"],
+    )
+    
+    # Calcola forma_mult
+    result.forma_mult_h = _forma_mult_from_standings(
+        result.home_win, result.home_draw, result.home_lose,
+        result.home_last6_win, result.home_last6_draw, result.home_last6_lose,
+        result.home_scored, result.home_conceded, result.home_matches,
+    )
+    result.forma_mult_a = _forma_mult_from_standings(
+        result.away_win, result.away_draw, result.away_lose,
+        result.away_last6_win, result.away_last6_draw, result.away_last6_lose,
+        result.away_scored, result.away_conceded, result.away_matches,
+    )
+    
+    # === PASSO 2: Se regex ha estratto dati sufficienti, termina qui ===
+    has_data = (
+        result.h2h_home_win_pct > 0 or result.home_matches > 0 or 
+        result.strength_home > 0 or result.home_last6_win + result.home_last6_draw + result.home_last6_lose > 0
+    )
+    
+    if has_data:
+        return result
+    
+    # === PASSO 3: Prova Gemini come FALLBACK (solo se regex non ha trovato nulla) ===
     api_key = _get_gemini_api_key()
     if not api_key:
-        # Prova fallback regex anche senza API key
-        h2h_fallback = _extract_h2h_with_regex(page_text)
-        if any(v > 0 for v in h2h_fallback.values()):
-            return PrematchAnalysisExtracted(
-                extraction_success=True,
-                error_message="Estratto con regex (Gemini non configurato)",
-                h2h_home_win_pct=h2h_fallback["h2h_home_win_pct"],
-                h2h_draw_pct=h2h_fallback["h2h_draw_pct"],
-                h2h_away_win_pct=h2h_fallback["h2h_away_win_pct"],
-            )
+        # Nessuna API key, ritorna quello che abbiamo (anche se parziale)
+        if any([result.h2h_home_win_pct, result.home_matches, result.away_matches]):
+            result.error_message = "Dati parziali (solo regex, Gemini non configurato)"
+            return result
         return PrematchAnalysisExtracted(
             extraction_success=False,
-            error_message="Gemini: API key non configurata",
+            error_message="Nessun dato estratto (regex e Gemini non disponibili)",
         )
-
-    # Cattura fino a 20000 caratteri — la maggior parte delle pagine H2H Nowgoal
-    # è entro 12000 chars, ma alcune possono essere più lunghe (molti match H2H)
-    text_truncated = page_text[:20000]
+    
+    # Prova Gemini
     full_prompt = f"TESTO PAGINA NOWGOAL:\n\n{text_truncated}\n\n---\n\n{PREMATCH_ANALYSIS_TEXT_PROMPT}"
-
     request_body = {
         "contents": [{"parts": [{"text": full_prompt}]}],
         "generationConfig": {
@@ -1809,7 +2185,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         },
     }
     payload = json.dumps(request_body).encode("utf-8")
-
+    
     last_error = ""
     for model in _GEMINI_MODELS:
         api_url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
@@ -1821,22 +2197,45 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
                 )
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
-
+                
                 if "candidates" in resp_data and resp_data["candidates"]:
                     parts_resp = resp_data["candidates"][0].get("content", {}).get("parts", [])
                     if parts_resp:
-                        text = parts_resp[0].get("text", "")
-                        if text:
-                            result = _parse_prematch_analysis_response(text)
-                            # FALLBACK: Se Gemini ha restituito 0 per H2H, prova con regex
-                            if (result.h2h_home_win_pct == 0 and 
-                                result.h2h_draw_pct == 0 and 
-                                result.h2h_away_win_pct == 0):
-                                h2h_fallback = _extract_h2h_with_regex(text_truncated)
-                                if any(v > 0 for v in h2h_fallback.values()):
-                                    result.h2h_home_win_pct = h2h_fallback["h2h_home_win_pct"]
-                                    result.h2h_draw_pct = h2h_fallback["h2h_draw_pct"]
-                                    result.h2h_away_win_pct = h2h_fallback["h2h_away_win_pct"]
+                        gemini_text = parts_resp[0].get("text", "")
+                        if gemini_text:
+                            gemini_result = _parse_prematch_analysis_response(gemini_text)
+                            # Combina: usa regex dove Gemini ha 0
+                            if result.h2h_home_win_pct == 0 and gemini_result.h2h_home_win_pct > 0:
+                                result.h2h_home_win_pct = gemini_result.h2h_home_win_pct
+                            if result.h2h_draw_pct == 0 and gemini_result.h2h_draw_pct > 0:
+                                result.h2h_draw_pct = gemini_result.h2h_draw_pct
+                            if result.h2h_away_win_pct == 0 and gemini_result.h2h_away_win_pct > 0:
+                                result.h2h_away_win_pct = gemini_result.h2h_away_win_pct
+                            if result.home_matches == 0 and gemini_result.home_matches > 0:
+                                result.home_matches = gemini_result.home_matches
+                                result.home_win = gemini_result.home_win
+                                result.home_draw = gemini_result.home_draw
+                                result.home_lose = gemini_result.home_lose
+                                result.home_scored = gemini_result.home_scored
+                                result.home_conceded = gemini_result.home_conceded
+                            if result.away_matches == 0 and gemini_result.away_matches > 0:
+                                result.away_matches = gemini_result.away_matches
+                                result.away_win = gemini_result.away_win
+                                result.away_draw = gemini_result.away_draw
+                                result.away_lose = gemini_result.away_lose
+                                result.away_scored = gemini_result.away_scored
+                                result.away_conceded = gemini_result.away_conceded
+                            if result.strength_home == 0 and gemini_result.strength_home > 0:
+                                result.strength_home = gemini_result.strength_home
+                                result.strength_away = gemini_result.strength_away
+                            # Info partita da Gemini se regex non ha trovato
+                            if not result.home_team and gemini_result.home_team:
+                                result.home_team = gemini_result.home_team
+                            if not result.away_team and gemini_result.away_team:
+                                result.away_team = gemini_result.away_team
+                            if not result.league_name and gemini_result.league_name:
+                                result.league_name = gemini_result.league_name
+                            result.backend_used = "regex+gemini"
                             return result
                 last_error = f"Gemini ({model}): risposta vuota"
                 break
@@ -1849,24 +2248,24 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
             except Exception as e:
                 last_error = f"Gemini ({model}): {e}"
                 break
-
-    # FALLBACK FINALE: Se Gemini ha fallito completamente, prova regex
-    h2h_fallback = _extract_h2h_with_regex(page_text[:20000])
-    if any(v > 0 for v in h2h_fallback.values()):
-        return PrematchAnalysisExtracted(
-            extraction_success=True,
-            error_message=f"Estratto con regex (Gemini: {last_error})",
-            h2h_home_win_pct=h2h_fallback["h2h_home_win_pct"],
-            h2h_draw_pct=h2h_fallback["h2h_draw_pct"],
-            h2h_away_win_pct=h2h_fallback["h2h_away_win_pct"],
-        )
-
-    return PrematchAnalysisExtracted(extraction_success=False, error_message=last_error)
+    
+    # Ritorna risultato regex anche se Gemini ha fallito
+    if has_data:
+        result.error_message = f"Dati da regex (Gemini: {last_error})"
+        return result
+    
+    return PrematchAnalysisExtracted(
+        extraction_success=False,
+        error_message=f"Nessun dato estratto (regex vuoto, Gemini: {last_error})",
+    )
 
 
 def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
     """
-    Estrae analisi prematch da un URL Nowgoal via Jina Reader + Gemini.
+    Estrae analisi prematch da un URL Nowgoal.
+    
+    METODO PRIMARIO: Regex (GRATUITO, senza API key, senza limiti)
+    FALLBACK OPZIONALE: Gemini (richiede API key)
 
     Args:
         url: URL della pagina Analysis di Nowgoal
@@ -1874,6 +2273,11 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
 
     Returns:
         PrematchAnalysisExtracted con i dati estratti, o errore se fallisce.
+        
+    Note:
+        - Funziona GRATUITAMENTE senza configurare nulla
+        - Gemini è usato solo come fallback se regex non trova dati
+        - Estrae: H2H, Strength, Standings, Previous Scores, Quote iniziali
     """
     url = url.strip()
     if not url:
