@@ -26,6 +26,7 @@ from src.ocr import (
     extract_from_bytes,
     extract_live_stats_from_bytes,
     extract_prematch_analysis_from_bytes,
+    extract_prematch_analysis_from_url,
     validate_extracted_data,
 )
 
@@ -1048,54 +1049,86 @@ def build_match_state(
 
 def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
     """
-    Uploader per lo screen Analysis di Nowgoal (pre-partita).
+    Sezione Analysis di Nowgoal (pre-partita).
 
-    Accetta 1 o 2 screenshot (pagina lunga → due immagini).
+    Offre due modalità di input:
+    - Tab "URL": incolla il link Nowgoal → estrazione automatica via Jina Reader
+    - Tab "Screenshot": carica 1-2 immagini → estrazione via Gemini Vision
+
     Restituisce PrematchAnalysisExtracted se l'estrazione ha avuto successo,
-    None se l'utente non ha caricato nulla.
+    None se l'utente non ha inserito nulla.
     I dati estratti vengono salvati in session_state["prematch_analysis"].
     """
-    st.caption("📊 Screen **Analysis** di Nowgoal · Carica prima del fischio (opzionale)")
+    st.caption("📊 **Analysis** di Nowgoal · Inserisci prima del fischio (opzionale)")
 
-    uploaded = st.file_uploader(
-        "Screen Analisi pre-partita",
-        type=["png", "jpg", "jpeg", "webp"],
-        accept_multiple_files=True,
-        key="prematch_analysis_upload",
-        label_visibility="collapsed",
-        help="Carica 1 o 2 screenshot della tab 'Analysis' di Nowgoal. "
-             "Gemini estrae H2H, classifica e forma delle squadre.",
-    )
-
-    # Recupera dati già estratti in precedenza (da session_state o ricaricamento)
     cached: PrematchAnalysisExtracted | None = st.session_state.get("prematch_analysis")
 
-    if uploaded:
-        # Calcola un ID univoco basato su nomi + dimensioni dei file
-        file_id = "_".join(f"{f.name}_{f.size}" for f in uploaded)
-        last_id = st.session_state.get("_prematch_analysis_file_id", "")
-
-        if file_id != last_id:
-            # Nuovi file → estrazione
-            images = [(f.read(), "." + f.name.rsplit(".", 1)[-1].lower()) for f in uploaded]
-            with st.spinner("Gemini analizza lo screen..."):
-                result = extract_prematch_analysis_from_bytes(images)
-
-            st.session_state["_prematch_analysis_file_id"] = file_id
-            if result.extraction_success:
-                st.session_state["prematch_analysis"] = result
-                cached = result
-            else:
-                st.error(f"Estrazione fallita: {result.error_message}")
-                return cached
-        else:
-            # File già processati
-            result = cached
-
-    # Mostra riepilogo se disponibile
+    # Se c'è già un'estrazione valida, mostra subito il riepilogo senza ridisegnare i tab
     if cached and cached.extraction_success:
         _render_prematch_analysis_summary(cached)
         return cached
+
+    tab_url, tab_screen = st.tabs(["🔗 URL Nowgoal", "📷 Screenshot"])
+
+    # ── TAB 1: URL ──────────────────────────────────────────────────────────
+    with tab_url:
+        st.caption(
+            "Apri Nowgoal → vai sulla partita → tab **H2H** → copia l'URL dalla barra del browser"
+        )
+        url_input = st.text_input(
+            "URL pagina H2H",
+            placeholder="https://www.nowgoal.com/match/h2h-XXXXXX",
+            key="prematch_analysis_url_input",
+            label_visibility="collapsed",
+        )
+        if st.button("Estrai da URL", key="_extract_url_btn", type="primary"):
+            if url_input.strip():
+                last_url = st.session_state.get("_prematch_analysis_url", "")
+                if url_input.strip() != last_url:
+                    with st.spinner("Lettura pagina e analisi..."):
+                        result = extract_prematch_analysis_from_url(url_input.strip())
+                    st.session_state["_prematch_analysis_url"] = url_input.strip()
+                    # Pulisce cache file per evitare conflitti
+                    st.session_state.pop("_prematch_analysis_file_id", None)
+                    if result.extraction_success:
+                        st.session_state["prematch_analysis"] = result
+                        cached = result
+                        st.rerun()
+                    else:
+                        st.error(f"Estrazione fallita: {result.error_message}")
+            else:
+                st.warning("Inserisci l'URL Nowgoal prima di procedere.")
+
+    # ── TAB 2: SCREENSHOT ───────────────────────────────────────────────────
+    with tab_screen:
+        uploaded = st.file_uploader(
+            "Screen Analisi pre-partita",
+            type=["png", "jpg", "jpeg", "webp"],
+            accept_multiple_files=True,
+            key="prematch_analysis_upload",
+            label_visibility="collapsed",
+            help="Carica 1 o 2 screenshot della tab 'Analysis' di Nowgoal. "
+                 "Gemini estrae H2H, classifica e forma delle squadre.",
+        )
+
+        if uploaded:
+            file_id = "_".join(f"{f.name}_{f.size}" for f in uploaded)
+            last_id = st.session_state.get("_prematch_analysis_file_id", "")
+
+            if file_id != last_id:
+                images = [(f.read(), "." + f.name.rsplit(".", 1)[-1].lower()) for f in uploaded]
+                with st.spinner("Gemini analizza lo screen..."):
+                    result = extract_prematch_analysis_from_bytes(images)
+
+                st.session_state["_prematch_analysis_file_id"] = file_id
+                # Pulisce cache URL per evitare conflitti
+                st.session_state.pop("_prematch_analysis_url", None)
+                if result.extraction_success:
+                    st.session_state["prematch_analysis"] = result
+                    cached = result
+                    st.rerun()
+                else:
+                    st.error(f"Estrazione fallita: {result.error_message}")
 
     return None
 

@@ -1543,6 +1543,202 @@ def extract_prematch_analysis_from_bytes(
 
 
 # ============================================================================
+# URL-based extraction (Jina Reader + Gemini text)
+# ============================================================================
+
+_JINA_BASE_URL = "https://r.jina.ai/"
+_NOWGOAL_DOMAINS = ("nowgoal.com", "nowgoal.net", "nowgoal.info", "nowgoal26.com")
+
+PREMATCH_ANALYSIS_TEXT_PROMPT = """Sei un assistente che estrae dati statistici da testo di una pagina Nowgoal Analysis/H2H.
+
+Estrai i dati indicati e rispondi SOLO con JSON valido. Usa 0 per valori non trovati.
+
+DATI DA ESTRARRE:
+
+1. h2h — Head to Head Statistics:
+   - home_win_pct: % vittorie casa (es. "Win 2 (20%)" → 20)
+   - draw_pct: % pareggi
+   - away_win_pct: % vittorie trasferta
+   - avg_goals_home: media gol segnati dalla casa nei precedenti H2H
+   - avg_goals_away: media gol segnati dalla trasferta nei precedenti H2H
+   - over_pct: % Over nei precedenti H2H
+   - ah_home_cover_pct: % AH copertura casa nei precedenti H2H
+
+2. strength — Strength Comparison (due numeri grandi):
+   - home: numero squadra di casa
+   - away: numero squadra trasferta
+
+3. home — standings squadra di CASA (tabella con header arancione/rosso):
+   - rank: dal titolo [LEGA-RANK] es. "[ARG D1-17]" → 17, oppure dalla colonna Rank riga Total
+   - matches, win, draw, lose, scored, conceded, win_rate: riga Total (FT Full Time)
+   - home_win, home_draw, home_lose, home_scored, home_conceded: riga Home (FT)
+   - last6_win, last6_draw, last6_lose: riga Last 6 — DEVONO sommare a 6
+   - ht_win, ht_draw, ht_lose: riga Total sezione HT (Half Time)
+
+4. away — standings squadra TRASFERTA (tabella con header blu):
+   - rank, matches, win, draw, lose, scored, conceded, win_rate: riga Total (FT)
+   - away_win, away_draw, away_lose, away_scored, away_conceded: riga Away (FT)
+     ⚠ NON la riga Home della trasferta — serve la performance IN TRASFERTA
+   - last6_win, last6_draw, last6_lose: riga Last 6 — DEVONO sommare a 6
+   - ht_win, ht_draw, ht_lose: riga Total sezione HT
+
+5. prev_home — Previous Scores Statistics (sezione casa):
+   - win_pct, avg_scored, avg_conceded, over_pct
+
+6. prev_away — Previous Scores Statistics (sezione trasferta, 0 se assente):
+   - win_pct, avg_scored, avg_conceded, over_pct
+
+7. lines — quote iniziali se visibili:
+   - initial_ah: linea AH iniziale
+   - initial_total: linea Total iniziale
+
+{
+  "h2h": {"home_win_pct": 0, "draw_pct": 0, "away_win_pct": 0,
+          "avg_goals_home": 0.0, "avg_goals_away": 0.0, "over_pct": 0, "ah_home_cover_pct": 0},
+  "strength": {"home": 0, "away": 0},
+  "home": {"rank": 0, "matches": 0, "win": 0, "draw": 0, "lose": 0,
+           "scored": 0, "conceded": 0, "win_rate": 0.0,
+           "home_win": 0, "home_draw": 0, "home_lose": 0, "home_scored": 0, "home_conceded": 0,
+           "last6_win": 0, "last6_draw": 0, "last6_lose": 0,
+           "ht_win": 0, "ht_draw": 0, "ht_lose": 0},
+  "away": {"rank": 0, "matches": 0, "win": 0, "draw": 0, "lose": 0,
+           "scored": 0, "conceded": 0, "win_rate": 0.0,
+           "away_win": 0, "away_draw": 0, "away_lose": 0, "away_scored": 0, "away_conceded": 0,
+           "last6_win": 0, "last6_draw": 0, "last6_lose": 0,
+           "ht_win": 0, "ht_draw": 0, "ht_lose": 0},
+  "prev_home": {"win_pct": 0, "avg_scored": 0.0, "avg_conceded": 0.0, "over_pct": 0},
+  "prev_away": {"win_pct": 0, "avg_scored": 0.0, "avg_conceded": 0.0, "over_pct": 0},
+  "lines": {"initial_ah": 0, "initial_total": 0}
+}"""
+
+
+def _is_valid_nowgoal_url(url: str) -> bool:
+    """Verifica che l'URL sia una pagina Analysis/H2H di Nowgoal."""
+    url_lower = url.lower()
+    is_nowgoal = any(d in url_lower for d in _NOWGOAL_DOMAINS)
+    has_analysis = any(x in url_lower for x in ("h2h", "analysis"))
+    return is_nowgoal and has_analysis
+
+
+def _fetch_jina_reader(url: str, timeout: int = 30) -> str:
+    """Recupera il testo di una pagina via Jina Reader (r.jina.ai)."""
+    jina_url = _JINA_BASE_URL + url
+    req = urllib.request.Request(
+        jina_url,
+        headers={
+            "Accept": "text/plain",
+            "User-Agent": "Mozilla/5.0 (compatible; Exchange-Bot/1.0)",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
+def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtracted:
+    """Invia il testo della pagina a Gemini (text-only) e parsa la risposta."""
+    import time
+
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message="Gemini: API key non configurata",
+        )
+
+    # Limita a ~10000 caratteri per non eccedere il contesto (la pagina è verbosa)
+    text_truncated = page_text[:10000]
+    full_prompt = f"TESTO PAGINA NOWGOAL:\n\n{text_truncated}\n\n---\n\n{PREMATCH_ANALYSIS_TEXT_PROMPT}"
+
+    request_body = {
+        "contents": [{"parts": [{"text": full_prompt}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 2048,
+            "response_mime_type": "application/json",
+        },
+    }
+    payload = json.dumps(request_body).encode("utf-8")
+
+    last_error = ""
+    for model in _GEMINI_MODELS:
+        api_url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    api_url, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    resp_data = json.loads(resp.read().decode("utf-8"))
+
+                if "candidates" in resp_data and resp_data["candidates"]:
+                    parts_resp = resp_data["candidates"][0].get("content", {}).get("parts", [])
+                    if parts_resp:
+                        text = parts_resp[0].get("text", "")
+                        if text:
+                            return _parse_prematch_analysis_response(text)
+                last_error = f"Gemini ({model}): risposta vuota"
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                last_error = f"Gemini ({model}): HTTP {e.code}"
+                break
+            except Exception as e:
+                last_error = f"Gemini ({model}): {e}"
+                break
+
+    return PrematchAnalysisExtracted(extraction_success=False, error_message=last_error)
+
+
+def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
+    """
+    Estrae analisi prematch da un URL Nowgoal via Jina Reader + Gemini.
+
+    Args:
+        url: URL della pagina Analysis di Nowgoal
+             (es. https://www.nowgoal.com/match/h2h-2800452)
+
+    Returns:
+        PrematchAnalysisExtracted con i dati estratti, o errore se fallisce.
+    """
+    url = url.strip()
+    if not url:
+        return PrematchAnalysisExtracted(
+            extraction_success=False, error_message="URL vuoto",
+        )
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    if not _is_valid_nowgoal_url(url):
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message=(
+                "URL non riconosciuto. Usa un link Nowgoal Analysis "
+                "(es. nowgoal.com/match/h2h-XXXXXX)"
+            ),
+        )
+
+    try:
+        page_text = _fetch_jina_reader(url)
+    except Exception as e:
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message=f"Errore lettura pagina: {e}",
+        )
+
+    if not page_text or len(page_text) < 200:
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message="Pagina vuota o non leggibile tramite Jina Reader",
+        )
+
+    return _extract_prematch_analysis_from_text(page_text)
+
+
+# ============================================================================
 # Main Extraction Functions
 # ============================================================================
 
