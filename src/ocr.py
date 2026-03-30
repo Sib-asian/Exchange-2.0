@@ -2078,7 +2078,6 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
     result = PrematchAnalysisExtracted(
         extraction_success=True,
         error_message="",
-        backend_used="regex",
         # H2H
         h2h_home_win_pct=regex_data["h2h_home_win_pct"],
         h2h_draw_pct=regex_data["h2h_draw_pct"],
@@ -2100,8 +2099,8 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         home_home_win=regex_data["home_home_win"],
         home_home_draw=regex_data["home_home_draw"],
         home_home_lose=regex_data["home_home_lose"],
-        home_home_scored=regex_data["home_home_scored"],
-        home_home_conceded=regex_data["home_home_conceded"],
+        home_home_scored=float(regex_data["home_home_scored"]),
+        home_home_conceded=float(regex_data["home_home_conceded"]),
         home_last6_win=regex_data["home_last6_win"],
         home_last6_draw=regex_data["home_last6_draw"],
         home_last6_lose=regex_data["home_last6_lose"],
@@ -2116,8 +2115,8 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         away_away_win=regex_data["away_away_win"],
         away_away_draw=regex_data["away_away_draw"],
         away_away_lose=regex_data["away_away_lose"],
-        away_away_scored=regex_data["away_away_scored"],
-        away_away_conceded=regex_data["away_away_conceded"],
+        away_away_scored=float(regex_data["away_away_scored"]),
+        away_away_conceded=float(regex_data["away_away_conceded"]),
         away_last6_win=regex_data["away_last6_win"],
         away_last6_draw=regex_data["away_last6_draw"],
         away_last6_lose=regex_data["away_last6_lose"],
@@ -2235,7 +2234,6 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
                                 result.away_team = gemini_result.away_team
                             if not result.league_name and gemini_result.league_name:
                                 result.league_name = gemini_result.league_name
-                            result.backend_used = "regex+gemini"
                             return result
                 last_error = f"Gemini ({model}): risposta vuota"
                 break
