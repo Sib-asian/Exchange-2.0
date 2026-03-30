@@ -76,11 +76,16 @@ def _q_fair(prob: float) -> float:
 # Pronostici Rapidi — solo percentuali, niente quote
 # ---------------------------------------------------------------------------
 
-def _calcola_ht_probs(prematch: Any) -> tuple[float, float, float, float] | None:
+def _calcola_ht_probs(
+    prematch: Any,
+    xg_h_fallback: float = 0.0,
+    xg_a_fallback: float = 0.0,
+) -> tuple[float, float, float, float, bool] | None:
     """
     Stima le probabilità del risultato al 1° tempo usando Poisson + blend H2H.
 
-    Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05) o None se nessun dato.
+    Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate) o None se nessun dato.
+    is_estimate=True quando usa solo lo scaling 46% da xG FT (nessun dato HT diretto).
     """
     lam_h_tot  = getattr(prematch, "home_goals_1h", 0.0) or 0.0
     lam_a_tot  = getattr(prematch, "away_goals_1h", 0.0) or 0.0
@@ -97,7 +102,16 @@ def _calcola_ht_probs(prematch: Any) -> tuple[float, float, float, float] | None
     has_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct > 0.5  # in scala 0-100
 
     if not has_xg and not has_h2h:
-        return None
+        # Fallback: scala xG FT al 46% (proporzione tipica gol 1° tempo)
+        if xg_h_fallback > 0.01 or xg_a_fallback > 0.01:
+            lam_h = xg_h_fallback * 0.46
+            lam_a = xg_a_fallback * 0.46
+            has_xg = True
+            is_estimate = True
+        else:
+            return None
+    else:
+        is_estimate = False
 
     # ── Poisson indipendente ──────────────────────────────────────────────────
     if has_xg:
@@ -142,7 +156,7 @@ def _calcola_ht_probs(prematch: Any) -> tuple[float, float, float, float] | None
     if p_ht1 + p_htx + p_ht2 < 0.01:
         return None
 
-    return p_ht1, p_htx, p_ht2, p_ht_over05
+    return p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate
 
 
 def render_pronostici_rapidi(
@@ -216,17 +230,24 @@ def render_pronostici_rapidi(
 
     # ── Primo Tempo ──────────────────────────────────────────────────────────
     if prematch is not None and minuto == 0:
-        ht = _calcola_ht_probs(prematch)
+        ht = _calcola_ht_probs(
+            prematch,
+            xg_h_fallback=risultati.xg_h_final,
+            xg_a_fallback=risultati.xg_a_final,
+        )
         if ht is not None:
-            p_ht1, p_htx, p_ht2, p_ht_o05 = ht
+            p_ht1, p_htx, p_ht2, p_ht_o05, ht_is_est = ht
             st.divider()
-            st.caption("**Primo Tempo (stima)**")
+            _ht_label = "**Primo Tempo (stima da xG)**" if ht_is_est else "**Primo Tempo**"
+            st.caption(_ht_label)
             ch1, chx, ch2, cho = st.columns(4)
             ch1.metric("1T Casa",     f"{p_ht1:.0%}")
             chx.metric("1T Pareggio", f"{p_htx:.0%}")
             ch2.metric("1T Trasf.",   f"{p_ht2:.0%}")
             if p_ht_o05 > 0.01:
                 cho.metric("1T Over 0.5", f"{p_ht_o05:.0%}")
+            if ht_is_est:
+                st.caption("_Nessun dato HT diretto — stima proporzionale da xG attesi FT_")
 
     # ── Confidenza ───────────────────────────────────────────────────────────
     conf = risultati.model_confidence

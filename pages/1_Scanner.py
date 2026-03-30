@@ -162,11 +162,21 @@ def _calcola_forza(pa: Any) -> dict | None:
             px /= tot
             p2 /= tot
 
-    # ── Blend H2H over% (30%) per O/U ────────────────────────────────────────
-    h2h_over = pa.h2h_over_pct or 0.0
+    # ── Blend O/U: H2H over% (25%) + prev over% casa/trasf. (10% cadauno) ────
+    h2h_over    = pa.h2h_over_pct or 0.0
+    prev_h_over = getattr(pa, "prev_home_over_pct", None) or 0.0
+    prev_a_over = getattr(pa, "prev_away_over_pct", None) or 0.0
+
     if h2h_over > 0.5:
-        p_over25 = 0.70 * p_over25 + 0.30 * (h2h_over / 100.0)
+        p_over25 = 0.75 * p_over25 + 0.25 * (h2h_over / 100.0)
         p_under25 = 1.0 - p_over25
+
+    # Blend singoli prev over% (media pesata 10% ciascuno se presenti)
+    prev_signals = [(prev_h_over, 0.10), (prev_a_over, 0.10)]
+    for prev_pct, w in prev_signals:
+        if prev_pct > 0.5:
+            p_over25 = (1 - w) * p_over25 + w * (prev_pct / 100.0)
+            p_under25 = 1.0 - p_over25
 
     # ── Confidenza ───────────────────────────────────────────────────────────
     pts = 0
@@ -201,6 +211,33 @@ def _calcola_forza(pa: Any) -> dict | None:
         "xg_a": round(xg_a, 2),
         "confidence": round(confidence, 2),
     }
+
+
+def _calcola_ht_da_xg(xg_h: float, xg_a: float) -> tuple[float, float, float, float]:
+    """
+    Stima rapida 1° tempo usando scaling 46% da xG FT (proporzione tipica).
+    Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05).
+    """
+    lam_h = xg_h * 0.46
+    lam_a = xg_a * 0.46
+
+    def _pp(k: int, lam: float) -> float:
+        if lam <= 0:
+            return 1.0 if k == 0 else 0.0
+        return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+    p_ht1 = p_htx = p_ht2 = 0.0
+    for h in range(6):
+        for a in range(6):
+            p = _pp(h, lam_h) * _pp(a, lam_a)
+            if h > a:
+                p_ht1 += p
+            elif h == a:
+                p_htx += p
+            else:
+                p_ht2 += p
+    p_ht_over05 = 1.0 - _pp(0, lam_h) * _pp(0, lam_a)
+    return p_ht1, p_htx, p_ht2, p_ht_over05
 
 
 def _segnale_migliore(probs: dict, confidence: float) -> tuple[str, float, int]:
@@ -406,6 +443,18 @@ if avvia:
                 f"xG Trasf.: **{probs['xg_a']:.2f}** · "
                 f"Confidenza dati: **{conf_pct}%**"
             )
+
+            # ── Primo Tempo (stima da xG) ─────────────────────────────────────
+            p_ht1, p_htx, p_ht2, p_ht_o05 = _calcola_ht_da_xg(
+                probs["xg_h"], probs["xg_a"]
+            )
+            st.caption("**Primo Tempo (stima da xG)**")
+            cht1, chtx, cht2, chto = st.columns(4)
+            cht1.metric("1T Casa",     f"{p_ht1:.0%}")
+            chtx.metric("1T Pareggio", f"{p_htx:.0%}")
+            cht2.metric("1T Trasf.",   f"{p_ht2:.0%}")
+            if p_ht_o05 > 0.01:
+                chto.metric("1T Over 0.5", f"{p_ht_o05:.0%}")
 
             # Dettaglio dati grezzi usati
             pa = r["pa"]
