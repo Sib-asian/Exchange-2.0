@@ -999,6 +999,12 @@ class PrematchAnalysisExtracted:
     strength_home: int = 0            # punteggio forza casa (0-100, da Nowgoal)
     strength_away: int = 0            # punteggio forza trasferta
 
+    # Metadati partita (estratti automaticamente via URL)
+    home_team: str = ""
+    away_team: str = ""
+    league_name: str = ""
+    match_date: str = ""
+
     # Parametri derivati → entrano direttamente nel MatchState
     fixture_historical_total: float = 0.0  # media gol H2H totali
     forma_mult_h: float = 1.0              # moltiplicatore xG casa
@@ -1269,6 +1275,7 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
             except (TypeError, ValueError):
                 return default
 
+        match_info = data.get("match", {})
         h2h      = data.get("h2h", {})
         home     = data.get("home", {})
         away     = data.get("away", {})
@@ -1470,6 +1477,11 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
             # Strength
             strength_home=_i(strength.get("home")),
             strength_away=_i(strength.get("away")),
+            # Match metadata
+            home_team=str(match_info.get("home_team", "") or ""),
+            away_team=str(match_info.get("away_team", "") or ""),
+            league_name=str(match_info.get("league", "") or ""),
+            match_date=str(match_info.get("date", "") or ""),
             # Derived
             fixture_historical_total=fixture_total,
             forma_mult_h=forma_h,
@@ -1612,6 +1624,12 @@ Estrai i dati indicati e rispondi SOLO con JSON valido. Usa 0 per valori non tro
 
 DATI DA ESTRARRE:
 
+0. match — Informazioni base della partita:
+   - home_team: nome squadra di casa
+   - away_team: nome squadra trasferta
+   - league: nome della lega/competizione
+   - date: data della partita (formato YYYY-MM-DD se disponibile)
+
 1. h2h — Head to Head Statistics (scontri diretti precedenti):
    - home_win_pct: % vittorie casa (es. "Win 2 (20%)" → 20)
    - draw_pct: % pareggi
@@ -1659,6 +1677,7 @@ DATI DA ESTRARRE:
    - win_pct, avg_scored, avg_conceded, over_pct (usa 0 se la sezione non è presente)
 
 {
+  "match": {"home_team": "", "away_team": "", "league": "", "date": ""},
   "h2h": {"home_win_pct": 0, "draw_pct": 0, "away_win_pct": 0,
           "avg_goals_home": 0.0, "avg_goals_away": 0.0, "over_pct": 0, "ah_home_cover_pct": 0,
           "ht_home_win_pct": 0, "ht_draw_pct": 0, "ht_away_win_pct": 0},
