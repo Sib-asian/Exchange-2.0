@@ -306,7 +306,8 @@ def _analizza_url(url: str) -> dict | None:
         from src.ocr import extract_prematch_analysis_from_url
         pa = extract_prematch_analysis_from_url(url)
         if not pa or not pa.extraction_success:
-            return None
+            err = getattr(pa, "error_message", "Estrazione fallita") if pa else "Nessun risultato"
+            return {"url": url, "error": err}
 
         probs = _calcola_forza(pa)
         if probs is None:
