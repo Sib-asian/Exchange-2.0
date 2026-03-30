@@ -1733,8 +1733,9 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
             error_message="Gemini: API key non configurata",
         )
 
-    # Limita a ~10000 caratteri per non eccedere il contesto (la pagina è verbosa)
-    text_truncated = page_text[:10000]
+    # Cattura fino a 20000 caratteri — la maggior parte delle pagine H2H Nowgoal
+    # è entro 12000 chars, ma alcune possono essere più lunghe (molti match H2H)
+    text_truncated = page_text[:20000]
     full_prompt = f"TESTO PAGINA NOWGOAL:\n\n{text_truncated}\n\n---\n\n{PREMATCH_ANALYSIS_TEXT_PROMPT}"
 
     request_body = {
