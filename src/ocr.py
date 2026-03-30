@@ -1903,10 +1903,16 @@ def _extract_all_with_regex(text: str) -> dict:
     result["h2h_away_win_pct"] = h2h["h2h_away_win_pct"]
     
     # H2H Over %
-    # Es: "Over 67%" o "Over: 67%" o "Over 5 (50%)"
-    over_match = re.search(r"Over\s*(\d+(?:\.\d+)?)\s*%?", text, re.IGNORECASE)
+    # Formati: "60%Over" (Nowgoal H2H), "Over 67%", "Over: 67%"
+    # Cerca prima il formato specifico Nowgoal "XX%Over" (più affidabile per H2H)
+    over_match = re.search(r"(\d+(?:\.\d+)?)%\s*Over", text, re.IGNORECASE)
     if over_match:
         result["h2h_over_pct"] = float(over_match.group(1))
+    else:
+        # Formato alternativo: "Over 67%"
+        over_match2 = re.search(r"Over\s*(\d+(?:\.\d+)?)\s*%?", text, re.IGNORECASE)
+        if over_match2:
+            result["h2h_over_pct"] = float(over_match2.group(1))
     
     # H2H media gol
     # Es: "2.3 goals" o "avg 2.3" o "Goal Score/Loss per Game 2.3"
@@ -2178,6 +2184,10 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         result.away_last6_win, result.away_last6_draw, result.away_last6_lose,
         result.away_scored, result.away_conceded, result.away_matches,
     )
+    
+    # Calcola fixture_historical_total (media gol H2H totali)
+    if result.h2h_avg_goals_home > 0 or result.h2h_avg_goals_away > 0:
+        result.fixture_historical_total = result.h2h_avg_goals_home + result.h2h_avg_goals_away
     
     # === PASSO 2: Se regex ha estratto dati sufficienti, termina qui ===
     has_data = (
