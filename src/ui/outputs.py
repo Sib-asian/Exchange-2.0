@@ -13,7 +13,7 @@ Centralizza tutta la logica di output dell'interfaccia utente:
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import streamlit as st
 
@@ -76,6 +76,75 @@ def _q_fair(prob: float) -> float:
 # Pronostici Rapidi — solo percentuali, niente quote
 # ---------------------------------------------------------------------------
 
+def _calcola_ht_probs(prematch: Any) -> tuple[float, float, float, float] | None:
+    """
+    Stima le probabilità del risultato al 1° tempo usando Poisson + blend H2H.
+
+    Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05) o None se nessun dato.
+    """
+    lam_h_tot  = getattr(prematch, "home_goals_1h", 0.0) or 0.0
+    lam_a_tot  = getattr(prematch, "away_goals_1h", 0.0) or 0.0
+    hm         = max(1, getattr(prematch, "home_matches", 1) or 1)
+    am         = max(1, getattr(prematch, "away_matches", 1) or 1)
+    h2h_h_pct  = getattr(prematch, "h2h_ht_home_win_pct", 0.0) or 0.0
+    h2h_d_pct  = getattr(prematch, "h2h_ht_draw_pct", 0.0) or 0.0
+    h2h_a_pct  = getattr(prematch, "h2h_ht_away_win_pct", 0.0) or 0.0
+
+    lam_h = lam_h_tot / hm  # media gol 1T per partita - casa
+    lam_a = lam_a_tot / am  # media gol 1T per partita - trasf.
+
+    has_xg  = lam_h > 0.01 or lam_a > 0.01
+    has_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct > 0.5  # in scala 0-100
+
+    if not has_xg and not has_h2h:
+        return None
+
+    # ── Poisson indipendente ──────────────────────────────────────────────────
+    if has_xg:
+        def _pp(k: int, lam: float) -> float:
+            if lam <= 0:
+                return 1.0 if k == 0 else 0.0
+            return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+        p_ht1 = p_htx = p_ht2 = 0.0
+        for h in range(6):
+            for a in range(6):
+                p = _pp(h, lam_h) * _pp(a, lam_a)
+                if h > a:
+                    p_ht1 += p
+                elif h == a:
+                    p_htx += p
+                else:
+                    p_ht2 += p
+        p_ht_over05 = 1.0 - _pp(0, lam_h) * _pp(0, lam_a)
+    else:
+        p_ht1 = p_htx = p_ht2 = p_ht_over05 = 0.0
+
+    # ── Blend con H2H ────────────────────────────────────────────────────────
+    if has_h2h:
+        _tot_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct
+        h2h_p1 = h2h_h_pct / _tot_h2h
+        h2h_px = h2h_d_pct / _tot_h2h
+        h2h_p2 = h2h_a_pct / _tot_h2h
+        if has_xg:
+            alpha = 0.30  # 30% peso H2H storico
+            p_ht1 = (1 - alpha) * p_ht1 + alpha * h2h_p1
+            p_htx = (1 - alpha) * p_htx + alpha * h2h_px
+            p_ht2 = (1 - alpha) * p_ht2 + alpha * h2h_p2
+            _nt = p_ht1 + p_htx + p_ht2
+            if _nt > 0:
+                p_ht1 /= _nt
+                p_htx /= _nt
+                p_ht2 /= _nt
+        else:
+            p_ht1, p_htx, p_ht2 = h2h_p1, h2h_px, h2h_p2
+
+    if p_ht1 + p_htx + p_ht2 < 0.01:
+        return None
+
+    return p_ht1, p_htx, p_ht2, p_ht_over05
+
+
 def render_pronostici_rapidi(
     risultati: ProbabilitaModello,
     linea_ou: float,
@@ -83,17 +152,17 @@ def render_pronostici_rapidi(
     gol_casa: int = 0,
     gol_trasf: int = 0,
     linea_ah: float = -0.25,
+    prematch: Any = None,
 ) -> None:
     """
-    Blocco percentuali pulito per tutti i mercati principali.
-    Niente quote, niente CI, niente robe strane — solo le probabilità.
+    Blocco pronostici completo: 1X2, AH, O/U, xG, Top CS, Primo Tempo.
     """
     if minuto > 0:
         st.subheader(f"Pronostici — {minuto}' | {gol_casa}–{gol_trasf}")
     else:
         st.subheader("Pronostici Prematch")
 
-    # 1X2
+    # ── 1X2 ──────────────────────────────────────────────────────────────────
     c1, cx, c2 = st.columns(3)
     c1.metric("1 — Casa",     f"{risultati.p1:.0%}")
     cx.metric("X — Pareggio", f"{risultati.px:.0%}")
@@ -101,7 +170,7 @@ def render_pronostici_rapidi(
 
     st.divider()
 
-    # AH cover probability — sempre visibile, direttamente sull'Asian Handicap
+    # ── AH cover ─────────────────────────────────────────────────────────────
     p_ah_h, p_ah_a = _prob_ah_cover(risultati.p1, risultati.px, risultati.p2, linea_ah)
     ah_sign = "+" if linea_ah >= 0 else ""
     cah1, cah2 = st.columns(2)
@@ -123,14 +192,43 @@ def render_pronostici_rapidi(
 
     st.divider()
 
-    # Over/Under + BTTS
+    # ── Over/Under + BTTS + xG ───────────────────────────────────────────────
     co, cu, cgg, cng = st.columns(4)
     co.metric(f"Over {linea_ou}",  f"{risultati.p_over:.0%}")
     cu.metric(f"Under {linea_ou}", f"{risultati.p_under:.0%}")
     cgg.metric("GG (sì)",          f"{risultati.p_btts:.0%}")
     cng.metric("NG (no)",          f"{1 - risultati.p_btts:.0%}")
 
-    # Confidenza modello
+    xh = risultati.xg_h_final
+    xa = risultati.xg_a_final
+    if xh + xa > 0.01:
+        cxh, cxa = st.columns(2)
+        cxh.metric("xG Casa attesi",  f"{xh:.2f}")
+        cxa.metric("xG Trasf. attesi", f"{xa:.2f}")
+
+    # ── Top 3 Correct Score ──────────────────────────────────────────────────
+    if risultati.top_cs:
+        st.divider()
+        st.caption("**Punteggi più probabili**")
+        cs_cols = st.columns(3)
+        for idx, ((fc, ft), prob) in enumerate(risultati.top_cs[:3]):
+            cs_cols[idx].metric(f"{fc}–{ft}", f"{prob:.1%}", f"fair @{_q_fair(prob):.2f}")
+
+    # ── Primo Tempo ──────────────────────────────────────────────────────────
+    if prematch is not None and minuto == 0:
+        ht = _calcola_ht_probs(prematch)
+        if ht is not None:
+            p_ht1, p_htx, p_ht2, p_ht_o05 = ht
+            st.divider()
+            st.caption("**Primo Tempo (stima)**")
+            ch1, chx, ch2, cho = st.columns(4)
+            ch1.metric("1T Casa",     f"{p_ht1:.0%}")
+            chx.metric("1T Pareggio", f"{p_htx:.0%}")
+            ch2.metric("1T Trasf.",   f"{p_ht2:.0%}")
+            if p_ht_o05 > 0.01:
+                cho.metric("1T Over 0.5", f"{p_ht_o05:.0%}")
+
+    # ── Confidenza ───────────────────────────────────────────────────────────
     conf = risultati.model_confidence
     icon = "🟢" if conf >= 0.70 else "🟡" if conf >= 0.40 else "🔴"
     parts = [f"{icon} Confidenza: **{conf:.0%}**"]
@@ -235,41 +333,43 @@ def render_analisi_dinamica(
             f"(α_D={risultati.alpha_d:.2f})"
         )
 
-    # ── 4. AH linee vicine ────────────────────────────────────────────────────
-    ah_cur = state.ah_cur
-    ah_rows = []
-    for delta in (-0.25, 0.0, +0.25):
-        alt = ah_cur + delta
-        ph, pa = _prob_ah_cover(risultati.p1, risultati.px, risultati.p2, alt)
-        tag = " ◄" if delta == 0.0 else ""
-        ah_rows.append((f"AH {alt:+g}{tag}", ph, pa))
+    # ── 4. AH linee vicine (solo live) ───────────────────────────────────────
+    if minuto > 0:
+        ah_cur = state.ah_cur
+        ah_rows = []
+        for delta in (-0.25, 0.0, +0.25):
+            alt = ah_cur + delta
+            ph, pa = _prob_ah_cover(risultati.p1, risultati.px, risultati.p2, alt)
+            tag = " ◄" if delta == 0.0 else ""
+            ah_rows.append((f"AH {alt:+g}{tag}", ph, pa))
 
-    if ah_rows:
-        st.markdown("**AH linee vicine**")
-        cols = st.columns(len(ah_rows))
-        for i, (lbl, ph, pa) in enumerate(ah_rows):
-            cols[i].metric(lbl, f"Casa {ph:.0%}", delta=f"Trasf. {pa:.0%}", delta_color="off")
+        if ah_rows:
+            st.markdown("**AH linee vicine**")
+            cols = st.columns(len(ah_rows))
+            for i, (lbl, ph, pa) in enumerate(ah_rows):
+                cols[i].metric(lbl, f"Casa {ph:.0%}", delta=f"Trasf. {pa:.0%}", delta_color="off")
 
-    # ── 5. Mercati O/U disponibili ────────────────────────────────────────────
-    dist = risultati.gol_tot_dist
-    if dist:
-        total_p = sum(dist.values())
-        cum: dict[int, float] = {
-            k: sum(v for key, v in dist.items() if key >= k) / (total_p or 1.0)
-            for k in range(1, 6)
-        }
-        mercati_ou = []
-        for extra in (1, 2, 3):
-            linea_f = gol_tot + extra - 0.5
-            p_o = cum.get(extra, 0.0)
-            mercati_ou += [(f"Over {linea_f:.1f}", p_o), (f"Under {linea_f:.1f}", 1.0 - p_o)]
+    # ── 5. Mercati O/U disponibili (solo live) ───────────────────────────────
+    if minuto > 0:
+        dist = risultati.gol_tot_dist
+        if dist:
+            total_p = sum(dist.values())
+            cum: dict[int, float] = {
+                k: sum(v for key, v in dist.items() if key >= k) / (total_p or 1.0)
+                for k in range(1, 6)
+            }
+            mercati_ou = []
+            for extra in (1, 2, 3):
+                linea_f = gol_tot + extra - 0.5
+                p_o = cum.get(extra, 0.0)
+                mercati_ou += [(f"Over {linea_f:.1f}", p_o), (f"Under {linea_f:.1f}", 1.0 - p_o)]
 
-        interessanti = [(lbl, p) for lbl, p in mercati_ou if 0.15 <= p <= 0.85]
-        if interessanti:
-            st.markdown("**Mercati O/U disponibili**")
-            cols = st.columns(min(len(interessanti), 4))
-            for i, (lbl, p) in enumerate(interessanti[:4]):
-                cols[i].metric(lbl, f"{p:.0%}")
+            interessanti = [(lbl, p) for lbl, p in mercati_ou if 0.15 <= p <= 0.85]
+            if interessanti:
+                st.markdown("**Mercati O/U disponibili**")
+                cols = st.columns(min(len(interessanti), 4))
+                for i, (lbl, p) in enumerate(interessanti[:4]):
+                    cols[i].metric(lbl, f"{p:.0%}")
 
     # ── 6. Scenario prossimo gol ──────────────────────────────────────────────
     if minuto > 0 and scenario_h and scenario_a:

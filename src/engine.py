@@ -106,6 +106,14 @@ class MatchState:
     forma_mult_h: float = 1.0     # moltiplicatore xG casa dalla forma recente
     forma_mult_a: float = 1.0     # moltiplicatore xG trasferta dalla forma recente
 
+    # Dati prematch per post-consensus correction (solo prematch, 0 = non disponibile)
+    mkt_init_1: float = 0.0       # quota 1X2 iniziale casa (media bookmaker)
+    mkt_init_x: float = 0.0       # quota 1X2 iniziale pareggio
+    mkt_init_2: float = 0.0       # quota 1X2 iniziale trasferta
+    h2h_home_win_pct: float = 0.0 # % vittorie casa nei precedenti H2H (0-100)
+    h2h_draw_pct: float = 0.0     # % pareggi nei precedenti H2H
+    h2h_away_win_pct: float = 0.0 # % vittorie trasferta nei precedenti H2H
+
     # Bankroll e commissione
     bankroll: float = 1000.0
     comm_rate: float = 0.025   # 2.5%
@@ -615,6 +623,46 @@ def analizza(
                                        max(0.0, (_overround_btts - 1.0) * OCR_QUOTES.BTTS_QUALITY_OVERROUND_RATE))
             _w_btts = OCR_QUOTES.BTTS_PRIOR_WEIGHT * _quality_btts
             p_btts = (1.0 - _w_btts) * p_btts + _w_btts * _p_gg_ocr
+
+    # 9c. Post-consensus 1X2 correction da market initial odds e H2H prior (solo prematch).
+    # Due segnali indipendenti dal modello Poisson/Copula/Markov vengono blended
+    # con peso conservativo per ancorare la 1X2 a informazioni esterne.
+    # Pesi: 8% market-implied 1X2 + 5% H2H storico → max 13% totale.
+    if state.minuto == 0:
+        _alpha_mkt  = 0.08  # peso quote 1X2 iniziali bookmaker
+        _alpha_h2h  = 0.05  # peso H2H storico 1X2
+        _p1_adj, _px_adj, _p2_adj = p1, px, p2  # partenza dal consensus calibrato
+
+        # Market-implied 1X2 (rimuovi vig e normalizza)
+        if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
+            _raw1 = 1.0 / state.mkt_init_1
+            _rawx = 1.0 / state.mkt_init_x
+            _raw2 = 1.0 / state.mkt_init_2
+            _tot_raw = _raw1 + _rawx + _raw2
+            if _tot_raw > 0:
+                _p1_mkt = _raw1 / _tot_raw
+                _px_mkt = _rawx / _tot_raw
+                _p2_mkt = _raw2 / _tot_raw
+                _p1_adj = (1.0 - _alpha_mkt) * _p1_adj + _alpha_mkt * _p1_mkt
+                _px_adj = (1.0 - _alpha_mkt) * _px_adj + _alpha_mkt * _px_mkt
+                _p2_adj = (1.0 - _alpha_mkt) * _p2_adj + _alpha_mkt * _p2_mkt
+
+        # H2H storico 1X2 (normalizza le percentuali)
+        _h2h_sum = state.h2h_home_win_pct + state.h2h_draw_pct + state.h2h_away_win_pct
+        if _h2h_sum > 0:
+            _p1_h2h = state.h2h_home_win_pct / _h2h_sum
+            _px_h2h = state.h2h_draw_pct / _h2h_sum
+            _p2_h2h = state.h2h_away_win_pct / _h2h_sum
+            _p1_adj = (1.0 - _alpha_h2h) * _p1_adj + _alpha_h2h * _p1_h2h
+            _px_adj = (1.0 - _alpha_h2h) * _px_adj + _alpha_h2h * _px_h2h
+            _p2_adj = (1.0 - _alpha_h2h) * _p2_adj + _alpha_h2h * _p2_h2h
+
+        # Rinormalizza per garantire somma = 1
+        _sum_1x2 = _p1_adj + _px_adj + _p2_adj
+        if _sum_1x2 > 0:
+            p1 = _p1_adj / _sum_1x2
+            px = _px_adj / _sum_1x2
+            p2 = _p2_adj / _sum_1x2
 
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
     # Fix #2.7: Usa funzione helper per costruire la matrice consensus (pesi dinamici)
