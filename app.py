@@ -211,7 +211,7 @@ if _btn_prematch or _btn_live:
             st.warning(f"⚠️ Recovery time ({_minuto}'): previsioni meno affidabili.")
 
     st.divider()
-    render_pronostici_rapidi(risultati, _lou, _minuto, _gol_h, _gol_a, linea_ah=lines["ah_cur"])
+    render_pronostici_rapidi(risultati, _lou, _minuto, _gol_h, _gol_a, linea_ah=lines["ah_cur"], prematch=_pa)
 
     render_analisi_dinamica(risultati, state, _gol_tot, _scen_h, _scen_a)
 
@@ -252,11 +252,8 @@ if _btn_prematch or _btn_live:
             render_debug,
             render_momentum,
             render_red_card_impact,
-            render_riepilogo_modello,
             render_session_stats,
         )
-        render_riepilogo_modello(risultati, _lou, _minuto)
-        st.divider()
         render_confidence_bands(risultati, _lou)
         render_coerenza_mercati(risultati, _lou)
         render_correct_score(risultati)
