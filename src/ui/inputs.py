@@ -973,6 +973,12 @@ def build_match_state(
     absence_mult_a: float = 1.0,
     forma_mult_h: float = 1.0,
     forma_mult_a: float = 1.0,
+    mkt_init_1: float = 0.0,
+    mkt_init_x: float = 0.0,
+    mkt_init_2: float = 0.0,
+    h2h_home_win_pct: float = 0.0,
+    h2h_draw_pct: float = 0.0,
+    h2h_away_win_pct: float = 0.0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -1038,6 +1044,12 @@ def build_match_state(
         absence_mult_a=absence_mult_a,
         forma_mult_h=forma_mult_h,
         forma_mult_a=forma_mult_a,
+        mkt_init_1=mkt_init_1,
+        mkt_init_x=mkt_init_x,
+        mkt_init_2=mkt_init_2,
+        h2h_home_win_pct=h2h_home_win_pct,
+        h2h_draw_pct=h2h_draw_pct,
+        h2h_away_win_pct=h2h_away_win_pct,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )

@@ -126,9 +126,15 @@ if _btn_prematch or _btn_live:
     _lou = _linea_ou(lines["tot_cur_raw"])
 
     _pa = st.session_state.get("prematch_analysis")
-    _forma_h = float(getattr(_pa, "forma_mult_h", 1.0)) if _pa else 1.0
-    _forma_a = float(getattr(_pa, "forma_mult_a", 1.0)) if _pa else 1.0
+    _forma_h  = float(getattr(_pa, "forma_mult_h", 1.0)) if _pa else 1.0
+    _forma_a  = float(getattr(_pa, "forma_mult_a", 1.0)) if _pa else 1.0
     _hist_tot = float(getattr(_pa, "fixture_historical_total", 0.0)) if _pa else 0.0
+    _mkt1     = float(getattr(_pa, "mkt_init_1", 0.0)) if _pa else 0.0
+    _mktx     = float(getattr(_pa, "mkt_init_x", 0.0)) if _pa else 0.0
+    _mkt2     = float(getattr(_pa, "mkt_init_2", 0.0)) if _pa else 0.0
+    _h2h_home = float(getattr(_pa, "h2h_home_win_pct", 0.0)) if _pa else 0.0
+    _h2h_draw = float(getattr(_pa, "h2h_draw_pct", 0.0)) if _pa else 0.0
+    _h2h_away = float(getattr(_pa, "h2h_away_win_pct", 0.0)) if _pa else 0.0
 
     try:
         state = build_match_state(
@@ -136,6 +142,12 @@ if _btn_prematch or _btn_live:
             forma_mult_h=_forma_h,
             forma_mult_a=_forma_a,
             fixture_historical_total=_hist_tot,
+            mkt_init_1=_mkt1,
+            mkt_init_x=_mktx,
+            mkt_init_2=_mkt2,
+            h2h_home_win_pct=_h2h_home,
+            h2h_draw_pct=_h2h_draw,
+            h2h_away_win_pct=_h2h_away,
         )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")

@@ -1375,21 +1375,42 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         # Blend di H2H (60%) e stima da form recente (40%) se disponibile.
         # Form estimate: media gol segnati da casa + gol subiti da trasferta (e viceversa).
         h2h_total = h2h_avg_h + h2h_avg_a
-        prev_h_scored = _f(prev_h.get("avg_scored"))
-        prev_h_conceded = _f(prev_h.get("avg_conceded"))
-        prev_a_scored = _f(prev_a.get("avg_scored"))
-        prev_a_conceded = _f(prev_a.get("avg_conceded"))
+        prev_h_scored    = _f(prev_h.get("avg_scored"))
+        prev_h_conceded  = _f(prev_h.get("avg_conceded"))
+        prev_a_scored    = _f(prev_a.get("avg_scored"))
+        prev_a_conceded  = _f(prev_a.get("avg_conceded"))
+        prev_h_over      = _f(prev_h.get("over_pct"))
+        prev_a_over      = _f(prev_a.get("over_pct"))
+
         form_total = 0.0
         if prev_h_scored > 0 and prev_a_conceded > 0:
             form_total += (prev_h_scored + prev_a_conceded) / 2.0
         if prev_a_scored > 0 and prev_h_conceded > 0:
             form_total += (prev_a_scored + prev_h_conceded) / 2.0
+
         if h2h_total > 0.1 and form_total > 0.1:
             fixture_total = 0.60 * h2h_total + 0.40 * form_total
         elif h2h_total > 0.1:
             fixture_total = h2h_total
         else:
             fixture_total = form_total  # fallback se H2H non disponibile
+
+        # Correzione Over% — segnale indipendente dai gol medi.
+        # Se le partite di queste squadre tendono a Over, spingi leggermente il totale
+        # verso l'alto (e viceversa). Baseline media: ~55%. Max correzione: ±0.20 gol.
+        if fixture_total > 0.1:
+            _over_signals = []
+            if h2h_over > 0:
+                _over_signals.append(h2h_over)
+            if prev_h_over > 0:
+                _over_signals.append(prev_h_over)
+            if prev_a_over > 0:
+                _over_signals.append(prev_a_over)
+            if _over_signals:
+                _over_avg = sum(_over_signals) / len(_over_signals)
+                _over_corr = (_over_avg - 55.0) / 100.0  # [-0.55, +0.45]
+                _over_corr = max(-0.20, min(0.20, _over_corr * 0.40))  # max ±0.20 gol
+                fixture_total = max(0.5, fixture_total + _over_corr)
 
         forma_h = _forma_mult_from_standings(
             _hw_eff, _hd_eff, _hl_eff, hl6w, hl6d, hl6l, _hsc_eff, _hco_eff, _hm_eff,
