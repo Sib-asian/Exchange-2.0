@@ -126,8 +126,10 @@ if _btn_prematch or _btn_live:
     _lou = _linea_ou(lines["tot_cur_raw"])
 
     _pa = st.session_state.get("prematch_analysis")
-    _forma_h  = float(getattr(_pa, "forma_mult_h", 1.0)) if _pa else 1.0
-    _forma_a  = float(getattr(_pa, "forma_mult_a", 1.0)) if _pa else 1.0
+    _fm_raw_h = getattr(_pa, "forma_mult_h", None) if _pa else None
+    _fm_raw_a = getattr(_pa, "forma_mult_a", None) if _pa else None
+    _forma_h  = float(_fm_raw_h) if _fm_raw_h is not None else 1.0
+    _forma_a  = float(_fm_raw_a) if _fm_raw_a is not None else 1.0
     _hist_tot = float(getattr(_pa, "fixture_historical_total", 0.0)) if _pa else 0.0
     _mkt1     = float(getattr(_pa, "mkt_init_1", 0.0)) if _pa else 0.0
     _mktx     = float(getattr(_pa, "mkt_init_x", 0.0)) if _pa else 0.0

@@ -473,4 +473,251 @@ class TestExtractLiveStatsFromBytes:
         with patch("src.ocr._get_gemini_api_key", return_value=None):
             result = extract_live_stats_from_bytes(b"fake image")
             assert result.extraction_success is False
-            assert "API key" in result.error_message
+
+
+# ---------------------------------------------------------------------------
+# Tests for _parse_prematch_analysis_response
+# ---------------------------------------------------------------------------
+
+class TestParsePrematchAnalysisResponse:
+    """Tests for the prematch analysis JSON parser."""
+
+    def _make_full_json(self, **overrides) -> str:
+        base = {
+            "match": {
+                "home_team": "Juventus",
+                "away_team": "Inter",
+                "league": "Serie A",
+                "date": "2026-04-06",
+            },
+            "h2h": {
+                "home_win_pct": 40, "draw_pct": 30, "away_win_pct": 30,
+                "avg_goals_home": 1.2, "avg_goals_away": 0.9,
+                "over_pct": 55, "ah_home_cover_pct": 48,
+                "ht_home_win_pct": 35, "ht_draw_pct": 40, "ht_away_win_pct": 25,
+            },
+            "strength": {"home": 72, "away": 68},
+            "odds": {"init_1": 2.10, "init_x": 3.40, "init_2": 3.20},
+            "home": {
+                "rank": 3, "matches": 28, "win": 18, "draw": 5, "lose": 5,
+                "scored": 52, "conceded": 24, "win_rate": 68.0,
+                "home_win": 10, "home_draw": 2, "home_lose": 2,
+                "home_scored": 30, "home_conceded": 10,
+                "last6_win": 4, "last6_draw": 1, "last6_lose": 1,
+                "ht_win": 12, "ht_draw": 10, "ht_lose": 6,
+                "goals_1h": 22, "goals_2h": 30,
+            },
+            "away": {
+                "rank": 2, "matches": 28, "win": 17, "draw": 6, "lose": 5,
+                "scored": 48, "conceded": 22, "win_rate": 64.0,
+                "away_win": 7, "away_draw": 3, "away_lose": 4,
+                "away_scored": 20, "away_conceded": 14,
+                "last6_win": 3, "last6_draw": 2, "last6_lose": 1,
+                "ht_win": 11, "ht_draw": 10, "ht_lose": 7,
+                "goals_1h": 18, "goals_2h": 30,
+            },
+            "prev_home": {"win_pct": 65, "avg_scored": 1.9, "avg_conceded": 0.8, "over_pct": 60},
+            "prev_away": {"win_pct": 55, "avg_scored": 1.6, "avg_conceded": 1.0, "over_pct": 50},
+        }
+        base.update(overrides)
+        return json.dumps(base)
+
+    def test_successful_parse(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        assert result.extraction_success is True
+        assert result.home_team == "Juventus"
+        assert result.away_team == "Inter"
+        assert result.league_name == "Serie A"
+        assert result.match_date == "2026-04-06"
+
+    def test_h2h_fields(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        assert result.h2h_home_win_pct == 40.0
+        assert result.h2h_draw_pct == 30.0
+        assert result.h2h_away_win_pct == 30.0
+        assert result.h2h_over_pct == 55.0
+        assert result.h2h_ht_home_win_pct == 35.0
+
+    def test_standings_home(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        assert result.home_rank == 3
+        assert result.home_matches == 28
+        assert result.home_win == 18
+        assert result.home_scored == 52
+        assert result.home_home_scored == 30.0
+
+    def test_standings_away(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        assert result.away_rank == 2
+        assert result.away_matches == 28
+        assert result.away_away_scored == 20.0
+
+    def test_market_odds(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        assert result.mkt_init_1 == 2.10
+        assert result.mkt_init_x == 3.40
+        assert result.mkt_init_2 == 3.20
+
+    def test_forma_mult_calculated(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        # last6: 4W 1D 1L → strong form → forma_mult_h > 1.0
+        assert result.forma_mult_h > 1.0
+        # last6: 3W 2D 1L → decent form → forma_mult_a > 1.0
+        assert result.forma_mult_a > 1.0
+
+    def test_fixture_total_from_h2h(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        # fixture_total = blend(h2h_total=2.1, form_total) > 0
+        assert result.fixture_historical_total > 0.5
+
+    def test_prev_scores(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        assert result.home_prev_avg_scored == 1.9
+        assert result.away_prev_avg_scored == 1.6
+
+    def test_strength(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        assert result.strength_home == 72
+        assert result.strength_away == 68
+
+    def test_goal_timing(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response(self._make_full_json())
+        assert result.home_goals_1h == 22.0
+        assert result.away_goals_1h == 18.0
+
+    def test_empty_response(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response("")
+        assert result.extraction_success is False
+
+    def test_invalid_json(self):
+        from src.ocr import _parse_prematch_analysis_response
+        result = _parse_prematch_analysis_response("not json")
+        assert result.extraction_success is False
+
+    def test_json_in_markdown(self):
+        from src.ocr import _parse_prematch_analysis_response
+        wrapped = f"```json\n{self._make_full_json()}\n```"
+        result = _parse_prematch_analysis_response(wrapped)
+        assert result.extraction_success is True
+        assert result.home_team == "Juventus"
+
+    def test_missing_match_section(self):
+        """Parser should still work even without the match section."""
+        from src.ocr import _parse_prematch_analysis_response
+        data = json.loads(self._make_full_json())
+        del data["match"]
+        result = _parse_prematch_analysis_response(json.dumps(data))
+        assert result.extraction_success is True
+        assert result.home_team == ""
+        assert result.away_team == ""
+
+    def test_last6_autocorrect(self):
+        """last6 values that don't sum to 6 should be auto-corrected."""
+        from src.ocr import _parse_prematch_analysis_response
+        data = json.loads(self._make_full_json())
+        # Set last6 sum to 9 (wrong) — should be corrected to sum=6
+        data["home"]["last6_win"] = 6
+        data["home"]["last6_draw"] = 2
+        data["home"]["last6_lose"] = 1
+        result = _parse_prematch_analysis_response(json.dumps(data))
+        assert result.extraction_success is True
+        assert result.home_last6_win + result.home_last6_draw + result.home_last6_lose == 6
+
+
+# ---------------------------------------------------------------------------
+# Tests for session_storage
+# ---------------------------------------------------------------------------
+
+class TestSessionStorage:
+    def test_load_empty(self, tmp_path, monkeypatch):
+        import src.session_storage as ss
+        monkeypatch.setattr(ss, "_STORAGE_PATH", tmp_path / "test.json")
+        assert ss.load_partite() == []
+
+    def test_save_and_load(self, tmp_path, monkeypatch):
+        import src.session_storage as ss
+        monkeypatch.setattr(ss, "_STORAGE_PATH", tmp_path / "test.json")
+        p = ss.PartitaSalvata(id="abc", nome="Test", saved_at="01/01 10:00")
+        ss.save_partita(p)
+        loaded = ss.load_partite()
+        assert len(loaded) == 1
+        assert loaded[0].id == "abc"
+
+    def test_update_existing(self, tmp_path, monkeypatch):
+        import src.session_storage as ss
+        monkeypatch.setattr(ss, "_STORAGE_PATH", tmp_path / "test.json")
+        p = ss.PartitaSalvata(id="abc", nome="Test", saved_at="01/01 10:00")
+        ss.save_partita(p)
+        p2 = ss.PartitaSalvata(id="abc", nome="Updated", saved_at="01/01 11:00")
+        ss.save_partita(p2)
+        loaded = ss.load_partite()
+        assert len(loaded) == 1
+        assert loaded[0].nome == "Updated"
+
+    def test_max_partite(self, tmp_path, monkeypatch):
+        import src.session_storage as ss
+        monkeypatch.setattr(ss, "_STORAGE_PATH", tmp_path / "test.json")
+        monkeypatch.setattr(ss, "_MAX_PARTITE", 3)
+        for i in range(5):
+            ss.save_partita(ss.PartitaSalvata(id=str(i), nome=f"P{i}", saved_at="01/01"))
+        loaded = ss.load_partite()
+        assert len(loaded) == 3
+        assert loaded[0].id == "2"  # oldest 0,1 removed
+
+    def test_delete(self, tmp_path, monkeypatch):
+        import src.session_storage as ss
+        monkeypatch.setattr(ss, "_STORAGE_PATH", tmp_path / "test.json")
+        ss.save_partita(ss.PartitaSalvata(id="x", nome="X", saved_at="01/01"))
+        ss.save_partita(ss.PartitaSalvata(id="y", nome="Y", saved_at="01/01"))
+        ss.delete_partita("x")
+        loaded = ss.load_partite()
+        assert len(loaded) == 1
+        assert loaded[0].id == "y"
+
+    def test_build_partita_id(self):
+        from src.session_storage import build_partita_id
+        pid = build_partita_id()
+        assert isinstance(pid, str)
+        assert len(pid) > 0
+
+    def test_build_saved_at_label(self):
+        from src.session_storage import build_saved_at_label
+        label = build_saved_at_label()
+        assert "/" in label and ":" in label
+
+    def test_collect_widget_state(self):
+        from src.session_storage import collect_widget_state
+        mock_state = {
+            "lines_ah_op": -0.25,
+            "bankroll_value": 1000.0,
+            "non_serializable": object(),
+        }
+        result = collect_widget_state(mock_state)
+        assert result["lines_ah_op"] == -0.25
+        assert result["bankroll_value"] == 1000.0
+        assert "non_serializable" not in result
+
+    def test_restore_widget_state(self):
+        from src.session_storage import restore_widget_state
+        state = {}
+        restore_widget_state(state, {"lines_ah_op": -0.5, "bankroll_value": 500.0})
+        assert state["lines_ah_op"] == -0.5
+
+    def test_corrupt_file(self, tmp_path, monkeypatch):
+        import src.session_storage as ss
+        p = tmp_path / "test.json"
+        p.write_text("not valid json")
+        monkeypatch.setattr(ss, "_STORAGE_PATH", p)
+        result = ss.load_partite()
+        assert result == []

@@ -76,11 +76,16 @@ def _q_fair(prob: float) -> float:
 # Pronostici Rapidi — solo percentuali, niente quote
 # ---------------------------------------------------------------------------
 
-def _calcola_ht_probs(prematch: Any) -> tuple[float, float, float, float] | None:
+def _calcola_ht_probs(
+    prematch: Any,
+    xg_h_fallback: float = 0.0,
+    xg_a_fallback: float = 0.0,
+) -> tuple[float, float, float, float, bool] | None:
     """
     Stima le probabilità del risultato al 1° tempo usando Poisson + blend H2H.
 
-    Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05) o None se nessun dato.
+    Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate) o None se nessun dato.
+    is_estimate=True quando usa solo lo scaling 46% da xG FT (nessun dato HT diretto).
     """
     lam_h_tot  = getattr(prematch, "home_goals_1h", 0.0) or 0.0
     lam_a_tot  = getattr(prematch, "away_goals_1h", 0.0) or 0.0
@@ -97,7 +102,16 @@ def _calcola_ht_probs(prematch: Any) -> tuple[float, float, float, float] | None
     has_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct > 0.5  # in scala 0-100
 
     if not has_xg and not has_h2h:
-        return None
+        # Fallback: scala xG FT al 46% (proporzione tipica gol 1° tempo)
+        if xg_h_fallback > 0.01 or xg_a_fallback > 0.01:
+            lam_h = xg_h_fallback * 0.46
+            lam_a = xg_a_fallback * 0.46
+            has_xg = True
+            is_estimate = True
+        else:
+            return None
+    else:
+        is_estimate = False
 
     # ── Poisson indipendente ──────────────────────────────────────────────────
     if has_xg:
@@ -142,7 +156,7 @@ def _calcola_ht_probs(prematch: Any) -> tuple[float, float, float, float] | None
     if p_ht1 + p_htx + p_ht2 < 0.01:
         return None
 
-    return p_ht1, p_htx, p_ht2, p_ht_over05
+    return p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate
 
 
 def render_pronostici_rapidi(
@@ -168,23 +182,53 @@ def render_pronostici_rapidi(
     cx.metric("X — Pareggio", f"{risultati.px:.0%}")
     c2.metric("2 — Trasf.",   f"{risultati.p2:.0%}")
 
+    # ── Contesto squadre (rank, strength, forma) ──────────────────────────────
+    if prematch is not None:
+        ctx_parts: list[str] = []
+        _hr = getattr(prematch, "home_rank", None)
+        _ar = getattr(prematch, "away_rank", None)
+        _sh = getattr(prematch, "strength_home", None) or 0
+        _sa = getattr(prematch, "strength_away", None) or 0
+        _hl6w = getattr(prematch, "home_last6_win", None)
+        _al6w = getattr(prematch, "away_last6_win", None)
+        if _hr or _ar:
+            ctx_parts.append(f"Rank: #{_hr or '—'} vs #{_ar or '—'}")
+        if _sh > 0 or _sa > 0:
+            ctx_parts.append(f"Strength: {_sh or '—'}/100 vs {_sa or '—'}/100")
+        if _hl6w is not None and _al6w is not None:
+            _hl6d = getattr(prematch, "home_last6_draw", 0) or 0
+            _hl6l = getattr(prematch, "home_last6_lose", 0) or 0
+            _al6d = getattr(prematch, "away_last6_draw", 0) or 0
+            _al6l = getattr(prematch, "away_last6_lose", 0) or 0
+            ctx_parts.append(
+                f"Forma (ult.6): {_hl6w}V-{_hl6d}P-{_hl6l}S  vs  {_al6w}V-{_al6d}P-{_al6l}S"
+            )
+        if ctx_parts:
+            st.caption("  ·  ".join(ctx_parts))
+
     st.divider()
 
     # ── AH cover ─────────────────────────────────────────────────────────────
     p_ah_h, p_ah_a = _prob_ah_cover(risultati.p1, risultati.px, risultati.p2, linea_ah)
-    ah_sign = "+" if linea_ah >= 0 else ""
+    if linea_ah == 0.0:
+        _lbl_casa  = "AH Casa (PK)"
+        _lbl_trasf = "AH Trasf. (PK)"
+    else:
+        _sign_c = "+" if linea_ah > 0 else ""
+        _lbl_casa = f"AH Casa ({_sign_c}{linea_ah:g})"
+        _sign_t = "+" if linea_ah < 0 else "-"
+        _lbl_trasf = f"AH Trasf. ({_sign_t}{abs(linea_ah):g})"
     cah1, cah2 = st.columns(2)
     delta_h = p_ah_h - 0.5
     delta_a = p_ah_a - 0.5
     cah1.metric(
-        f"AH Casa ({ah_sign}{linea_ah:g})",
+        _lbl_casa,
         f"{p_ah_h:.0%}",
         delta=f"{delta_h:+.0%} vs 50%",
         delta_color="normal",
     )
-    _ah_away_sign = "+" if linea_ah <= 0 else "-"
     cah2.metric(
-        f"AH Trasf. ({_ah_away_sign}{abs(linea_ah):g})",
+        _lbl_trasf,
         f"{p_ah_a:.0%}",
         delta=f"{delta_a:+.0%} vs 50%",
         delta_color="normal",
@@ -216,17 +260,24 @@ def render_pronostici_rapidi(
 
     # ── Primo Tempo ──────────────────────────────────────────────────────────
     if prematch is not None and minuto == 0:
-        ht = _calcola_ht_probs(prematch)
+        ht = _calcola_ht_probs(
+            prematch,
+            xg_h_fallback=risultati.xg_h_final,
+            xg_a_fallback=risultati.xg_a_final,
+        )
         if ht is not None:
-            p_ht1, p_htx, p_ht2, p_ht_o05 = ht
+            p_ht1, p_htx, p_ht2, p_ht_o05, ht_is_est = ht
             st.divider()
-            st.caption("**Primo Tempo (stima)**")
+            _ht_label = "**Primo Tempo (stima da xG)**" if ht_is_est else "**Primo Tempo**"
+            st.caption(_ht_label)
             ch1, chx, ch2, cho = st.columns(4)
             ch1.metric("1T Casa",     f"{p_ht1:.0%}")
             chx.metric("1T Pareggio", f"{p_htx:.0%}")
             ch2.metric("1T Trasf.",   f"{p_ht2:.0%}")
             if p_ht_o05 > 0.01:
                 cho.metric("1T Over 0.5", f"{p_ht_o05:.0%}")
+            if ht_is_est:
+                st.caption("_Nessun dato HT diretto — stima proporzionale da xG attesi FT_")
 
     # ── Confidenza ───────────────────────────────────────────────────────────
     conf = risultati.model_confidence
