@@ -182,23 +182,53 @@ def render_pronostici_rapidi(
     cx.metric("X — Pareggio", f"{risultati.px:.0%}")
     c2.metric("2 — Trasf.",   f"{risultati.p2:.0%}")
 
+    # ── Contesto squadre (rank, strength, forma) ──────────────────────────────
+    if prematch is not None:
+        ctx_parts: list[str] = []
+        _hr = getattr(prematch, "home_rank", None)
+        _ar = getattr(prematch, "away_rank", None)
+        _sh = getattr(prematch, "strength_home", None) or 0
+        _sa = getattr(prematch, "strength_away", None) or 0
+        _hl6w = getattr(prematch, "home_last6_win", None)
+        _al6w = getattr(prematch, "away_last6_win", None)
+        if _hr or _ar:
+            ctx_parts.append(f"Rank: #{_hr or '—'} vs #{_ar or '—'}")
+        if _sh > 0 or _sa > 0:
+            ctx_parts.append(f"Strength: {_sh or '—'}/100 vs {_sa or '—'}/100")
+        if _hl6w is not None and _al6w is not None:
+            _hl6d = getattr(prematch, "home_last6_draw", 0) or 0
+            _hl6l = getattr(prematch, "home_last6_lose", 0) or 0
+            _al6d = getattr(prematch, "away_last6_draw", 0) or 0
+            _al6l = getattr(prematch, "away_last6_lose", 0) or 0
+            ctx_parts.append(
+                f"Forma (ult.6): {_hl6w}V-{_hl6d}P-{_hl6l}S  vs  {_al6w}V-{_al6d}P-{_al6l}S"
+            )
+        if ctx_parts:
+            st.caption("  ·  ".join(ctx_parts))
+
     st.divider()
 
     # ── AH cover ─────────────────────────────────────────────────────────────
     p_ah_h, p_ah_a = _prob_ah_cover(risultati.p1, risultati.px, risultati.p2, linea_ah)
-    ah_sign = "+" if linea_ah >= 0 else ""
+    if linea_ah == 0.0:
+        _lbl_casa  = "AH Casa (PK)"
+        _lbl_trasf = "AH Trasf. (PK)"
+    else:
+        _sign_c = "+" if linea_ah > 0 else ""
+        _lbl_casa = f"AH Casa ({_sign_c}{linea_ah:g})"
+        _sign_t = "+" if linea_ah < 0 else "-"
+        _lbl_trasf = f"AH Trasf. ({_sign_t}{abs(linea_ah):g})"
     cah1, cah2 = st.columns(2)
     delta_h = p_ah_h - 0.5
     delta_a = p_ah_a - 0.5
     cah1.metric(
-        f"AH Casa ({ah_sign}{linea_ah:g})",
+        _lbl_casa,
         f"{p_ah_h:.0%}",
         delta=f"{delta_h:+.0%} vs 50%",
         delta_color="normal",
     )
-    _ah_away_sign = "+" if linea_ah <= 0 else "-"
     cah2.metric(
-        f"AH Trasf. ({_ah_away_sign}{abs(linea_ah):g})",
+        _lbl_trasf,
         f"{p_ah_a:.0%}",
         delta=f"{delta_a:+.0%} vs 50%",
         delta_color="normal",
