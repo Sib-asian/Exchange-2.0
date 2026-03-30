@@ -11,6 +11,7 @@ from src.ocr import (
     _check_gemini_available,
     _check_openai_available,
     _check_zai_available,
+    _extract_h2h_with_regex,
     _extract_with_gemini,
     _extract_with_openai,
     _extract_with_zai_cli,
@@ -721,3 +722,53 @@ class TestSessionStorage:
         monkeypatch.setattr(ss, "_STORAGE_PATH", p)
         result = ss.load_partite()
         assert result == []
+
+
+class TestExtractH2HWithRegex:
+    """Test per _extract_h2h_with_regex (fallback)."""
+
+    def test_format_full(self):
+        """Test formato completo: Win X (Y%) Draw X (Y%) Lose X (Y%)."""
+        text = "Head to Head: Win 3 (30%) Draw 3 (30%) Lose 4 (40%)"
+        result = _extract_h2h_with_regex(text)
+        assert result["h2h_home_win_pct"] == 30.0
+        assert result["h2h_draw_pct"] == 30.0
+        assert result["h2h_away_win_pct"] == 40.0
+
+    def test_format_compact(self):
+        """Test formato compatto: XW YD ZL."""
+        text = "1W 3D 2L"
+        result = _extract_h2h_with_regex(text)
+        # 1+3+2 = 6, quindi 1/6=16.7%, 3/6=50%, 2/6=33.3%
+        assert result["h2h_home_win_pct"] == 16.7
+        assert result["h2h_draw_pct"] == 50.0
+        assert result["h2h_away_win_pct"] == 33.3
+
+    def test_format_percentages(self):
+        """Test percentuali dirette: Win X% Draw Y% Lose Z%."""
+        text = "Win 25% Draw 35% Lose 40%"
+        result = _extract_h2h_with_regex(text)
+        assert result["h2h_home_win_pct"] == 25.0
+        assert result["h2h_draw_pct"] == 35.0
+        assert result["h2h_away_win_pct"] == 40.0
+
+    def test_no_match(self):
+        """Test quando non c'è match."""
+        text = "Some random text without H2H data"
+        result = _extract_h2h_with_regex(text)
+        assert result["h2h_home_win_pct"] == 0.0
+        assert result["h2h_draw_pct"] == 0.0
+        assert result["h2h_away_win_pct"] == 0.0
+
+    def test_mixed_context(self):
+        """Test con contesto misto."""
+        text = """
+        Head to Head Statistics
+        2W 4D 4L
+        Over 50%
+        """
+        result = _extract_h2h_with_regex(text)
+        # 2+4+4=10, quindi 2/10=20%, 4/10=40%, 4/10=40%
+        assert result["h2h_home_win_pct"] == 20.0
+        assert result["h2h_draw_pct"] == 40.0
+        assert result["h2h_away_win_pct"] == 40.0

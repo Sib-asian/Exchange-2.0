@@ -1722,12 +1722,74 @@ def _fetch_jina_reader(url: str, timeout: int = 30) -> str:
         return resp.read().decode("utf-8", errors="replace")
 
 
+def _extract_h2h_with_regex(text: str) -> dict:
+    """
+    Fallback regex per estrarre dati H2H dal testo quando Gemini restituisce 0.
+    
+    Supporta due formati:
+    - Formato compatto: "1W 3D 2L / 2W 3D 1L"
+    - Formato completo: "Win 3 (30%) Draw 3 (30%) Lose 4 (40%)"
+    """
+    result = {
+        "h2h_home_win_pct": 0.0,
+        "h2h_draw_pct": 0.0,
+        "h2h_away_win_pct": 0.0,
+    }
+    
+    # Pattern 1: Formato completo "Win X (Y%) Draw X (Y%) Lose X (Y%)"
+    # Es: "Win 3 (30%) Draw 3 (30%) Lose 4 (40%)"
+    pattern_full = r"Win\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Draw\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Lose\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)"
+    match = re.search(pattern_full, text, re.IGNORECASE)
+    if match:
+        result["h2h_home_win_pct"] = float(match.group(2))
+        result["h2h_draw_pct"] = float(match.group(4))
+        result["h2h_away_win_pct"] = float(match.group(6))
+        return result
+    
+    # Pattern 2: Formato compatto "XW YD ZL" (solo numeri senza %)
+    # Es: "1W 3D 2L"
+    pattern_compact = r"(\d+)W\s+(\d+)D\s+(\d+)L"
+    matches = re.findall(pattern_compact, text, re.IGNORECASE)
+    if matches:
+        # Prendi il primo match (di solito è l'H2H principale)
+        w, d, l = matches[0]
+        w, d, l = int(w), int(d), int(l)
+        total = w + d + l
+        if total > 0:
+            result["h2h_home_win_pct"] = round(w / total * 100, 1)
+            result["h2h_draw_pct"] = round(d / total * 100, 1)
+            result["h2h_away_win_pct"] = round(l / total * 100, 1)
+            return result
+    
+    # Pattern 3: Cercare percentuali dirette "XX%" vicino a Win/Draw/Lose
+    # Es: "Win 30% Draw 30% Lose 40%"
+    pattern_pct = r"Win\s*(\d+(?:\.\d+)?)\s*%\s*Draw\s*(\d+(?:\.\d+)?)\s*%\s*Lose\s*(\d+(?:\.\d+)?)\s*%"
+    match = re.search(pattern_pct, text, re.IGNORECASE)
+    if match:
+        result["h2h_home_win_pct"] = float(match.group(1))
+        result["h2h_draw_pct"] = float(match.group(2))
+        result["h2h_away_win_pct"] = float(match.group(3))
+        return result
+    
+    return result
+
+
 def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtracted:
     """Invia il testo della pagina a Gemini (text-only) e parsa la risposta."""
     import time
 
     api_key = _get_gemini_api_key()
     if not api_key:
+        # Prova fallback regex anche senza API key
+        h2h_fallback = _extract_h2h_with_regex(page_text)
+        if any(v > 0 for v in h2h_fallback.values()):
+            return PrematchAnalysisExtracted(
+                extraction_success=True,
+                error_message="Estratto con regex (Gemini non configurato)",
+                h2h_home_win_pct=h2h_fallback["h2h_home_win_pct"],
+                h2h_draw_pct=h2h_fallback["h2h_draw_pct"],
+                h2h_away_win_pct=h2h_fallback["h2h_away_win_pct"],
+            )
         return PrematchAnalysisExtracted(
             extraction_success=False,
             error_message="Gemini: API key non configurata",
@@ -1765,7 +1827,17 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
                     if parts_resp:
                         text = parts_resp[0].get("text", "")
                         if text:
-                            return _parse_prematch_analysis_response(text)
+                            result = _parse_prematch_analysis_response(text)
+                            # FALLBACK: Se Gemini ha restituito 0 per H2H, prova con regex
+                            if (result.h2h_home_win_pct == 0 and 
+                                result.h2h_draw_pct == 0 and 
+                                result.h2h_away_win_pct == 0):
+                                h2h_fallback = _extract_h2h_with_regex(text_truncated)
+                                if any(v > 0 for v in h2h_fallback.values()):
+                                    result.h2h_home_win_pct = h2h_fallback["h2h_home_win_pct"]
+                                    result.h2h_draw_pct = h2h_fallback["h2h_draw_pct"]
+                                    result.h2h_away_win_pct = h2h_fallback["h2h_away_win_pct"]
+                            return result
                 last_error = f"Gemini ({model}): risposta vuota"
                 break
             except urllib.error.HTTPError as e:
@@ -1777,6 +1849,17 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
             except Exception as e:
                 last_error = f"Gemini ({model}): {e}"
                 break
+
+    # FALLBACK FINALE: Se Gemini ha fallito completamente, prova regex
+    h2h_fallback = _extract_h2h_with_regex(page_text[:20000])
+    if any(v > 0 for v in h2h_fallback.values()):
+        return PrematchAnalysisExtracted(
+            extraction_success=True,
+            error_message=f"Estratto con regex (Gemini: {last_error})",
+            h2h_home_win_pct=h2h_fallback["h2h_home_win_pct"],
+            h2h_draw_pct=h2h_fallback["h2h_draw_pct"],
+            h2h_away_win_pct=h2h_fallback["h2h_away_win_pct"],
+        )
 
     return PrematchAnalysisExtracted(extraction_success=False, error_message=last_error)
 
