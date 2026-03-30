@@ -1954,42 +1954,69 @@ def _extract_all_with_regex(text: str) -> dict:
             result["away_conceded"] = int(t[5])
     
     # Riga Home FT (performance in casa)
-    # Es: "Home  10  2  2  36  22" (win, draw, lose, scored, conceded)
-    home_pattern = r"(?:^|\n)\s*Home\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
-    home_match = re.search(home_pattern, text, re.IGNORECASE | re.MULTILINE)
-    if home_match:
-        result["home_home_win"] = int(home_match.group(1))
-        result["home_home_draw"] = int(home_match.group(2))
-        result["home_home_lose"] = int(home_match.group(3))
-        result["home_home_scored"] = int(home_match.group(4))
-        result["home_home_conceded"] = int(home_match.group(5))
+    # Es: "Home  5  1  2  2  7  7" (matches, win, draw, lose, scored, conceded)
+    # NOTA: la prima colonna è Matches, NON Win!
+    # NOTA: ci sono DUE righe "Home" nel testo (una per ogni squadra).
+    # La PRIMA è quella della squadra di casa che ci interessa!
+    home_pattern = r"(?:^|\n)\s*Home\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    home_matches = re.findall(home_pattern, text, re.IGNORECASE | re.MULTILINE)
+    if home_matches:
+        m = home_matches[0]  # Prima riga "Home" (squadra di casa)
+        # Group 0 = Matches (ignorato)
+        result["home_home_win"] = int(m[1])
+        result["home_home_draw"] = int(m[2])
+        result["home_home_lose"] = int(m[3])
+        result["home_home_scored"] = int(m[4])
+        result["home_home_conceded"] = int(m[5])
     
     # Riga Away FT (performance in trasferta)
-    # Es: "Away  4  2  9  19  23"
-    away_pattern = r"(?:^|\n)\s*Away\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
-    away_match = re.search(away_pattern, text, re.IGNORECASE | re.MULTILINE)
-    if away_match:
-        result["away_away_win"] = int(away_match.group(1))
-        result["away_away_draw"] = int(away_match.group(2))
-        result["away_away_lose"] = int(away_match.group(3))
-        result["away_away_scored"] = int(away_match.group(4))
-        result["away_away_conceded"] = int(away_match.group(5))
+    # Es: "Away  6  3  0  3  7  6" (matches, win, draw, lose, scored, conceded)
+    # NOTA: ci sono QUATTRO righe "Away" nel testo (FT e HT per entrambe le squadre).
+    # L'ordine è: 1) FT casa, 2) HT casa, 3) FT trasferta, 4) HT trasferta
+    # La TERZA è quella della squadra di trasferta che ci interessa!
+    away_pattern = r"(?:^|\n)\s*Away\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    away_matches = re.findall(away_pattern, text, re.IGNORECASE | re.MULTILINE)
+    if away_matches:
+        # Prendi la TERZA occorrenza (FT trasferta)
+        if len(away_matches) >= 3:
+            m = away_matches[2]  # Terza riga "Away" (FT squadra trasferta)
+        elif len(away_matches) >= 2:
+            m = away_matches[1]  # Fallback: seconda riga
+        else:
+            m = away_matches[0]  # Fallback: prima riga
+        # m[0] = Matches (ignorato)
+        result["away_away_win"] = int(m[1])
+        result["away_away_draw"] = int(m[2])
+        result["away_away_lose"] = int(m[3])
+        result["away_away_scored"] = int(m[4])
+        result["away_away_conceded"] = int(m[5])
     
     # Riga Last 6
-    # Es: "Last 6  4  1  1" o "Last6 4-1-1"
-    last6_pattern = r"Last\s*6\s+(\d+)\s+(\d+)\s+(\d+)"
+    # Es: "Last 6  6  2  2  2  9  8" (matches, win, draw, lose, scored, conceded)
+    # NOTA: ci sono QUATTRO righe Last 6 (FT e HT per entrambe le squadre)
+    # L'ordine è: 1) FT casa, 2) HT casa, 3) FT trasferta, 4) HT trasferta
+    # Per casa: PRIMA riga. Per trasferta: TERZA riga.
+    last6_pattern = r"Last\s*6\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
     last6_matches = re.findall(last6_pattern, text, re.IGNORECASE)
     if last6_matches:
+        # Home Last 6: PRIMA riga (FT casa)
         if len(last6_matches) >= 1:
             l = last6_matches[0]
-            result["home_last6_win"] = int(l[0])
-            result["home_last6_draw"] = int(l[1])
-            result["home_last6_lose"] = int(l[2])
-        if len(last6_matches) >= 2:
+            # l[0] = Matches (ignorato)
+            result["home_last6_win"] = int(l[1])
+            result["home_last6_draw"] = int(l[2])
+            result["home_last6_lose"] = int(l[3])
+        # Away Last 6: TERZA riga (FT trasferta)
+        if len(last6_matches) >= 3:
+            l = last6_matches[2]
+            result["away_last6_win"] = int(l[1])
+            result["away_last6_draw"] = int(l[2])
+            result["away_last6_lose"] = int(l[3])
+        elif len(last6_matches) >= 2:
             l = last6_matches[1]
-            result["away_last6_win"] = int(l[0])
-            result["away_last6_draw"] = int(l[1])
-            result["away_last6_lose"] = int(l[2])
+            result["away_last6_win"] = int(l[1])
+            result["away_last6_draw"] = int(l[2])
+            result["away_last6_lose"] = int(l[3])
     
     # === RANK ===
     # Es: "[SPA D2-3]" → rank=3 o "Rank: 3"
