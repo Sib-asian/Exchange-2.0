@@ -977,7 +977,23 @@ class PrematchAnalysisExtracted:
     away_prev_avg_conceded: float = 0.0
     away_prev_over_pct: float = 0.0
 
-    # Line movement: quote iniziali visibili in cima allo screen (Initial vs Live)
+    # Quote 1X2 iniziali consensus (media bookmaker da odds comparison — solo via URL)
+    mkt_init_1: float = 0.0   # quota 1 iniziale media
+    mkt_init_x: float = 0.0   # quota X iniziale media
+    mkt_init_2: float = 0.0   # quota 2 iniziale media
+
+    # HT statistics dai precedenti H2H
+    h2h_ht_home_win_pct: float = 0.0
+    h2h_ht_draw_pct: float = 0.0
+    h2h_ht_away_win_pct: float = 0.0
+
+    # Goal timing corrente stagione (gol per partita nel 1° e 2° tempo)
+    home_goals_1h: float = 0.0
+    home_goals_2h: float = 0.0
+    away_goals_1h: float = 0.0
+    away_goals_2h: float = 0.0
+
+    # Line movement: linee iniziali (solo via screenshot — non estratte da URL)
     initial_ah_line: float = 0.0      # linea AH iniziale del bookmaker
     initial_total_line: float = 0.0   # linea Total iniziale
     strength_home: int = 0            # punteggio forza casa (0-100, da Nowgoal)
@@ -1259,6 +1275,7 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         strength = data.get("strength", {})
         prev_h   = data.get("prev_home", {})
         prev_a   = data.get("prev_away", {})
+        odds     = data.get("odds", {})
         lines    = data.get("lines", {})
 
         # H2H base
@@ -1269,6 +1286,10 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         h2h_avg_a    = _f(h2h.get("avg_goals_away"))
         h2h_over     = _f(h2h.get("over_pct"))
         h2h_ah_home  = _f(h2h.get("ah_home_cover_pct"))
+        # H2H halftime
+        h2h_ht_home  = _f(h2h.get("ht_home_win_pct"))
+        h2h_ht_draw  = _f(h2h.get("ht_draw_pct"))
+        h2h_ht_away  = _f(h2h.get("ht_away_win_pct"))
 
         # Standings casa
         hm   = _i(home.get("matches"))
@@ -1298,6 +1319,9 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         hhtw = _i(home.get("ht_win"))
         hhtd = _i(home.get("ht_draw"))
         hhtl = _i(home.get("ht_lose"))
+        # Goal timing
+        hg1h = _f(home.get("goals_1h"))
+        hg2h = _f(home.get("goals_2h"))
 
         # Standings trasferta
         am   = _i(away.get("matches"))
@@ -1327,6 +1351,9 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         ahtw = _i(away.get("ht_win"))
         ahtd = _i(away.get("ht_draw"))
         ahtl = _i(away.get("ht_lose"))
+        # Goal timing
+        ag1h = _f(away.get("goals_1h"))
+        ag2h = _f(away.get("goals_2h"))
 
         # Parametri derivati
         # Usa forma basata su riga Home-specific se disponibile, altrimenti Total
@@ -1382,6 +1409,9 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
             h2h_avg_goals_away=h2h_avg_a,
             h2h_over_pct=h2h_over,
             h2h_ah_home_cover_pct=h2h_ah_home,
+            h2h_ht_home_win_pct=h2h_ht_home,
+            h2h_ht_draw_pct=h2h_ht_draw,
+            h2h_ht_away_win_pct=h2h_ht_away,
             # Standings casa
             home_rank=_i(home.get("rank")),
             home_matches=hm, home_win=hw, home_draw=hd, home_lose=hl,
@@ -1390,6 +1420,7 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
             home_home_win=hhw, home_home_draw=hhd, home_home_lose=hhl,
             home_home_scored=hhsc, home_home_conceded=hhco,
             home_ht_win=hhtw, home_ht_draw=hhtd, home_ht_lose=hhtl,
+            home_goals_1h=hg1h, home_goals_2h=hg2h,
             # Standings trasferta
             away_rank=_i(away.get("rank")),
             away_matches=am, away_win=aw, away_draw=ad, away_lose=al,
@@ -1398,6 +1429,7 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
             away_away_win=aaw, away_away_draw=aad, away_away_lose=aal,
             away_away_scored=aasc, away_away_conceded=aaco,
             away_ht_win=ahtw, away_ht_draw=ahtd, away_ht_lose=ahtl,
+            away_goals_1h=ag1h, away_goals_2h=ag2h,
             # Previous Scores
             home_prev_win_pct=_f(prev_h.get("win_pct")),
             home_prev_avg_scored=_f(prev_h.get("avg_scored")),
@@ -1407,7 +1439,11 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
             away_prev_avg_scored=_f(prev_a.get("avg_scored")),
             away_prev_avg_conceded=_f(prev_a.get("avg_conceded")),
             away_prev_over_pct=_f(prev_a.get("over_pct")),
-            # Lines
+            # Market initial odds (only from URL extraction)
+            mkt_init_1=_f(odds.get("init_1")),
+            mkt_init_x=_f(odds.get("init_x")),
+            mkt_init_2=_f(odds.get("init_2")),
+            # Lines (from screenshot only — not extracted via URL)
             initial_ah_line=_f(lines.get("initial_ah")),
             initial_total_line=_f(lines.get("initial_total")),
             # Strength
@@ -1555,7 +1591,7 @@ Estrai i dati indicati e rispondi SOLO con JSON valido. Usa 0 per valori non tro
 
 DATI DA ESTRARRE:
 
-1. h2h — Head to Head Statistics:
+1. h2h — Head to Head Statistics (scontri diretti precedenti):
    - home_win_pct: % vittorie casa (es. "Win 2 (20%)" → 20)
    - draw_pct: % pareggi
    - away_win_pct: % vittorie trasferta
@@ -1563,52 +1599,64 @@ DATI DA ESTRARRE:
    - avg_goals_away: media gol segnati dalla trasferta nei precedenti H2H
    - over_pct: % Over nei precedenti H2H
    - ah_home_cover_pct: % AH copertura casa nei precedenti H2H
+   - ht_home_win_pct: % precedenti H2H con casa in vantaggio ALL'INTERVALLO (HT)
+   - ht_draw_pct: % precedenti H2H con pareggio all'intervallo
+   - ht_away_win_pct: % precedenti H2H con trasferta in vantaggio all'intervallo
 
 2. strength — Strength Comparison (due numeri grandi):
    - home: numero squadra di casa
    - away: numero squadra trasferta
 
-3. home — standings squadra di CASA (tabella con header arancione/rosso):
-   - rank: dal titolo [LEGA-RANK] es. "[ARG D1-17]" → 17, oppure dalla colonna Rank riga Total
-   - matches, win, draw, lose, scored, conceded, win_rate: riga Total (FT Full Time)
+3. odds — Live Odds Comparison, riga Initial SOLO 1X2 (NON estrarre AH o O/U lines):
+   Media delle quote Initial 1X2 dei bookmaker presenti (Bet365, Sbobet, 188bet o altri):
+   - init_1: media quota casa iniziale
+   - init_x: media quota pareggio iniziale
+   - init_2: media quota trasferta iniziale
+
+4. home — standings squadra di CASA:
+   - rank: dal titolo [LEGA-RANK] es. "[ARG D1-17]" → 17
+   - matches, win, draw, lose, scored, conceded, win_rate: riga Total (FT)
    - home_win, home_draw, home_lose, home_scored, home_conceded: riga Home (FT)
    - last6_win, last6_draw, last6_lose: riga Last 6 — DEVONO sommare a 6
-   - ht_win, ht_draw, ht_lose: riga Total sezione HT (Half Time)
+   - ht_win, ht_draw, ht_lose: riga Total sezione HT
+   - goals_1h: totale gol segnati nel 1° tempo (dalla stagione corrente)
+   - goals_2h: totale gol segnati nel 2° tempo
 
-4. away — standings squadra TRASFERTA (tabella con header blu):
+5. away — standings squadra TRASFERTA:
    - rank, matches, win, draw, lose, scored, conceded, win_rate: riga Total (FT)
    - away_win, away_draw, away_lose, away_scored, away_conceded: riga Away (FT)
      ⚠ NON la riga Home della trasferta — serve la performance IN TRASFERTA
    - last6_win, last6_draw, last6_lose: riga Last 6 — DEVONO sommare a 6
    - ht_win, ht_draw, ht_lose: riga Total sezione HT
+   - goals_1h: totale gol segnati nel 1° tempo
+   - goals_2h: totale gol segnati nel 2° tempo
 
-5. prev_home — Previous Scores Statistics (sezione casa):
+6. prev_home — Previous Scores Statistics sezione squadra di casa:
    - win_pct, avg_scored, avg_conceded, over_pct
 
-6. prev_away — Previous Scores Statistics (sezione trasferta, 0 se assente):
-   - win_pct, avg_scored, avg_conceded, over_pct
-
-7. lines — quote iniziali se visibili:
-   - initial_ah: linea AH iniziale
-   - initial_total: linea Total iniziale
+7. prev_away — Previous Scores Statistics sezione squadra trasferta (partite in trasferta):
+   - win_pct, avg_scored, avg_conceded, over_pct (usa 0 se la sezione non è presente)
 
 {
   "h2h": {"home_win_pct": 0, "draw_pct": 0, "away_win_pct": 0,
-          "avg_goals_home": 0.0, "avg_goals_away": 0.0, "over_pct": 0, "ah_home_cover_pct": 0},
+          "avg_goals_home": 0.0, "avg_goals_away": 0.0, "over_pct": 0, "ah_home_cover_pct": 0,
+          "ht_home_win_pct": 0, "ht_draw_pct": 0, "ht_away_win_pct": 0},
   "strength": {"home": 0, "away": 0},
+  "odds": {"init_1": 0.0, "init_x": 0.0, "init_2": 0.0},
   "home": {"rank": 0, "matches": 0, "win": 0, "draw": 0, "lose": 0,
            "scored": 0, "conceded": 0, "win_rate": 0.0,
            "home_win": 0, "home_draw": 0, "home_lose": 0, "home_scored": 0, "home_conceded": 0,
            "last6_win": 0, "last6_draw": 0, "last6_lose": 0,
-           "ht_win": 0, "ht_draw": 0, "ht_lose": 0},
+           "ht_win": 0, "ht_draw": 0, "ht_lose": 0,
+           "goals_1h": 0, "goals_2h": 0},
   "away": {"rank": 0, "matches": 0, "win": 0, "draw": 0, "lose": 0,
            "scored": 0, "conceded": 0, "win_rate": 0.0,
            "away_win": 0, "away_draw": 0, "away_lose": 0, "away_scored": 0, "away_conceded": 0,
            "last6_win": 0, "last6_draw": 0, "last6_lose": 0,
-           "ht_win": 0, "ht_draw": 0, "ht_lose": 0},
+           "ht_win": 0, "ht_draw": 0, "ht_lose": 0,
+           "goals_1h": 0, "goals_2h": 0},
   "prev_home": {"win_pct": 0, "avg_scored": 0.0, "avg_conceded": 0.0, "over_pct": 0},
-  "prev_away": {"win_pct": 0, "avg_scored": 0.0, "avg_conceded": 0.0, "over_pct": 0},
-  "lines": {"initial_ah": 0, "initial_total": 0}
+  "prev_away": {"win_pct": 0, "avg_scored": 0.0, "avg_conceded": 0.0, "over_pct": 0}
 }"""
 
 

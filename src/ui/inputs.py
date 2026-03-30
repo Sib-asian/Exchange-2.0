@@ -1160,6 +1160,29 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
         fm1.metric("Forma mult. Casa", f"{data.forma_mult_h:.3f}")
         fm2.metric("Forma mult. Trasf.", f"{data.forma_mult_a:.3f}")
 
+        # Quote 1X2 iniziali (solo se estratte via URL)
+        if data.mkt_init_1 > 0:
+            st.caption(
+                f"Quote 1X2 iniziali (consensus): "
+                f"**1** {data.mkt_init_1:.2f} · **X** {data.mkt_init_x:.2f} · **2** {data.mkt_init_2:.2f}"
+            )
+
+        # HT H2H
+        if data.h2h_ht_home_win_pct > 0 or data.h2h_ht_draw_pct > 0:
+            st.caption(
+                f"H2H all'intervallo: Casa {data.h2h_ht_home_win_pct:.0f}% · "
+                f"X {data.h2h_ht_draw_pct:.0f}% · Trasf. {data.h2h_ht_away_win_pct:.0f}%"
+            )
+
+        # Goal timing
+        if data.home_goals_1h > 0 or data.away_goals_1h > 0:
+            st.caption(
+                f"Gol per partita — Casa: {data.home_goals_1h/max(1,data.home_matches):.2f} (1T) "
+                f"+ {data.home_goals_2h/max(1,data.home_matches):.2f} (2T) · "
+                f"Trasf.: {data.away_goals_1h/max(1,data.away_matches):.2f} (1T) "
+                f"+ {data.away_goals_2h/max(1,data.away_matches):.2f} (2T)"
+            )
+
         if st.button("🗑 Rimuovi analisi", key="_remove_prematch_analysis"):
             st.session_state.pop("prematch_analysis", None)
             st.session_state.pop("_prematch_analysis_file_id", None)

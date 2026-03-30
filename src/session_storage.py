@@ -198,6 +198,20 @@ def collect_prematch_analysis(session_state: Any) -> dict[str, Any] | None:
         "away_last6_win": pa.away_last6_win,
         "away_last6_draw": pa.away_last6_draw,
         "away_last6_lose": pa.away_last6_lose,
+        "h2h_ht_home_win_pct": pa.h2h_ht_home_win_pct,
+        "h2h_ht_draw_pct": pa.h2h_ht_draw_pct,
+        "h2h_ht_away_win_pct": pa.h2h_ht_away_win_pct,
+        "mkt_init_1": pa.mkt_init_1,
+        "mkt_init_x": pa.mkt_init_x,
+        "mkt_init_2": pa.mkt_init_2,
+        "home_goals_1h": pa.home_goals_1h,
+        "home_goals_2h": pa.home_goals_2h,
+        "away_goals_1h": pa.away_goals_1h,
+        "away_goals_2h": pa.away_goals_2h,
+        "away_prev_win_pct": pa.away_prev_win_pct,
+        "away_prev_avg_scored": pa.away_prev_avg_scored,
+        "away_prev_avg_conceded": pa.away_prev_avg_conceded,
+        "away_prev_over_pct": pa.away_prev_over_pct,
     }
 
 
@@ -233,6 +247,20 @@ def restore_prematch_analysis(session_state: Any, data: dict[str, Any] | None) -
             away_last6_win=int(data.get("away_last6_win", 0)),
             away_last6_draw=int(data.get("away_last6_draw", 0)),
             away_last6_lose=int(data.get("away_last6_lose", 0)),
+            h2h_ht_home_win_pct=float(data.get("h2h_ht_home_win_pct", 0.0)),
+            h2h_ht_draw_pct=float(data.get("h2h_ht_draw_pct", 0.0)),
+            h2h_ht_away_win_pct=float(data.get("h2h_ht_away_win_pct", 0.0)),
+            mkt_init_1=float(data.get("mkt_init_1", 0.0)),
+            mkt_init_x=float(data.get("mkt_init_x", 0.0)),
+            mkt_init_2=float(data.get("mkt_init_2", 0.0)),
+            home_goals_1h=float(data.get("home_goals_1h", 0.0)),
+            home_goals_2h=float(data.get("home_goals_2h", 0.0)),
+            away_goals_1h=float(data.get("away_goals_1h", 0.0)),
+            away_goals_2h=float(data.get("away_goals_2h", 0.0)),
+            away_prev_win_pct=float(data.get("away_prev_win_pct", 0.0)),
+            away_prev_avg_scored=float(data.get("away_prev_avg_scored", 0.0)),
+            away_prev_avg_conceded=float(data.get("away_prev_avg_conceded", 0.0)),
+            away_prev_over_pct=float(data.get("away_prev_over_pct", 0.0)),
         )
         session_state["prematch_analysis"] = pa
     except Exception:
