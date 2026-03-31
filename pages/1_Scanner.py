@@ -105,6 +105,24 @@ def _calcola_forza(pa: Any) -> dict | None:
     fm_a = pa.forma_mult_a if pa.forma_mult_a is not None else 1.0
     xg_h *= max(0.7, min(1.4, fm_h))
     xg_a *= max(0.7, min(1.4, fm_a))
+    
+    # === NUOVO: Usa xG da partite recenti se disponibile ===
+    # L'xG calcolato dai risultati reali è più affidabile delle medie standings
+    xg_from_recent_h = getattr(pa, "home_xg_from_recent", 0) or 0
+    xg_from_recent_a = getattr(pa, "away_xg_from_recent", 0) or 0
+    if xg_from_recent_h > 0 and xg_from_recent_a > 0:
+        # Blend 60% xG da recenti, 40% xG da standings
+        xg_h = 0.40 * xg_h + 0.60 * xg_from_recent_h
+        xg_a = 0.40 * xg_a + 0.60 * xg_from_recent_a
+    
+    # === NUOVO: Trend forma (squadra in crescendo o calando) ===
+    # Se il trend è positivo negli ultimi 5 vs primi 5, aumenta xG
+    trend_h = getattr(pa, "home_form_trend", 0) or 0
+    trend_a = getattr(pa, "away_form_trend", 0) or 0
+    if abs(trend_h) > 0.1:  # Trend significativo
+        xg_h *= (1.0 + trend_h * 0.1)  # Max ±10% aggiustamento
+    if abs(trend_a) > 0.1:
+        xg_a *= (1.0 + trend_a * 0.1)
 
     # Correzione Nowgoal strength rating — aggiusta anche quando solo un team ha il dato
     if sh > 0 and sa > 0:
@@ -204,6 +222,15 @@ def _calcola_forza(pa: Any) -> dict | None:
             p_over25 = (1 - w) * p_over25 + w * (prev_pct / 100.0)
             p_under25 = 1.0 - p_over25
 
+    # === NUOVO: Usa linee mercato da Vs_hOdds per calcolare valore ===
+    # Il modello calcola prob Over, le quote dicono la prob implicita
+    total_line = getattr(pa, "total_line_open", 0) or 0
+    over_odds = getattr(pa, "total_over_odds_open", 0) or 0
+    if total_line > 0 and over_odds > 0:
+        # La linea mercato è disponibile dal multi-bookmaker
+        # p_over25 è la prob modello, il mercato dice Over@line ha prob 1/odds
+        pass  # Per ora usiamo solo per display, non per blend
+    
     # ── Confidenza ───────────────────────────────────────────────────────────
     pts = 0
     if hm_tot >= 10:
@@ -222,7 +249,14 @@ def _calcola_forza(pa: Any) -> dict | None:
         pts += 1
     if m1 > 1.0:
         pts += 2  # quote iniziali mercato = forte segnale
-    confidence = min(1.0, pts / 9)
+    # === NUOVO: segnali aggiuntivi ===
+    if xg_from_recent_h > 0 and xg_from_recent_a > 0:
+        pts += 1  # xG da partite recenti disponibili
+    if abs(trend_h) > 0.15 or abs(trend_a) > 0.15:
+        pts += 1  # trend forma significativo
+    if total_line > 0:  # Vs_hOdds disponibile
+        pts += 1
+    confidence = min(1.0, pts / 11)  # Aumentato denominatore per nuovi segnali
 
     return {
         "p1":        round(p1, 4),
@@ -478,6 +512,44 @@ if avvia:
                 f"xG Trasf.: **{probs['xg_a']:.2f}** · "
                 f"Confidenza dati: **{conf_pct}%**"
             )
+            
+            # === NUOVO: Mostra dati mercato da Vs_hOdds ===
+            ah_open = getattr(pa, "ah_line_open", 0) or 0
+            ah_close = getattr(pa, "ah_line_close", 0) or 0
+            total_open = getattr(pa, "total_line_open", 0) or 0
+            total_close = getattr(pa, "total_line_close", 0) or 0
+            sharp = getattr(pa, "odds_sharp_signal", 0) or 0
+            
+            if ah_open != 0 or total_open != 0:
+                st.caption("**📊 Linee Mercato (Multi-Bookmaker)**")
+                cols = st.columns(4 if sharp > 0 else 3)
+                with cols[0]:
+                    ah_move = (ah_close - ah_open) if ah_open != 0 and ah_close != 0 else 0
+                    move_str = f" (Δ{ah_move:+.2f})" if ah_move != 0 else ""
+                    st.caption(f"AH: {ah_open:.2f} → {ah_close:.2f}{move_str}")
+                with cols[1]:
+                    tot_move = (total_close - total_open) if total_open != 0 and total_close != 0 else 0
+                    move_str = f" (Δ{tot_move:+.2f})" if tot_move != 0 else ""
+                    st.caption(f"Tot: {total_open:.2f} → {total_close:.2f}{move_str}")
+                with cols[2]:
+                    trend_h = getattr(pa, "home_form_trend", 0) or 0
+                    trend_a = getattr(pa, "away_form_trend", 0) or 0
+                    trend_str = ""
+                    if trend_h < -0.15:
+                        trend_str += "📉 H in calo"
+                    elif trend_h > 0.15:
+                        trend_str += "📈 H in salita"
+                    if trend_a < -0.15:
+                        trend_str += " · 📉 A in calo" if trend_str else "📉 A in calo"
+                    elif trend_a > 0.15:
+                        trend_str += " · 📈 A in salita" if trend_str else "📈 A in salita"
+                    if trend_str:
+                        st.caption(trend_str)
+                    else:
+                        st.caption("Forma: stabile")
+                if sharp > 0 and len(cols) > 3:
+                    with cols[3]:
+                        st.caption(f"⚡ Sharp: {sharp:.2f}")
 
             # ── Primo Tempo (stima da xG) ─────────────────────────────────────
             p_ht1, p_htx, p_ht2, p_ht_o05 = _calcola_ht_da_xg(

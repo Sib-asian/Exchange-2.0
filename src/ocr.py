@@ -1832,7 +1832,7 @@ def _fetch_raw_html(url: str, timeout: int = 30) -> str:
 def _extract_h2h_with_regex(text: str) -> dict:
     """
     Estrae dati H2H dal testo usando regex (GRATUITO, senza API key).
-    
+
     Supporta molteplici formati:
     - Formato completo: "Win 3 (30%) Draw 3 (30%) Lose 4 (40%)"
     - Formato compatto: "1W 3D 2L"
@@ -1844,7 +1844,65 @@ def _extract_h2h_with_regex(text: str) -> dict:
         "h2h_draw_pct": 0.0,
         "h2h_away_win_pct": 0.0,
     }
-    
+
+    # FIX: Cerca "No Data!" nella sezione H2H prima di estrarre valori fake.
+    # Nowgoal mostra "No Data!" quando non ci sono partite H2H, seguito da
+    # "Previous Scores Statistics" che contiene statistiche di UNA squadra,
+    # non H2H. Non dobbiamo confonderle!
+    text_lower = text.lower()
+
+    # Cerca "No Data" seguito eventualmente da "Previous Scores" o "League/Cup"
+    # Questo indica che l'H2H è vuoto
+    if re.search(r"no\s*data!?[\s\S]{0,100}(?:previous\s*scores|league/cup)", text_lower, re.IGNORECASE):
+        return result
+
+    # FIX: Cerca il pattern W/D/L specificamente nella sezione "Head to Head Statistics"
+    # Evita di confondere con "Previous Scores Statistics" che ha lo stesso formato
+    # ma contiene statistiche di UNA squadra, non H2H.
+
+    # Pattern per trovare la sezione H2H
+    h2h_section_start = re.search(r"(?:head\s*to\s*head|h2h)\s*statistics?", text_lower, re.IGNORECASE)
+    prev_section_start = re.search(r"previous\s*score", text_lower, re.IGNORECASE)
+
+    # Se troviamo la sezione H2H, cerca il pattern solo in quella sezione
+    if h2h_section_start:
+        # Delimita la sezione H2H: dalla sezione H2H fino a "Previous Scores" o fine testo
+        h2h_start = h2h_section_start.end()
+        h2h_end = prev_section_start.start() if prev_section_start else len(text)
+        h2h_text = text[h2h_start:h2h_end]
+
+        # Pattern 1: Formato completo "Win X (Y%) Draw X (Y%) Lose X (Y%)"
+        pattern_full = r"Win\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Draw\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Lose\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)"
+        match = re.search(pattern_full, h2h_text, re.IGNORECASE)
+        if match:
+            result["h2h_home_win_pct"] = float(match.group(2))
+            result["h2h_draw_pct"] = float(match.group(4))
+            result["h2h_away_win_pct"] = float(match.group(6))
+            return result
+
+        # Pattern 2: Formato compatto "XW YD ZL"
+        pattern_compact = r"(\d+)W\s+(\d+)D\s+(\d+)L"
+        match = re.search(pattern_compact, h2h_text, re.IGNORECASE)
+        if match:
+            w, d, l = int(match.group(1)), int(match.group(2)), int(match.group(3))
+            total = w + d + l
+            if total > 0:
+                result["h2h_home_win_pct"] = round(w / total * 100, 1)
+                result["h2h_draw_pct"] = round(d / total * 100, 1)
+                result["h2h_away_win_pct"] = round(l / total * 100, 1)
+                return result
+
+        # Pattern 3: Percentuali dirette
+        pattern_pct = r"Win\s*(\d+(?:\.\d+)?)\s*%\s*Draw\s*(\d+(?:\.\d+)?)\s*%\s*Lose\s*(\d+(?:\.\d+)?)\s*%"
+        match = re.search(pattern_pct, h2h_text, re.IGNORECASE)
+        if match:
+            result["h2h_home_win_pct"] = float(match.group(1))
+            result["h2h_draw_pct"] = float(match.group(2))
+            result["h2h_away_win_pct"] = float(match.group(3))
+            return result
+
+    # Fallback: se non troviamo la sezione H2H specifica, usa il metodo vecchio
+    # ma con avviso (meno affidabile)
     # Pattern 1: Formato completo "Win X (Y%) Draw X (Y%) Lose X (Y%)"
     # Es: "Win 3 (30%) Draw 3 (30%) Lose 4 (40%)"
     pattern_full = r"Win\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Draw\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Lose\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)"

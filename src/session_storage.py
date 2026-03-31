@@ -212,6 +212,12 @@ def collect_prematch_analysis(session_state: Any) -> dict[str, Any] | None:
         "away_prev_avg_scored": pa.away_prev_avg_scored,
         "away_prev_avg_conceded": pa.away_prev_avg_conceded,
         "away_prev_over_pct": pa.away_prev_over_pct,
+        # Nuovi campi per miglioramenti
+        "h2h_over_pct": pa.h2h_over_pct,
+        "strength_home": pa.strength_home,
+        "strength_away": pa.strength_away,
+        "home_prev_avg_scored": pa.home_prev_avg_scored,
+        "home_prev_avg_conceded": pa.home_prev_avg_conceded,
     }
 
 
@@ -261,6 +267,12 @@ def restore_prematch_analysis(session_state: Any, data: dict[str, Any] | None) -
             away_prev_avg_scored=float(data.get("away_prev_avg_scored", 0.0)),
             away_prev_avg_conceded=float(data.get("away_prev_avg_conceded", 0.0)),
             away_prev_over_pct=float(data.get("away_prev_over_pct", 0.0)),
+            # Nuovi campi per miglioramenti
+            h2h_over_pct=float(data.get("h2h_over_pct", 0.0)),
+            strength_home=int(data.get("strength_home", 0)),
+            strength_away=int(data.get("strength_away", 0)),
+            home_prev_avg_scored=float(data.get("home_prev_avg_scored", 0.0)),
+            home_prev_avg_conceded=float(data.get("home_prev_avg_conceded", 0.0)),
         )
         session_state["prematch_analysis"] = pa
     except Exception:

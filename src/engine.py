@@ -113,6 +113,17 @@ class MatchState:
     h2h_home_win_pct: float = 0.0 # % vittorie casa nei precedenti H2H (0-100)
     h2h_draw_pct: float = 0.0     # % pareggi nei precedenti H2H
     h2h_away_win_pct: float = 0.0 # % vittorie trasferta nei precedenti H2H
+    h2h_over_pct: float = 0.0     # % partite H2H andate Over (0-100)
+
+    # Strength da Nowgoal (0-100)
+    strength_home: int = 0        # punteggio forza casa
+    strength_away: int = 0        # punteggio forza trasferta
+
+    # Previous scores (ultime 10 partite) per blend xG
+    prev_avg_scored_h: float = 0.0    # media gol segnati casa
+    prev_avg_conceded_h: float = 0.0  # media gol subiti casa
+    prev_avg_scored_a: float = 0.0    # media gol segnati trasferta
+    prev_avg_conceded_a: float = 0.0  # media gol subiti trasferta
 
     # Bankroll e commissione
     bankroll: float = 1000.0
@@ -432,6 +443,24 @@ def analizza(
     if state.absence_mult_a != 1.0 or state.forma_mult_a != 1.0:
         xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * state.absence_mult_a * state.forma_mult_a)
 
+    # 2c. Previous scores blend (Miglioramento #2) - solo prematch.
+    # Se abbiamo dati sulle ultime 10 partite, li usiamo per calibrare gli xG.
+    # Formula: xG stimato = (gol segnati + gol subiti avversario) / 2
+    # Blend conservativo: 85% xG da linee + 15% xG da previous scores.
+    if state.minuto == 0:
+        _prev_alpha = 0.15
+        # xG casa: media tra gol che la casa segna e gol che la trasferta subisce
+        if state.prev_avg_scored_h > 0 and state.prev_avg_conceded_a > 0:
+            _xg_h_from_prev = (state.prev_avg_scored_h + state.prev_avg_conceded_a) / 2.0
+            xg_h_blend = (1.0 - _prev_alpha) * xg_h_blend + _prev_alpha * _xg_h_from_prev
+        # xG trasferta: media tra gol che la trasferta segna e gol che la casa subisce
+        if state.prev_avg_scored_a > 0 and state.prev_avg_conceded_h > 0:
+            _xg_a_from_prev = (state.prev_avg_scored_a + state.prev_avg_conceded_h) / 2.0
+            xg_a_blend = (1.0 - _prev_alpha) * xg_a_blend + _prev_alpha * _xg_a_from_prev
+        # Floor di sicurezza
+        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
+        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
+
     # 3. Momentum mercato (calcolato PRIMA del time-decay per alimentare lo smorzamento xG)
     # ah_cur è in "gol rimanenti" (conversione full-game già applicata in inputs.py):
     #   ah_cur = ah_cur_full + (gol_casa - gol_trasf)
@@ -664,6 +693,15 @@ def analizza(
             px = _px_adj / _sum_1x2
             p2 = _p2_adj / _sum_1x2
 
+    # 9d. H2H Over % blend (solo prematch) - Miglioramento #3.
+    # Se abbiamo dati H2H sull'Over, li usiamo per calibrare p_over.
+    # Peso conservativo: 15% del segnale H2H.
+    if state.minuto == 0 and state.h2h_over_pct > 0:
+        _alpha_over_h2h = 0.15
+        _p_over_h2h = state.h2h_over_pct / 100.0  # Converti da % a proporzione
+        p_over = (1.0 - _alpha_over_h2h) * p_over + _alpha_over_h2h * _p_over_h2h
+        p_under = 1.0 - p_over  # Rinormalizza
+
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
     # Fix #2.7: Usa funzione helper per costruire la matrice consensus (pesi dinamici)
     full_consensus = _build_consensus_matrix(full_bp, full_copula, full_markov,
@@ -722,6 +760,14 @@ def analizza(
                    * _time_conf * max(0.01, _agreement_conf))
     # Fix #6.4: Usa parametro dal config per la radice
     model_confidence = min(1.0, _product ** ENGINE.CONFIDENCE_ROOT_POWER)
+
+    # 13. Strength boost (Miglioramento #4) - solo prematch.
+    # Se c'è una grande disparità di forza tra le squadre, aumenta la confidenza.
+    # strength_diff alto → pronostico più affidabile.
+    if state.minuto == 0 and state.strength_home > 0 and state.strength_away > 0:
+        _strength_diff = abs(state.strength_home - state.strength_away) / 100.0
+        _strength_boost = 1.0 + _strength_diff * 0.10  # max +10% boost
+        model_confidence = min(1.0, model_confidence * _strength_boost)
 
     # L'utente usa sempre le linee di apertura/chiusura manualmente inserite
     # e non aggiorna le linee live — l'avviso non ha senso in questo workflow.

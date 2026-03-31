@@ -137,6 +137,14 @@ if _btn_prematch or _btn_live:
     _h2h_home = float(getattr(_pa, "h2h_home_win_pct", 0.0)) if _pa else 0.0
     _h2h_draw = float(getattr(_pa, "h2h_draw_pct", 0.0)) if _pa else 0.0
     _h2h_away = float(getattr(_pa, "h2h_away_win_pct", 0.0)) if _pa else 0.0
+    # Nuovi parametri per miglioramenti
+    _h2h_over = float(getattr(_pa, "h2h_over_pct", 0.0)) if _pa else 0.0
+    _str_home = int(getattr(_pa, "strength_home", 0)) if _pa else 0
+    _str_away = int(getattr(_pa, "strength_away", 0)) if _pa else 0
+    _prev_sc_h = float(getattr(_pa, "home_prev_avg_scored", 0.0)) if _pa else 0.0
+    _prev_co_h = float(getattr(_pa, "home_prev_avg_conceded", 0.0)) if _pa else 0.0
+    _prev_sc_a = float(getattr(_pa, "away_prev_avg_scored", 0.0)) if _pa else 0.0
+    _prev_co_a = float(getattr(_pa, "away_prev_avg_conceded", 0.0)) if _pa else 0.0
 
     try:
         state = build_match_state(
@@ -150,6 +158,13 @@ if _btn_prematch or _btn_live:
             h2h_home_win_pct=_h2h_home,
             h2h_draw_pct=_h2h_draw,
             h2h_away_win_pct=_h2h_away,
+            h2h_over_pct=_h2h_over,
+            strength_home=_str_home,
+            strength_away=_str_away,
+            prev_avg_scored_h=_prev_sc_h,
+            prev_avg_conceded_h=_prev_co_h,
+            prev_avg_scored_a=_prev_sc_a,
+            prev_avg_conceded_a=_prev_co_a,
         )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
