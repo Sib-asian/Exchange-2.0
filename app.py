@@ -67,9 +67,10 @@ _live_ga = st.session_state.get("live_gol_trasf", 0)
 
 lines = render_linee_semplici(gol_casa=_live_gh, gol_trasf=_live_ga)
 
-# Linea O/U automatica (closest a tot corrente)
+# Linea O/U: sempre 2.5 (standard per pronostici)
 def _linea_ou(tot_raw: float) -> float:
-    return min(list(UI.LINEE_OU), key=lambda x: abs(x - tot_raw))
+    # Sempre 2.5 come richiesto dall'utente
+    return 2.5
 
 st.divider()
 
