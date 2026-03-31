@@ -1168,14 +1168,19 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
             if data.league_name:
                 st.caption(f"📍 {data.league_name}")
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("H2H Casa", f"{data.h2h_home_win_pct:.0f}%")
-        c2.metric("H2H X", f"{data.h2h_draw_pct:.0f}%")
-        c3.metric("H2H Trasf.", f"{data.h2h_away_win_pct:.0f}%")
+        # H2H data — mostra messaggio chiaro se non disponibile
+        h2h_available = data.h2h_home_win_pct > 0 or data.h2h_draw_pct > 0 or data.h2h_away_win_pct > 0
+        if h2h_available:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("H2H Casa", f"{data.h2h_home_win_pct:.0f}%")
+            c2.metric("H2H X", f"{data.h2h_draw_pct:.0f}%")
+            c3.metric("H2H Trasf.", f"{data.h2h_away_win_pct:.0f}%")
 
-        if data.h2h_avg_goals_home > 0 or data.h2h_avg_goals_away > 0:
-            tot = data.h2h_avg_goals_home + data.h2h_avg_goals_away
-            st.caption(f"Media gol H2H: {data.h2h_avg_goals_home:.1f} + {data.h2h_avg_goals_away:.1f} = **{tot:.1f}** per partita")
+            if data.h2h_avg_goals_home > 0 or data.h2h_avg_goals_away > 0:
+                tot = data.h2h_avg_goals_home + data.h2h_avg_goals_away
+                st.caption(f"Media gol H2H: {data.h2h_avg_goals_home:.1f} + {data.h2h_avg_goals_away:.1f} = **{tot:.1f}** per partita")
+        else:
+            st.info("📊 **Nessun dato H2H disponibile** — Le squadre non si sono mai incontrate o dati non trovati.")
 
         if data.home_rank > 0 or data.away_rank > 0:
             r1, r2 = st.columns(2)

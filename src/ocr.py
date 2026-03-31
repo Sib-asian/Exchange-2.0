@@ -2162,15 +2162,29 @@ def _extract_all_with_regex(text: str) -> dict:
         if over_match2:
             result["h2h_over_pct"] = float(over_match2.group(1))
     
-    # H2H media gol
-    # Es: "2.3 goals" o "avg 2.3" o "Goal Score/Loss per Game 2.3"
-    goals_pattern = r"(?:avg|average)?\s*(\d+[.,]\d+)\s*(?:goals?|scored)"
-    goals_matches = re.findall(goals_pattern, text, re.IGNORECASE)
-    if len(goals_matches) >= 2:
-        result["h2h_avg_goals_home"] = float(goals_matches[0].replace(",", "."))
-        result["h2h_avg_goals_away"] = float(goals_matches[1].replace(",", "."))
-    elif len(goals_matches) == 1:
-        result["h2h_avg_goals_home"] = float(goals_matches[0].replace(",", "."))
+    # H2H media gol — SOLO dalla sezione H2H!
+    # FIX: Non estrarre se le percentuali H2H sono tutte 0 (nessun H2H disponibile)
+    # Il pattern generico "X.X goals" potrebbe catturare valori da "Previous Scores Statistics"
+    # che NON sono H2H data ma statistiche recenti di ogni squadra.
+    if result["h2h_home_win_pct"] > 0 or result["h2h_draw_pct"] > 0 or result["h2h_away_win_pct"] > 0:
+        # Cerca pattern "Goal Score/Loss per Game" specifico della sezione H2H
+        # Es: "1.1 goals   Goal Score/Loss per Game   1.5 goals"
+        h2h_goals_pattern = r"(\d+[.,]\d+)\s*goals?\s*Goal\s*Score/Loss\s*per\s*Game\s*(\d+[.,]\d+)\s*goals?"
+        h2h_goals_match = re.search(h2h_goals_pattern, text, re.IGNORECASE)
+        if h2h_goals_match:
+            result["h2h_avg_goals_home"] = float(h2h_goals_match.group(1).replace(",", "."))
+            result["h2h_avg_goals_away"] = float(h2h_goals_match.group(2).replace(",", "."))
+        else:
+            # Fallback: cerca nella sezione H2H delimitata
+            h2h_section = re.search(r"(?:head\s*to\s*head|h2h)\s*statistics?(.*?)(?:previous\s*score|who\s*will\s*win|$)", text, re.IGNORECASE | re.DOTALL)
+            if h2h_section:
+                h2h_text = h2h_section.group(1)
+                goals_pattern = r"(\d+[.,]\d+)\s*goals?"
+                goals_matches = re.findall(goals_pattern, h2h_text, re.IGNORECASE)
+                if len(goals_matches) >= 2:
+                    result["h2h_avg_goals_home"] = float(goals_matches[0].replace(",", "."))
+                    result["h2h_avg_goals_away"] = float(goals_matches[1].replace(",", "."))
+    # Se H2H percentuali sono 0, lascia h2h_avg_goals a 0 (nessun H2H disponibile)
     
     # === STRENGTH ===
     # Es: "Strength: 60 vs 40" o due numeri grandi separati
