@@ -1220,6 +1220,71 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
                 f"+ {data.away_goals_2h/max(1,data.away_matches):.2f} (2T)"
             )
 
+        # === METEO (estratto dalla pagina LIVE) ===
+        if data.weather_condition:
+            weather_icon = "☀️" if "sun" in data.weather_condition.lower() or "clear" in data.weather_condition.lower() else \
+                           "🌧️" if "rain" in data.weather_condition.lower() else \
+                           "⛈️" if "thunder" in data.weather_condition.lower() else \
+                           "🌫️" if "fog" in data.weather_condition.lower() or "mist" in data.weather_condition.lower() else \
+                           "💨" if "wind" in data.weather_condition.lower() else \
+                           "⛅" if "cloud" in data.weather_condition.lower() else "🌡️"
+            
+            impact_str = ""
+            if data.weather_impact != 0:
+                impact_str = f" → **xG {'↓' if data.weather_impact < 0 else '↑'} {abs(data.weather_impact)*100:.0f}%**"
+            
+            st.info(f"{weather_icon} **Meteo:** {data.weather_condition}, {data.weather_temp}°C{impact_str}")
+
+        # === HT/FT STATISTICS (estratto dalla pagina LIVE) ===
+        has_htft = any([
+            data.htft_home_htw_ftw, data.htft_home_htd_ftw, data.htft_home_htl_ftw,
+            data.htft_away_htw_ftw, data.htft_away_htd_ftw, data.htft_away_htl_ftw,
+        ])
+        if has_htft:
+            st.markdown("**📊 HT/FT Statistics** (da pagina LIVE)")
+            
+            # Tabella HT/FT per casa
+            htft_home = [
+                ["HT-W → FT-W", data.htft_home_htw_ftw, data.htft_home_htd_ftw, data.htft_home_htl_ftw],
+                ["HT-D → FT-W", 0, 0, 0],  # Placeholder
+                ["HT-L → FT-W", data.htft_home_htl_ftw, 0, 0],
+            ]
+            
+            # Calcola righe HT-D e HT-L per casa
+            htft_home[1] = ["HT-D → FT-W", data.htft_home_htw_ftd, data.htft_home_htd_ftd, data.htft_home_htl_ftd]
+            
+            # Calcola totale casa per percentuali
+            total_home_htw = data.htft_home_htw_ftw + data.htft_home_htd_ftw + data.htft_home_htl_ftw
+            total_home_htd = data.htft_home_htw_ftd + data.htft_home_htd_ftd + data.htft_home_htl_ftd
+            total_home_htl = data.htft_home_htw_ftl + data.htft_home_htd_ftl + data.htft_home_htl_ftl
+            
+            col_ht, col_ft = st.columns(2)
+            with col_ht:
+                st.caption("**Casa - Risultato FT dopo HT:**")
+                st.caption(f"HT in vantaggio → FT-W: **{data.htft_home_htw_ftw}** | FT-D: {data.htft_home_htw_ftd} | FT-L: {data.htft_home_htw_ftl}")
+                st.caption(f"HT pareggio → FT-W: {data.htft_home_htd_ftw} | FT-D: **{data.htft_home_htd_ftd}** | FT-L: {data.htft_home_htd_ftl}")
+                st.caption(f"HT in svantaggio → FT-W: {data.htft_home_htl_ftw} | FT-D: {data.htft_home_htl_ftd} | FT-L: **{data.htft_home_htl_ftl}**")
+            
+            with col_ft:
+                st.caption("**Trasferta - Risultato FT dopo HT:**")
+                st.caption(f"HT in vantaggio → FT-W: **{data.htft_away_htw_ftw}** | FT-D: {data.htft_away_htw_ftd} | FT-L: {data.htft_away_htw_ftl}")
+                st.caption(f"HT pareggio → FT-W: {data.htft_away_htd_ftw} | FT-D: **{data.htft_away_htd_ftd}** | FT-L: {data.htft_away_htd_ftl}")
+                st.caption(f"HT in svantaggio → FT-W: {data.htft_away_htl_ftw} | FT-D: {data.htft_away_htl_ftd} | FT-L: **{data.htft_away_htl_ftl}**")
+
+        # === TEAM STATISTICS (ultimi 10 match, da pagina LIVE) ===
+        has_team_stats = data.team_stats_home_goals > 0 or data.team_stats_away_goals > 0
+        if has_team_stats:
+            st.markdown("**📈 Team Statistics** (ultimi 10 match)")
+            ts_col1, ts_col2 = st.columns(2)
+            with ts_col1:
+                st.caption(f"**Casa:** {data.team_stats_home_goals:.1f} gol/partita, {data.team_stats_home_conceded:.1f} subiti")
+                if data.team_stats_home_possession > 0:
+                    st.caption(f"Possesso: {data.team_stats_home_possession:.1f}% | Corner: {data.team_stats_home_corners:.1f}")
+            with ts_col2:
+                st.caption(f"**Trasferta:** {data.team_stats_away_goals:.1f} gol/partita, {data.team_stats_away_conceded:.1f} subiti")
+                if data.team_stats_away_possession > 0:
+                    st.caption(f"Possesso: {data.team_stats_away_possession:.1f}% | Corner: {data.team_stats_away_corners:.1f}")
+
         if st.button("🗑 Rimuovi analisi", key="_remove_prematch_analysis"):
             st.session_state.pop("prematch_analysis", None)
             st.session_state.pop("_prematch_analysis_file_id", None)

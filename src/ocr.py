@@ -1048,6 +1048,56 @@ class PrematchAnalysisExtracted:
     home_id: int = 0                  # ID squadra casa (da h2h_home)
     away_id: int = 0                  # ID squadra trasferta (da h2h_away)
 
+    # === NUOVI CAMPI: Dati dalla pagina LIVE (estratti automaticamente) ===
+    # Meteo
+    weather_condition: str = ""       # es. "Partly cloudy", "Rain", "Clear"
+    weather_temp: int = 0             # temperatura in °C
+    weather_impact: float = 0.0       # -0.05 per pioggia, -0.03 per vento, etc.
+    
+    # HT/FT Statistics (da pagina LIVE)
+    htft_home_htw_ftw: int = 0        # HT win → FT win per casa
+    htft_home_htd_ftw: int = 0        # HT draw → FT win per casa
+    htft_home_htl_ftw: int = 0        # HT lose → FT win per casa
+    htft_home_htw_ftd: int = 0        # HT win → FT draw per casa
+    htft_home_htd_ftd: int = 0        # HT draw → FT draw per casa
+    htft_home_htl_ftd: int = 0        # HT lose → FT draw per casa
+    htft_home_htw_ftl: int = 0        # HT win → FT lose per casa
+    htft_home_htd_ftl: int = 0        # HT draw → FT lose per casa
+    htft_home_htl_ftl: int = 0        # HT lose → FT lose per casa
+    htft_away_htw_ftw: int = 0        # stesso per trasferta
+    htft_away_htd_ftw: int = 0
+    htft_away_htl_ftw: int = 0
+    htft_away_htw_ftd: int = 0
+    htft_away_htd_ftd: int = 0
+    htft_away_htl_ftd: int = 0
+    htft_away_htw_ftl: int = 0
+    htft_away_htd_ftl: int = 0
+    htft_away_htl_ftl: int = 0
+    
+    # Team Statistics extra (da pagina LIVE, ultimi 10 match)
+    team_stats_home_goals: float = 0.0      # media gol casa
+    team_stats_home_conceded: float = 0.0   # media gol subiti casa
+    team_stats_home_shots: float = 0.0      # media tiri subiti casa
+    team_stats_home_corners: float = 0.0    # media corner casa
+    team_stats_home_yellows: float = 0.0    # media gialli casa
+    team_stats_home_fouls: float = 0.0      # media falli casa
+    team_stats_home_possession: float = 0.0 # media possesso casa
+    team_stats_away_goals: float = 0.0      # stessi per trasferta
+    team_stats_away_conceded: float = 0.0
+    team_stats_away_shots: float = 0.0
+    team_stats_away_corners: float = 0.0
+    team_stats_away_yellows: float = 0.0
+    team_stats_away_fouls: float = 0.0
+    team_stats_away_possession: float = 0.0
+    
+    # Quote LIVE (informativo, non sostituisce input manuale)
+    live_ah_line: float = 0.0         # linea AH live
+    live_ah_home_odds: float = 0.0    # quota AH casa live
+    live_ah_away_odds: float = 0.0    # quota AH trasferta live
+    live_total_line: float = 0.0      # linea Total live
+    live_over_odds: float = 0.0       # quota Over live
+    live_under_odds: float = 0.0      # quota Under live
+
 
 PREMATCH_ANALYSIS_PROMPT = """Sei un assistente che legge screenshot della pagina "Analysis" di Nowgoal.
 
@@ -2840,10 +2890,14 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
     
     METODO PRIMARIO: Regex (GRATUITO, senza API key, senza limiti)
     FALLBACK OPZIONALE: Gemini (richiede API key)
+    
+    AUTOMAZIONE LIVE: Estrae automaticamente anche dalla pagina LIVE
+    per ottenere meteo, HT/FT stats, team statistics extra.
 
     Args:
         url: URL della pagina Analysis di Nowgoal
              (es. https://www.nowgoal.com/match/h2h-2800452)
+             Accetta anche URL live o detail.
 
     Returns:
         PrematchAnalysisExtracted con i dati estratti, o errore se fallisce.
@@ -2852,6 +2906,7 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
         - Funziona GRATUITAMENTE senza configurare nulla
         - Gemini è usato solo come fallback se regex non trova dati
         - Estrae: H2H, Strength, Standings, Previous Scores, Quote iniziali
+        - + Meteo, HT/FT Stats, Team Statistics dalla pagina LIVE
     """
     url = url.strip()
     if not url:
@@ -2862,18 +2917,30 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
-    if not _is_valid_nowgoal_url(url):
-        return PrematchAnalysisExtracted(
-            extraction_success=False,
-            error_message=(
-                "URL non riconosciuto. Usa un link Nowgoal Analysis "
-                "(es. nowgoal.com/match/h2h-XXXXXX)"
-            ),
-        )
+    # Estrai l'ID partita dall'URL (funziona con h2h, live, detail)
+    match_id_match = re.search(r'/match/(?:h2h|live|detail)-(\d+)', url, re.IGNORECASE)
+    match_id = match_id_match.group(1) if match_id_match else None
+    
+    # Costruisci URL H2H (per estrarre standings, H2H, strength)
+    if match_id:
+        h2h_url = f"https://www.nowgoal.com/match/h2h-{match_id}"
+        live_url = f"https://www.nowgoal.com/match/live-{match_id}"
+    else:
+        # Fallback: usa l'URL originale
+        h2h_url = url
+        live_url = None
+        if not _is_valid_nowgoal_url(url):
+            return PrematchAnalysisExtracted(
+                extraction_success=False,
+                error_message=(
+                    "URL non riconosciuto. Usa un link Nowgoal Analysis "
+                    "(es. nowgoal.com/match/h2h-XXXXXX)"
+                ),
+            )
 
     try:
         # 1. Fetch text content via Jina Reader (per standings, H2H, strength)
-        page_text = _fetch_jina_reader(url)
+        page_text = _fetch_jina_reader(h2h_url)
     except Exception as e:
         return PrematchAnalysisExtracted(
             extraction_success=False,
@@ -2889,7 +2956,7 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
     # 2. Fetch raw HTML (per JavaScript: h_data, a_data, Vs_hOdds, team names)
     raw_html = ""
     try:
-        raw_html = _fetch_raw_html(url)
+        raw_html = _fetch_raw_html(h2h_url)
     except Exception:
         pass  # Non critico, continuiamo con solo Jina Reader
 
@@ -2901,7 +2968,260 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
         # completamente Vs_hOdds che è intorno ai 28000-40000 caratteri
         combined_text = page_text + "\n\n=== RAW HTML ===\n" + raw_html[:100000]
 
-    return _extract_prematch_analysis_from_text(combined_text)
+    # 4. Estrai dati principali dalla pagina H2H
+    result = _extract_prematch_analysis_from_text(combined_text)
+    
+    # 5. Estrai dati aggiuntivi dalla pagina LIVE (automazione!)
+    if live_url and result.extraction_success:
+        try:
+            live_page_text = _fetch_jina_reader(live_url)
+            if live_page_text and len(live_page_text) > 200:
+                live_data = _extract_live_page_data(live_page_text)
+                _apply_live_data_to_result(result, live_data)
+                
+                # Aggiungi meteo impact ai calcoli
+                if result.weather_impact != 0:
+                    # Applica l'impatto meteo agli xG stimati
+                    result.forma_mult_h *= (1.0 + result.weather_impact)
+                    result.forma_mult_a *= (1.0 + result.weather_impact)
+        except Exception:
+            pass  # Non critico, i dati H2H sono già estratti
+    
+    return result
+
+
+def _extract_live_page_data(text: str) -> dict:
+    """
+    Estrae dati aggiuntivi dalla pagina LIVE di Nowgoal.
+    
+    Estrae:
+    - Meteo (condizione, temperatura)
+    - HT/FT Statistics
+    - Team Statistics (ultimi 10 match)
+    - Quote live (informativo)
+    
+    Returns:
+        Dict con i dati estratti.
+    """
+    result = {
+        # Meteo
+        "weather_condition": "",
+        "weather_temp": 0,
+        "weather_impact": 0.0,
+        # HT/FT Stats - Casa
+        "htft_home_htw_ftw": 0,
+        "htft_home_htd_ftw": 0,
+        "htft_home_htl_ftw": 0,
+        "htft_home_htw_ftd": 0,
+        "htft_home_htd_ftd": 0,
+        "htft_home_htl_ftd": 0,
+        "htft_home_htw_ftl": 0,
+        "htft_home_htd_ftl": 0,
+        "htft_home_htl_ftl": 0,
+        # HT/FT Stats - Trasferta
+        "htft_away_htw_ftw": 0,
+        "htft_away_htd_ftw": 0,
+        "htft_away_htl_ftw": 0,
+        "htft_away_htw_ftd": 0,
+        "htft_away_htd_ftd": 0,
+        "htft_away_htl_ftd": 0,
+        "htft_away_htw_ftl": 0,
+        "htft_away_htd_ftl": 0,
+        "htft_away_htl_ftl": 0,
+        # Team Stats
+        "team_stats_home_goals": 0.0,
+        "team_stats_home_conceded": 0.0,
+        "team_stats_home_shots": 0.0,
+        "team_stats_home_corners": 0.0,
+        "team_stats_home_yellows": 0.0,
+        "team_stats_home_fouls": 0.0,
+        "team_stats_home_possession": 0.0,
+        "team_stats_away_goals": 0.0,
+        "team_stats_away_conceded": 0.0,
+        "team_stats_away_shots": 0.0,
+        "team_stats_away_corners": 0.0,
+        "team_stats_away_yellows": 0.0,
+        "team_stats_away_fouls": 0.0,
+        "team_stats_away_possession": 0.0,
+        # Quote live
+        "live_ah_line": 0.0,
+        "live_ah_home_odds": 0.0,
+        "live_ah_away_odds": 0.0,
+        "live_total_line": 0.0,
+        "live_over_odds": 0.0,
+        "live_under_odds": 0.0,
+    }
+    
+    # === 1. METEO ===
+    # Pattern: "Partly cloudy, 10°C" o "Rain, 15°C" o "Sunny, 25°C"
+    weather_match = re.search(
+        r'(Sunny|Clear|Partly cloudy|Cloudy|Overcast|Rain|Light rain|Heavy rain|Drizzle|Thunderstorm|Snow|Fog|Mist|Windy),?\s*(\d{1,2})°C?',
+        text, re.IGNORECASE
+    )
+    if weather_match:
+        result["weather_condition"] = weather_match.group(1).strip()
+        result["weather_temp"] = int(weather_match.group(2))
+        
+        # Calcola impatto meteo sui gol
+        condition_lower = result["weather_condition"].lower()
+        if any(x in condition_lower for x in ["rain", "thunderstorm", "heavy"]):
+            result["weather_impact"] = -0.08  # -8% xG per pioggia forte
+        elif any(x in condition_lower for x in ["drizzle", "light rain", "mist"]):
+            result["weather_impact"] = -0.04  # -4% xG per pioggia leggera
+        elif "windy" in condition_lower:
+            result["weather_impact"] = -0.03  # -3% xG per vento
+        elif result["weather_temp"] >= 30:
+            result["weather_impact"] = -0.02  # -2% xG per caldo eccessivo
+    
+    # === 2. HT/FT STATISTICS ===
+    # La tabella HT/FT ha questo formato:
+    # | HT-W / FT-W | 4 | 2 | ...
+    # Cerca la sezione HT/FT
+    htft_section = re.search(
+        r'HT/FT Statistics.*?(?=\*\*Last Updated|$)',
+        text, re.IGNORECASE | re.DOTALL
+    )
+    if htft_section:
+        htft_text = htft_section.group(0)
+        
+        # Pattern per ogni riga: "| HT-W / FT-W | 4 | 2 |"
+        # Le colonne sono: tipo | casa_home | casa_away | trasf_home | trasf_away
+        htft_patterns = {
+            "htw_ftw": r'HT-W\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+            "htd_ftw": r'HT-D\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+            "htl_ftw": r'HT-L\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+            "htw_ftd": r'HT-W\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+            "htd_ftd": r'HT-D\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+            "htl_ftd": r'HT-L\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+            "htw_ftl": r'HT-W\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+            "htd_ftl": r'HT-D\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+            "htl_ftl": r'HT-L\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
+        }
+        
+        for key, pattern in htft_patterns.items():
+            match = re.search(pattern, htft_text, re.IGNORECASE)
+            if match:
+                # Gruppo 1 = casa_home, Gruppo 2 = casa_away, Gruppo 3 = trasf_home, Gruppo 4 = trasf_away
+                result[f"htft_home_{key}"] = int(match.group(1))  # casa in casa
+                result[f"htft_away_{key}"] = int(match.group(4))  # trasferta in trasferta
+    
+    # === 3. TEAM STATISTICS ===
+    # Tabella con "Recent 10 Matches"
+    # Formato: | Home | Recent 10 Matches | Away |
+    #          | 2.2 | Goal | 2.6 |
+    
+    team_stats_section = re.search(
+        r'Team Statistics.*?Recent 10 Matches.*?(?=\*\*Last Updated|HT/FT|$)',
+        text, re.IGNORECASE | re.DOTALL
+    )
+    if team_stats_section:
+        stats_text = team_stats_section.group(0)
+        
+        # Estrai valori dalla tabella
+        # Riga Goal: | 2.2 | Goal | 2.6 |
+        goals_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Goal\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if goals_match:
+            result["team_stats_home_goals"] = float(goals_match.group(1))
+            result["team_stats_away_goals"] = float(goals_match.group(2))
+        
+        # Riga Loss (gol subiti): | 0.9 | Loss | 1.1 |
+        loss_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Loss\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if loss_match:
+            result["team_stats_home_conceded"] = float(loss_match.group(1))
+            result["team_stats_away_conceded"] = float(loss_match.group(2))
+        
+        # Riga Shots: | 7 | Opponent Shots | 7.8 |
+        shots_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Opponent Shots\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if shots_match:
+            result["team_stats_home_shots"] = float(shots_match.group(1))
+            result["team_stats_away_shots"] = float(shots_match.group(2))
+        
+        # Riga Corners: | 5 | Corners | 6.7 |
+        corners_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Corners\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if corners_match:
+            result["team_stats_home_corners"] = float(corners_match.group(1))
+            result["team_stats_away_corners"] = float(corners_match.group(2))
+        
+        # Riga Yellow Cards: | 2.2 | Yellow Cards | 1.4 |
+        yellows_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Yellow Cards\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if yellows_match:
+            result["team_stats_home_yellows"] = float(yellows_match.group(1))
+            result["team_stats_away_yellows"] = float(yellows_match.group(2))
+        
+        # Riga Fouls: | 16.7 | Fouls | 13 |
+        fouls_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Fouls\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if fouls_match:
+            result["team_stats_home_fouls"] = float(fouls_match.group(1))
+            result["team_stats_away_fouls"] = float(fouls_match.group(2))
+        
+        # Riga Possession: | 51.5% | Possession | 57.5% |
+        poss_match = re.search(r'\|\s*([\d.]+)%?\s*\|\s*\*?\*?Possession\*?\*?\s*\|\s*([\d.]+)%?\s*\|', stats_text, re.IGNORECASE)
+        if poss_match:
+            result["team_stats_home_possession"] = float(poss_match.group(1))
+            result["team_stats_away_possession"] = float(poss_match.group(2))
+    
+    # === 4. QUOTE LIVE ===
+    # Cerca la tabella Live Odds con righe "Live"
+    # Formato: | Live | 0.80 | -1 | 1.00 | 4.10 | 4.33 | 1.57 | 1.00 | 3 | 0.80 |
+    # Colonne: Time | AH_home_odds | AH_line | AH_away_odds | 1 | X | 2 | Over_odds | Total_line | Under_odds
+    
+    live_odds_match = re.search(
+        r'\|\s*Live\s*\|\s*([\d.]+)\s*\|\s*(-?[\d./]+)\s*\|\s*([\d.]+)\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)\s*\|\s*([\d./]+)\s*\|\s*([\d.]+)\s*\|',
+        text, re.IGNORECASE
+    )
+    if live_odds_match:
+        try:
+            result["live_ah_home_odds"] = float(live_odds_match.group(1))
+            ah_line_raw = live_odds_match.group(2)
+            result["live_ah_line"] = convert_nowgoal_line_to_software(ah_line_raw, invert_sign=True)
+            result["live_ah_away_odds"] = float(live_odds_match.group(3))
+            result["live_over_odds"] = float(live_odds_match.group(4))
+            total_line_raw = live_odds_match.group(5)
+            result["live_total_line"] = convert_nowgoal_line_to_software(total_line_raw, invert_sign=False)
+            result["live_under_odds"] = float(live_odds_match.group(6))
+        except (ValueError, TypeError):
+            pass
+    
+    return result
+
+
+def _apply_live_data_to_result(result: PrematchAnalysisExtracted, live_data: dict) -> None:
+    """
+    Applica i dati estratti dalla pagina LIVE al risultato principale.
+    Modifica result in-place.
+    """
+    # Meteo
+    if live_data.get("weather_condition"):
+        result.weather_condition = live_data["weather_condition"]
+        result.weather_temp = live_data["weather_temp"]
+        result.weather_impact = live_data["weather_impact"]
+    
+    # HT/FT Stats
+    for key in ["htft_home_htw_ftw", "htft_home_htd_ftw", "htft_home_htl_ftw",
+                "htft_home_htw_ftd", "htft_home_htd_ftd", "htft_home_htl_ftd",
+                "htft_home_htw_ftl", "htft_home_htd_ftl", "htft_home_htl_ftl",
+                "htft_away_htw_ftw", "htft_away_htd_ftw", "htft_away_htl_ftw",
+                "htft_away_htw_ftd", "htft_away_htd_ftd", "htft_away_htl_ftd",
+                "htft_away_htw_ftl", "htft_away_htd_ftl", "htft_away_htl_ftl"]:
+        if key in live_data:
+            setattr(result, key, live_data[key])
+    
+    # Team Stats
+    for key in ["team_stats_home_goals", "team_stats_home_conceded", "team_stats_home_shots",
+                "team_stats_home_corners", "team_stats_home_yellows", "team_stats_home_fouls",
+                "team_stats_home_possession", "team_stats_away_goals", "team_stats_away_conceded",
+                "team_stats_away_shots", "team_stats_away_corners", "team_stats_away_yellows",
+                "team_stats_away_fouls", "team_stats_away_possession"]:
+        if key in live_data:
+            setattr(result, key, live_data[key])
+    
+    # Quote Live (informativo)
+    result.live_ah_line = live_data.get("live_ah_line", 0.0)
+    result.live_ah_home_odds = live_data.get("live_ah_home_odds", 0.0)
+    result.live_ah_away_odds = live_data.get("live_ah_away_odds", 0.0)
+    result.live_total_line = live_data.get("live_total_line", 0.0)
+    result.live_over_odds = live_data.get("live_over_odds", 0.0)
+    result.live_under_odds = live_data.get("live_under_odds", 0.0)
 
 
 # ============================================================================
