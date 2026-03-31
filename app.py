@@ -61,18 +61,11 @@ from src.ui.inputs import (
     render_prematch_analysis_screen,
 )
 
-# ── Analisi Prematch (Nowgoal Analysis tab) — PRIMA delle linee per pre-popolare ────
-render_prematch_analysis_screen()
-_prematch_data = st.session_state.get("prematch_analysis")
-
-st.divider()
-
 # ── Linee ─────────────────────────────────────────────────────────────────────
 _live_gh = st.session_state.get("live_gol_casa", 0)
 _live_ga = st.session_state.get("live_gol_trasf", 0)
 
-# Passa i dati prematch per pre-popolare le linee se estratte
-lines = render_linee_semplici(gol_casa=_live_gh, gol_trasf=_live_ga, prematch_data=_prematch_data)
+lines = render_linee_semplici(gol_casa=_live_gh, gol_trasf=_live_ga)
 
 # Linea O/U automatica (closest a tot corrente)
 def _linea_ou(tot_raw: float) -> float:
@@ -87,6 +80,11 @@ with st.expander("⚙️ Bankroll e commissione", expanded=False):
 bankroll  = float(st.session_state.get("bankroll_value", UI.BANKROLL_DEFAULT))
 comm_pct  = float(st.session_state.get("comm_pct_value", UI.COMM_DEFAULT))
 comm_rate = comm_pct / 100.0
+
+st.divider()
+
+# ── Analisi Prematch (Nowgoal Analysis tab) ───────────────────────────────────
+render_prematch_analysis_screen()
 
 st.divider()
 

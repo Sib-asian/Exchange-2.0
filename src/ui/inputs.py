@@ -1244,36 +1244,20 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
             st.rerun()
 
 
-def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0, prematch_data: PrematchAnalysisExtracted | None = None) -> dict:
+def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
     """
     Render semplificato delle linee: 4 campi in 2 colonne.
     Sempre modalità Full Game — nessun radio button.
-    
-    Se prematch_data è disponibile e contiene linee estratte, le usa come default.
 
     Returns:
         Dict compatibile con render_asian_lines (ah_op, tot_op, ah_cur, tot_cur, ...).
     """
-    # Determina i valori di default dai dati estratti (se disponibili)
-    default_ah = -0.25
-    default_tot = 2.50
-    
-    if prematch_data and prematch_data.extraction_success:
-        # Usa le linee estratte da Vs_hOdds come default
-        if prematch_data.ah_line_open != 0:
-            default_ah = prematch_data.ah_line_open
-        if prematch_data.total_line_open != 0:
-            default_tot = prematch_data.total_line_open
-    
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("**Spread (AH)**")
-        # Se abbiamo dati estratti, mostra un messaggio
-        if prematch_data and prematch_data.ah_line_open != 0:
-            st.caption(f"💡 Estratto da Nowgoal: {prematch_data.ah_line_open:+.2f}")
         ah_op = st.number_input(
-            "Apertura", value=default_ah, step=0.25, key="lines_ah_op",
+            "Apertura", value=-0.25, step=0.25, key="lines_ah_op",
             help="Handicap asiatico all'apertura del mercato.",
         )
         if "ah_cur_raw_input" not in st.session_state:
@@ -1285,10 +1269,8 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0, prematch_data: 
 
     with col2:
         st.markdown("**Total (O/U)**")
-        if prematch_data and prematch_data.total_line_open != 0:
-            st.caption(f"💡 Estratto da Nowgoal: {prematch_data.total_line_open:.2f}")
         tot_op = st.number_input(
-            "Apertura", value=default_tot, step=0.25, key="lines_tot_op",
+            "Apertura", value=2.50, step=0.25, key="lines_tot_op",
             help="Linea Over/Under all'apertura (gol totali intera partita).",
         )
         if "tot_cur_raw_input" not in st.session_state:
