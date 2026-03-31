@@ -1733,7 +1733,11 @@ def extract_prematch_analysis_from_bytes(
 # ============================================================================
 
 _JINA_BASE_URL = "https://r.jina.ai/"
-_NOWGOAL_DOMAINS = ("nowgoal.com", "nowgoal.net", "nowgoal.info", "nowgoal26.com")
+_NOWGOAL_DOMAINS = (
+    "nowgoal.com", "nowgoal.net", "nowgoal.info",
+    "nowgoal26.com", "nowgoal8.com",
+    "live5.nowgoal26.com",  # Nuovo dominio funzionante
+)
 
 PREMATCH_ANALYSIS_TEXT_PROMPT = """Sei un assistente che estrae dati statistici da testo di una pagina Nowgoal Analysis/H2H.
 
@@ -3011,11 +3015,17 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
     # Estrai l'ID partita dall'URL (funziona con h2h, live, detail)
     match_id_match = re.search(r'/match/(?:h2h|live|detail)-(\d+)', url, re.IGNORECASE)
     match_id = match_id_match.group(1) if match_id_match else None
-    
+
+    # Estrai il dominio dall'URL originale per mantenerlo
+    # (www.nowgoal.com NON funziona, usiamo il dominio che l'utente ha fornito)
+    domain_match = re.search(r'https?://([^/]+)', url)
+    original_domain = domain_match.group(1) if domain_match else "live5.nowgoal26.com"
+
     # Costruisci URL H2H (per estrarre standings, H2H, strength)
+    # Usa il dominio originale dall'URL inserito dall'utente
     if match_id:
-        h2h_url = f"https://www.nowgoal.com/match/h2h-{match_id}"
-        live_url = f"https://www.nowgoal.com/match/live-{match_id}"
+        h2h_url = f"https://{original_domain}/match/h2h-{match_id}"
+        live_url = f"https://{original_domain}/match/live-{match_id}"
     else:
         # Fallback: usa l'URL originale
         h2h_url = url
