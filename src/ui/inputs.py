@@ -1178,43 +1178,6 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
         fm1.metric("Forma mult. Casa", f"{data.forma_mult_h:.3f}")
         fm2.metric("Forma mult. Trasf.", f"{data.forma_mult_a:.3f}")
 
-        # === NUOVO: Linee AH/Total estratte ===
-        if data.ah_line_open != 0 or data.total_line_open != 0:
-            st.divider()
-            st.markdown("**📈 Linee di Mercato (da Nowgoal)**")
-            l1, l2 = st.columns(2)
-            with l1:
-                if data.ah_line_open != 0:
-                    st.caption(f"AH Apertura: **{data.ah_line_open:+.2f}**")
-                    if data.ah_line_close != 0 and data.ah_line_close != data.ah_line_open:
-                        st.caption(f"AH Chiusura: **{data.ah_line_close:+.2f}** (movimento: {data.line_movement_ah:+.2f})")
-            with l2:
-                if data.total_line_open != 0:
-                    st.caption(f"Total Apertura: **{data.total_line_open:.2f}**")
-                    if data.total_line_close != 0 and data.total_line_close != data.total_line_open:
-                        st.caption(f"Total Chiusura: **{data.total_line_close:.2f}** (movimento: {data.line_movement_total:+.2f})")
-            
-            # Sharp signal
-            if data.odds_sharp_signal > 0:
-                st.caption(f"⚠️ Sharp signal: movimento significativo {data.odds_sharp_signal:.2f}")
-        
-        # === NUOVO: Form trend da partite recenti ===
-        if data.home_form_trend != 0 or data.away_form_trend != 0:
-            st.divider()
-            st.markdown("**📊 Trend Forma (da partite recenti)**")
-            t1, t2 = st.columns(2)
-            with t1:
-                if data.home_form_trend != 0:
-                    trend_str = "📈 in miglioramento" if data.home_form_trend > 0 else "📉 in peggioramento"
-                    st.caption(f"Casa: {trend_str} ({data.home_form_trend:+.2f})")
-            with t2:
-                if data.away_form_trend != 0:
-                    trend_str = "📈 in miglioramento" if data.away_form_trend > 0 else "📉 in peggioramento"
-                    st.caption(f"Trasf.: {trend_str} ({data.away_form_trend:+.2f})")
-            
-            if data.home_xg_from_recent > 0 or data.away_xg_from_recent > 0:
-                st.caption(f"xG recenti — Casa: {data.home_xg_from_recent:.2f} · Trasf.: {data.away_xg_from_recent:.2f}")
-
         # Quote 1X2 iniziali (solo se estratte via URL)
         if data.mkt_init_1 > 0:
             st.caption(
