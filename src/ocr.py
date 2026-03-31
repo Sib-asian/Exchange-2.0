@@ -2636,6 +2636,12 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         result.away_scored, result.away_conceded, result.away_matches,
     )
     
+    # Calcola win_rate se non estratto (W / Matches * 100)
+    if result.home_win_rate == 0 and result.home_matches > 0 and result.home_win > 0:
+        result.home_win_rate = round(result.home_win / result.home_matches * 100, 1)
+    if result.away_win_rate == 0 and result.away_matches > 0 and result.away_win > 0:
+        result.away_win_rate = round(result.away_win / result.away_matches * 100, 1)
+    
     # Se abbiamo dati partite recenti, migliora forma_mult con trend reale
     if result.home_recent_results and len(result.home_recent_results) >= 6:
         # Forma_mult già calcolato da standings, aggiusta con trend partite
