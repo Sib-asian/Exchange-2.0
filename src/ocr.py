@@ -2381,6 +2381,31 @@ def _extract_all_with_regex(text: str) -> dict:
         result["mkt_init_x"] = float(odds_match.group(2).replace(",", "."))
         result["mkt_init_2"] = float(odds_match.group(3).replace(",", "."))
     
+    # Pattern per tabella markdown Live Odds Analysis (Jina Reader)
+    # Formato: | **Bet365** | Initial | AH_home | AH_line | AH_away | 1 | X | 2 | Over | Total | Under |
+    # Es: | **Bet365** | Initial | 0.80 | 1.5 | 1.05 | 1.20 | 5.50 | 12.00 | 0.88 | 2/2.5 | 0.98 |
+    if result["mkt_init_1"] == 0:
+        # Pattern per tabella odds con Initial row
+        table_odds_pattern = r'\|\s*\*?\*?Bet365\*?\*?\s*\|\s*Initial\s*\|\s*[\d.]+\s*\|\s*[\d./]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|'
+        table_match = re.search(table_odds_pattern, text, re.IGNORECASE)
+        if table_match:
+            result["mkt_init_1"] = float(table_match.group(1))
+            result["mkt_init_x"] = float(table_match.group(2))
+            result["mkt_init_2"] = float(table_match.group(3))
+    
+    # Pattern alternativo: cerca 1X2 in riga con "Initial"
+    if result["mkt_init_1"] == 0:
+        # Cerca pattern: "Initial" seguito da valori che sembrano quote 1X2
+        initial_pattern = r'Initial\s*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|'
+        init_match = re.search(initial_pattern, text, re.IGNORECASE)
+        if init_match:
+            q1, qx, q2 = float(init_match.group(1)), float(init_match.group(2)), float(init_match.group(3))
+            # Verifica che sembrino quote valide (1.0 < quota < 50.0)
+            if 1.0 < q1 < 50.0 and 1.0 < qx < 50.0 and 1.0 < q2 < 50.0:
+                result["mkt_init_1"] = q1
+                result["mkt_init_x"] = qx
+                result["mkt_init_2"] = q2
+    
     # === INFO PARTITA ===
     # Nomi squadre: "Team A vs Team B" o "Team A - Team B"
     teams_match = re.search(r"^([A-Za-z][A-Za-z\s]{2,30}?)\s+(?:vs|VS|-|–)\s+([A-Za-z][A-Za-z\s]{2,30}?)", text, re.MULTILINE)
@@ -2570,15 +2595,14 @@ def _extract_all_with_regex(text: str) -> dict:
             pass
     
     # === 3. NOMI SQUADRE (da meta tags o title - più affidabile) ===
-    # Cerca nel title: "Team A VS Team B Match Analysis"
-    # Pattern aggiornato per gestire punti e spazi nei nomi
-    title_match = re.search(
-        r'<title>\s*([^<>|]+?)\s+(?:vs|VS|Vs|-|–)\s+([^<>|]+?)(?:\s+(?:Match|Live|Analysis|H2H|Preview))',
-        text, re.IGNORECASE
+    # Pattern 1: Formato Jina Reader markdown "Title: Team A VS Team B Match..."
+    jina_title_match = re.search(
+        r'^Title:\s*([A-Za-z][A-Za-z\s\.]{1,30}?)\s+(?:VS|vs|Vs)\s+([A-Za-z][A-Za-z\s\.]{1,30}?)(?:\s+(?:Match|Live|Analysis|H2H|Preview))',
+        text, re.IGNORECASE | re.MULTILINE
     )
-    if title_match:
-        home = title_match.group(1).strip()
-        away = title_match.group(2).strip()
+    if jina_title_match:
+        home = jina_title_match.group(1).strip()
+        away = jina_title_match.group(2).strip()
         # Rimuovi suffissi comuni
         home = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', home, flags=re.IGNORECASE).strip()
         away = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', away, flags=re.IGNORECASE).strip()
@@ -2586,6 +2610,44 @@ def _extract_all_with_regex(text: str) -> dict:
             result["home_team"] = home
         if away and not result["away_team"]:
             result["away_team"] = away
+    
+    # Pattern 2: Formato HTML <title> (se raw HTML disponibile)
+    if not result["home_team"] or not result["away_team"]:
+        title_match = re.search(
+            r'<title>\s*([^<>|]+?)\s+(?:vs|VS|Vs|-|–)\s+([^<>|]+?)(?:\s+(?:Match|Live|Analysis|H2H|Preview))',
+            text, re.IGNORECASE
+        )
+        if title_match:
+            home = title_match.group(1).strip()
+            away = title_match.group(2).strip()
+            home = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', home, flags=re.IGNORECASE).strip()
+            away = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', away, flags=re.IGNORECASE).strip()
+            if home and not result["home_team"]:
+                result["home_team"] = home
+            if away and not result["away_team"]:
+                result["away_team"] = away
+    
+    # Pattern 3: Cerca "# Team A vs Team B" heading (markdown)
+    if not result["home_team"] or not result["away_team"]:
+        heading_match = re.search(
+            r'^#\s*([A-Za-z][A-Za-z\s\.]{1,30}?)\s+(?:vs|VS|Vs)\s+([A-Za-z][A-Za-z\s\.]{1,30}?)\s*$',
+            text, re.IGNORECASE | re.MULTILINE
+        )
+        if heading_match:
+            if not result["home_team"]:
+                result["home_team"] = heading_match.group(1).strip()
+            if not result["away_team"]:
+                result["away_team"] = heading_match.group(2).strip()
+    
+    # Pattern 4: Cerca nella sezione H2H "Team A Home Same League"
+    if not result["home_team"] or not result["away_team"]:
+        h2h_home_match = re.search(
+            r'Head to Head Statistics.*?\[([A-Za-z][A-Za-z\s]{1,25}?)\].*?Home',
+            text, re.IGNORECASE | re.DOTALL
+        )
+        if h2h_home_match:
+            if not result["home_team"]:
+                result["home_team"] = h2h_home_match.group(1).strip()
     
     # Fallback: cerca in meta description
     if not result["home_team"] or not result["away_team"]:
