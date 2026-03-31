@@ -1091,6 +1091,11 @@ def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
 
     # Se c'è già un'estrazione valida, mostra subito il riepilogo senza ridisegnare i tab
     if cached and cached.extraction_success:
+        # Mostra se la cache ha il meteo
+        if cached.weather_condition:
+            st.success(f"📍 Dati da cache — Meteo: {cached.weather_condition}, {cached.weather_temp}°C")
+        else:
+            st.info("📍 Dati da cache (senza meteo) — Clicca 'Rimuovi analisi' per estrarre di nuovo con OpenWeather")
         _render_prematch_analysis_summary(cached)
         return cached
 

@@ -44,6 +44,35 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# Import modulo weather per API OpenWeather
+# Prova diversi modi di import per compatibilità con Streamlit
+WEATHER_MODULE_AVAILABLE = False
+_get_weather_for_match = None
+_get_weather_for_city = None
+
+try:
+    # Prova import relativo
+    from src.weather import get_weather_for_match, get_weather_for_city
+    WEATHER_MODULE_AVAILABLE = True
+    _get_weather_for_match = get_weather_for_match
+    _get_weather_for_city = get_weather_for_city
+except ImportError:
+    try:
+        # Prova import diretto del file
+        import importlib.util
+        import os as _os
+        _weather_path = _os.path.join(_os.path.dirname(__file__), 'weather.py')
+        if _os.path.exists(_weather_path):
+            _spec = importlib.util.spec_from_file_location("weather", _weather_path)
+            _weather_module = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_weather_module)
+            _get_weather_for_match = _weather_module.get_weather_for_match
+            _get_weather_for_city = _weather_module.get_weather_for_city
+            WEATHER_MODULE_AVAILABLE = True
+    except Exception as e:
+        print(f"[WEATHER] Import fallito: {e}")
+        WEATHER_MODULE_AVAILABLE = False
+
 # OpenAI import con fallback
 try:
     from openai import OpenAI
@@ -3040,14 +3069,25 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
             if live_page_text and len(live_page_text) > 200:
                 live_data = _extract_live_page_data(live_page_text)
                 _apply_live_data_to_result(result, live_data)
-                
-                # Aggiungi meteo impact ai calcoli
-                if result.weather_impact != 0:
-                    # Applica l'impatto meteo agli xG stimati
-                    result.forma_mult_h *= (1.0 + result.weather_impact)
-                    result.forma_mult_a *= (1.0 + result.weather_impact)
         except Exception:
             pass  # Non critico, i dati H2H sono già estratti
+    
+    # 6. Se il meteo non è stato estratto dalla pagina LIVE, usa OpenWeather API
+    if result.extraction_success and not result.weather_condition and WEATHER_MODULE_AVAILABLE and _get_weather_for_match:
+        try:
+            weather = _get_weather_for_match(result.home_team, result.away_team, result.league_name)
+            if weather.extraction_success:
+                result.weather_condition = weather.condition
+                result.weather_temp = weather.temp_celsius
+                result.weather_impact = weather.xg_impact
+        except Exception:
+            pass  # Non critico, continuiamo senza meteo
+    
+    # 7. Applica impatto meteo agli xG (se presente)
+    if result.extraction_success and result.weather_impact != 0:
+        # Applica l'impatto meteo agli xG stimati
+        result.forma_mult_h *= (1.0 + result.weather_impact)
+        result.forma_mult_a *= (1.0 + result.weather_impact)
     
     return result
 
