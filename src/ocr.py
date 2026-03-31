@@ -1014,6 +1014,40 @@ class PrematchAnalysisExtracted:
     forma_mult_h: float = 1.0              # moltiplicatore xG casa
     forma_mult_a: float = 1.0             # moltiplicatore xG trasferta
 
+    # === NUOVI CAMPI: Partite recenti (h_data / a_data) ===
+    # Lista di tuple (gol_fatti, gol_subiti) per ultime N partite
+    # Calcolato da h_data/a_data nel JS di Nowgoal
+    home_recent_results: list = field(default_factory=list)  # [(gf, gs), ...] ultime partite casa
+    away_recent_results: list = field(default_factory=list)  # [(gf, gs), ...] ultime partite trasferta
+    home_form_trend: float = 0.0      # Trend forma: positivo = in miglioramento
+    away_form_trend: float = 0.0      # Trend forma: negativo = in peggioramento
+    home_xg_from_recent: float = 0.0  # xG stimato da partite recenti
+    away_xg_from_recent: float = 0.0  # xG stimato da partite recenti
+
+    # === NUOVI CAMPI: Quote multi-bookmaker (Vs_hOdds) ===
+    # Usati principalmente dallo Scanner (pagina principale ha input manuale)
+    ah_line_open: float = 0.0         # Linea AH apertura (media bookmaker)
+    ah_line_close: float = 0.0        # Linea AH chiusura (più recente)
+    ah_home_odds_open: float = 0.0    # Quota AH casa apertura
+    ah_away_odds_open: float = 0.0    # Quota AH trasferta apertura
+    total_line_open: float = 0.0      # Linea Total apertura
+    total_line_close: float = 0.0     # Linea Total chiusura
+    total_over_odds_open: float = 0.0 # Quota Over apertura
+    total_under_odds_open: float = 0.0 # Quota Under apertura
+    line_movement_ah: float = 0.0     # Movimento linea AH (close - open)
+    line_movement_total: float = 0.0  # Movimento linea Total (close - open)
+    odds_sharp_signal: float = 0.0    # Segnale sharp: |movement| * confidenza
+
+    # === NUOVI CAMPI: Punti classifica (motivazione) ===
+    home_points: int = 0              # Punti in classifica casa
+    away_points: int = 0              # Punti in classifica trasferta
+    home_motivation: str = "normal"   # "high" / "normal" / "low"
+    away_motivation: str = "normal"   # "high" = lotta titolo/salvezza, "low" = salvo
+    
+    # === NUOVI CAMPI: ID squadre ===
+    home_id: int = 0                  # ID squadra casa (da h2h_home)
+    away_id: int = 0                  # ID squadra trasferta (da h2h_away)
+
 
 PREMATCH_ANALYSIS_PROMPT = """Sei un assistente che legge screenshot della pagina "Analysis" di Nowgoal.
 
@@ -1726,6 +1760,75 @@ def _fetch_jina_reader(url: str, timeout: int = 30) -> str:
         return resp.read().decode("utf-8", errors="replace")
 
 
+def _fetch_raw_html(url: str, timeout: int = 30) -> str:
+    """
+    Recupera l'HTML grezzo di una pagina usando z-ai CLI o Jina Reader.
+    
+    Prova:
+    1. z-ai CLI page_reader (restituisce HTML completo con JavaScript)
+    2. Jina Reader con formato raw
+    3. Richiesta diretta (fallisce se protezione anti-bot)
+    """
+    # Metodo 1: Usa z-ai CLI page_reader
+    try:
+        executable, extra_args = _find_zai_command()
+        if executable:
+            if extra_args:
+                cmd = [executable] + extra_args + ["function", "-n", "page_reader", "-a", f'{{"url": "{url}"}}']
+            else:
+                cmd = [executable, "function", "-n", "page_reader", "-a", f'{{"url": "{url}"}}']
+            
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout,
+                env=_get_env_with_path()
+            )
+            if result.returncode == 0:
+                # Rimuovi log messages e estrai JSON
+                stdout = result.stdout.strip()
+                # Trova il JSON tra i log messages
+                json_start = stdout.find('{')
+                json_end = stdout.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    json_str = stdout[json_start:json_end]
+                    data = json.loads(json_str)
+                    if data.get("code") == 200 and data.get("data", {}).get("html"):
+                        return data["data"]["html"]
+    except Exception:
+        pass
+    
+    # Metodo 2: Jina Reader raw
+    try:
+        # https://r.jina.ai/http://URL restituisce HTML
+        raw_url = url
+        if raw_url.startswith("https://"):
+            raw_url = "http://" + raw_url[8:]
+        jina_url = _JINA_BASE_URL + raw_url
+        req = urllib.request.Request(
+            jina_url,
+            headers={"Accept": "text/html"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+            if len(html) > 1000:
+                return html
+    except Exception:
+        pass
+    
+    # Metodo 3: Richiesta diretta (probabilmente fallisce con anti-bot)
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "text/html",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
 def _extract_h2h_with_regex(text: str) -> dict:
     """
     Estrae dati H2H dal testo usando regex (GRATUITO, senza API key).
@@ -1819,6 +1922,66 @@ def _extract_h2h_with_regex(text: str) -> dict:
     return result
 
 
+def convert_nowgoal_line_to_software(line_str: str | float, invert_sign: bool = True) -> float:
+    """
+    Converte una linea AH o Total dal formato Nowgoal al formato del software.
+    
+    CONVERSIONI:
+    1. Quarter Lines: "-0.5/1" → -0.75 (media dei due valori)
+    2. Inversione Segno: Nowgoal 0.5 → Software -0.5 (quando casa è favorita)
+    
+    Args:
+        line_str: La linea nel formato Nowgoal (può essere stringa o numero)
+        invert_sign: Se True, inverte il segno (per AH lines).
+                    Per Total lines, usare False.
+    
+    Returns:
+        La linea convertita nel formato del software.
+    
+    Examples:
+        >>> convert_nowgoal_line_to_software("0.5")      # Casa favorita su Nowgoal
+        -0.5                                            # Software: casa favorita = negativo
+        >>> convert_nowgoal_line_to_software("-0.5/1")   # Quarter line
+        0.75                                            # Media di -0.5 e 1, poi segno invertito
+        >>> convert_nowgoal_line_to_software("0.5/1", invert_sign=False)  # Total line
+        0.75
+    """
+    # Se è già un numero, converti direttamente
+    if isinstance(line_str, (int, float)):
+        nowgoal_value = float(line_str)
+        return -nowgoal_value if invert_sign else nowgoal_value
+    
+    # Converti in stringa e pulisci
+    line_str = str(line_str).strip().replace(' ', '')
+    
+    if not line_str:
+        return 0.0
+    
+    try:
+        # Quarter line: "-0.5/1" o "0.5/1"
+        if '/' in line_str:
+            parts = line_str.split('/')
+            if len(parts) == 2:
+                val1 = float(parts[0])
+                val2 = float(parts[1])
+                nowgoal_value = (val1 + val2) / 2.0
+            else:
+                # Formato inatteso, prova a parsare come singolo valore
+                nowgoal_value = float(line_str.replace('/', ''))
+        else:
+            nowgoal_value = float(line_str)
+        
+        # Inverti il segno per AH (Nowgoal: positivo = casa favorita)
+        # Software: negativo = casa favorita
+        if invert_sign:
+            return -nowgoal_value
+        else:
+            return nowgoal_value
+            
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def _extract_all_with_regex(text: str) -> dict:
     """
     Estrae TUTTI i dati prematch dal testo usando solo regex.
@@ -1894,6 +2057,33 @@ def _extract_all_with_regex(text: str) -> dict:
         "away_team": "",
         "league_name": "",
         "match_date": "",
+        # === NUOVI CAMPI ===
+        # Partite recenti (da h_data/a_data JS)
+        "home_recent_results": [],      # [(gf, gs), ...]
+        "away_recent_results": [],      # [(gf, gs), ...]
+        "home_form_trend": 0.0,
+        "away_form_trend": 0.0,
+        "home_xg_from_recent": 0.0,
+        "away_xg_from_recent": 0.0,
+        # Quote multi-bookmaker (da Vs_hOdds JS)
+        "ah_line_open": 0.0,
+        "ah_line_close": 0.0,
+        "ah_home_odds_open": 0.0,
+        "ah_away_odds_open": 0.0,
+        "total_line_open": 0.0,
+        "total_line_close": 0.0,
+        "total_over_odds_open": 0.0,
+        "total_under_odds_open": 0.0,
+        "line_movement_ah": 0.0,
+        "line_movement_total": 0.0,
+        "odds_sharp_signal": 0.0,
+        # Punti classifica
+        "home_points": 0,
+        "away_points": 0,
+        "home_motivation": "normal",
+        "away_motivation": "normal",
+        "home_id": 0,
+        "away_id": 0,
     }
     
     # === H2H ===
@@ -2086,6 +2276,238 @@ def _extract_all_with_regex(text: str) -> dict:
     if league_match:
         result["league_name"] = league_match.group(1).strip()
     
+    # =====================================================
+    # === NUOVI CAMPI: ESTRAZIONE AVANZATA ===
+    # =====================================================
+    
+    # === 1. h_data / a_data: PARTITE RECENTI (da JavaScript Nowgoal) ===
+    # Formato: h_data = [[team1_id, team2_id, gol_team1, gol_team2], ...]
+    # La squadra di casa è identificata da h2h_home, la trasferta da h2h_away
+    
+    # Cerca prima gli ID delle squadre
+    home_id = None
+    away_id = None
+    id_match_h = re.search(r'h2h_home\s*=\s*(\d+)', text)
+    if id_match_h:
+        home_id = int(id_match_h.group(1))
+        result["home_id"] = home_id
+    id_match_a = re.search(r'h2h_away\s*=\s*(\d+)', text)
+    if id_match_a:
+        away_id = int(id_match_a.group(1))
+        result["away_id"] = away_id
+    
+    # Estrai h_data (partite recenti squadra casa)
+    # Pattern aggiornato per matchare formato Nowgoal
+    h_data_match = re.search(r'h_data\s*=\s*(\[(?:\[\d+,\s*\d+,\s*\d+,\s*\d+\]\s*,?\s*)+\])', text)
+    if h_data_match:
+        try:
+            h_data_str = h_data_match.group(1)
+            h_data_parsed = json.loads(h_data_str)
+            home_results = []
+            
+            for match_data in h_data_parsed[:15]:  # Max 15 partite
+                if len(match_data) >= 4:
+                    t1, t2, g1, g2 = int(match_data[0]), int(match_data[1]), int(match_data[2]), int(match_data[3])
+                    # Determina se la squadra di casa ha giocato in casa o trasferta
+                    if home_id and t1 == home_id:
+                        # Casa ha giocato in casa
+                        home_results.append((g1, g2))  # (gf, gs)
+                    elif home_id and t2 == home_id:
+                        # Casa ha giocato in trasferta
+                        home_results.append((g2, g1))  # (gf, gs)
+                    elif not home_id:
+                        # Fallback: assume prima squadra è casa
+                        if len(home_results) < 10:
+                            home_results.append((g1, g2))
+            
+            result["home_recent_results"] = home_results
+            
+            # Calcola trend forma (prime 5 vs ultime 5)
+            if len(home_results) >= 10:
+                first5 = home_results[:5]
+                last5 = home_results[-5:]
+                first5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in first5)
+                last5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in last5)
+                result["home_form_trend"] = (last5_pts - first5_pts) / 15.0  # Normalizzato [-1, 1]
+            
+            # Calcola xG da partite recenti
+            if home_results:
+                avg_gf = sum(gf for gf, gs in home_results) / len(home_results)
+                avg_gs = sum(gs for gf, gs in home_results) / len(home_results)
+                result["home_xg_from_recent"] = round(avg_gf, 2)
+        except (json.JSONDecodeError, ValueError, IndexError) as e:
+            pass
+    
+    # Estrai a_data (partite recenti squadra trasferta)
+    a_data_match = re.search(r'a_data\s*=\s*(\[(?:\[\d+,\s*\d+,\s*\d+,\s*\d+\]\s*,?\s*)+\])', text)
+    if a_data_match:
+        try:
+            a_data_str = a_data_match.group(1)
+            a_data_parsed = json.loads(a_data_str)
+            away_results = []
+            
+            for match_data in a_data_parsed[:15]:
+                if len(match_data) >= 4:
+                    t1, t2, g1, g2 = int(match_data[0]), int(match_data[1]), int(match_data[2]), int(match_data[3])
+                    if away_id and t1 == away_id:
+                        away_results.append((g1, g2))
+                    elif away_id and t2 == away_id:
+                        away_results.append((g2, g1))
+                    elif not away_id:
+                        if len(away_results) < 10:
+                            away_results.append((g1, g2))
+            
+            result["away_recent_results"] = away_results
+            
+            if len(away_results) >= 10:
+                first5 = away_results[:5]
+                last5 = away_results[-5:]
+                first5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in first5)
+                last5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in last5)
+                result["away_form_trend"] = (last5_pts - first5_pts) / 15.0
+            
+            if away_results:
+                avg_gf = sum(gf for gf, gs in away_results) / len(away_results)
+                avg_gs = sum(gs for gf, gs in away_results) / len(away_results)
+                result["away_xg_from_recent"] = round(avg_gf, 2)
+        except (json.JSONDecodeError, ValueError, IndexError):
+            pass
+    
+    # === 2. Vs_hOdds: QUOTE MULTI-BOOKMAKER (da JavaScript Nowgoal) ===
+    # Formato: Vs_hOdds = [[bookmaker_id, timestamp, 'ah_home', 'ah_line', ...], ...]];
+    # I valori sono stringhe con apici singoli, JSON vuole doppi apici!
+    
+    # Pattern più robusto: trova tutto fino al punto e virgola
+    vs_odds_match = re.search(r"Vs_hOdds\s*=\s*(\[[\s\S]+?\]\s*\])\s*;", text)
+    if vs_odds_match:
+        try:
+            odds_str = vs_odds_match.group(1)
+            # Converti apici singoli in doppi per JSON
+            # Attenzione: solo per i valori stringa, non per i numeri
+            odds_str = re.sub(r"'([^']*)'", r'"\1"', odds_str)
+            odds_data = json.loads(odds_str)
+            
+            # Trova opening (timestamp=1) e closing (timestamp più alto)
+            opening_row = None
+            closing_row = None
+            max_timestamp = 0
+            
+            for row in odds_data:
+                if len(row) >= 12:
+                    ts = int(row[1]) if len(row) > 1 and row[1] else 0
+                    if ts == 1:
+                        opening_row = row
+                    if ts > max_timestamp:
+                        max_timestamp = ts
+                        closing_row = row
+            
+            # Estrai dati da opening (timestamp=1)
+            if opening_row and len(opening_row) >= 12:
+                # AH: index 2=home_odds, 3=line, 4=away_odds
+                # NOTA: Le linee Nowgoal hanno formato diverso e segno invertito!
+                # - Quarter lines: "0.5/1" → 0.75 (media)
+                # - Segno: Nowgoal 0.5 (casa favorita) → Software -0.5
+                ah_line_raw = opening_row[3] if opening_row[3] else "0"
+                ah_line = convert_nowgoal_line_to_software(ah_line_raw, invert_sign=True)
+                ah_home = float(opening_row[2]) if opening_row[2] else 0.0
+                ah_away = float(opening_row[4]) if opening_row[4] else 0.0
+                # Total: index 8=line, 10=over_odds, 11=under_odds
+                # Per Total: quarter lines ma SENZA inversione segno
+                total_line_raw = opening_row[8] if opening_row[8] else "0"
+                total_line = convert_nowgoal_line_to_software(total_line_raw, invert_sign=False)
+                total_over = float(opening_row[10]) if len(opening_row) > 10 and opening_row[10] else 0.0
+                total_under = float(opening_row[11]) if len(opening_row) > 11 and opening_row[11] else 0.0
+                
+                result["ah_line_open"] = ah_line
+                result["ah_home_odds_open"] = ah_home
+                result["ah_away_odds_open"] = ah_away
+                result["total_line_open"] = total_line
+                result["total_over_odds_open"] = total_over
+                result["total_under_odds_open"] = total_under
+            
+            # Estrai dati da closing
+            if closing_row and len(closing_row) >= 12:
+                ah_line_close_raw = closing_row[3] if closing_row[3] else "0"
+                ah_line_close = convert_nowgoal_line_to_software(ah_line_close_raw, invert_sign=True)
+                total_line_close_raw = closing_row[8] if closing_row[8] else "0"
+                total_line_close = convert_nowgoal_line_to_software(total_line_close_raw, invert_sign=False)
+                
+                result["ah_line_close"] = ah_line_close
+                result["total_line_close"] = total_line_close
+            
+            # Calcola movimento
+            if result["ah_line_open"] != 0 and result["ah_line_close"] != 0:
+                result["line_movement_ah"] = result["ah_line_close"] - result["ah_line_open"]
+            if result["total_line_open"] != 0 and result["total_line_close"] != 0:
+                result["line_movement_total"] = result["total_line_close"] - result["total_line_open"]
+            
+            # Sharp signal: movimento significativo (>0.25) indica informazione
+            if abs(result["line_movement_ah"]) >= 0.25 or abs(result["line_movement_total"]) >= 0.25:
+                result["odds_sharp_signal"] = max(abs(result["line_movement_ah"]), abs(result["line_movement_total"]))
+        except (json.JSONDecodeError, ValueError, IndexError):
+            pass
+    
+    # === 3. NOMI SQUADRE (da meta tags o title - più affidabile) ===
+    # Cerca nel title: "Team A VS Team B Match Analysis"
+    # Pattern aggiornato per gestire punti e spazi nei nomi
+    title_match = re.search(
+        r'<title>\s*([^<>|]+?)\s+(?:vs|VS|Vs|-|–)\s+([^<>|]+?)(?:\s+(?:Match|Live|Analysis|H2H|Preview))',
+        text, re.IGNORECASE
+    )
+    if title_match:
+        home = title_match.group(1).strip()
+        away = title_match.group(2).strip()
+        # Rimuovi suffissi comuni
+        home = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', home, flags=re.IGNORECASE).strip()
+        away = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', away, flags=re.IGNORECASE).strip()
+        if home and not result["home_team"]:
+            result["home_team"] = home
+        if away and not result["away_team"]:
+            result["away_team"] = away
+    
+    # Fallback: cerca in meta description
+    if not result["home_team"] or not result["away_team"]:
+        meta_match = re.search(
+            r'content="([^"]+?)\s+(?:vs|VS|Vs|-|–)\s+([^"]+?)(?:\s+(?:Match|Live|Check|Analysis))',
+            text, re.IGNORECASE
+        )
+        if meta_match:
+            if not result["home_team"]:
+                result["home_team"] = meta_match.group(1).strip()
+            if not result["away_team"]:
+                result["away_team"] = meta_match.group(2).strip()
+    
+    # === 4. PUNTI CLASSIFICA (dalla tabella standings) ===
+    # Cerca colonna Pts (solitamente colonna 7 dopo Scored/Conceded)
+    pts_pattern = r"Total\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)"
+    pts_matches = re.findall(pts_pattern, text, re.IGNORECASE)
+    if pts_matches:
+        if len(pts_matches) >= 1:
+            result["home_points"] = int(pts_matches[0])
+        if len(pts_matches) >= 2:
+            result["away_points"] = int(pts_matches[1])
+    
+    # === 5. MOTIVAZIONE (basata su posizione classifica) ===
+    # Calcolata dopo aver estratto rank e matches
+    if result["home_rank"] > 0 and result["home_matches"] > 0:
+        # Top 3 = lotta titolo (high), Zona salvezza (ultime 3) = high, Metà = normal
+        max_teams = 20  # Assumiamo massimo 20 squadre
+        if result["home_rank"] <= 3:
+            result["home_motivation"] = "high"
+        elif result["home_rank"] >= max_teams - 2:
+            result["home_motivation"] = "high"  # Lotta salvezza
+        elif result["home_rank"] > max_teams // 2 + 3 and result["home_rank"] < max_teams - 3:
+            result["home_motivation"] = "low"  # Salvo, senza obiettivi
+    
+    if result["away_rank"] > 0 and result["away_matches"] > 0:
+        max_teams = 20
+        if result["away_rank"] <= 3:
+            result["away_motivation"] = "high"
+        elif result["away_rank"] >= max_teams - 2:
+            result["away_motivation"] = "high"
+        elif result["away_rank"] > max_teams // 2 + 3 and result["away_rank"] < max_teams - 3:
+            result["away_motivation"] = "low"
+    
     return result
 
 
@@ -2104,8 +2526,9 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
     import time
     
     # === PASSO 1: Estrazione con REGEX (PRIMARIO) ===
-    text_truncated = page_text[:20000]
-    regex_data = _extract_all_with_regex(text_truncated)
+    # NOTA: Usiamo l'intero testo, non troncato, perché i dati JavaScript
+    # (h_data, Vs_hOdds) sono nell'HTML grezzo che viene dopo i 20000 caratteri
+    regex_data = _extract_all_with_regex(page_text)
     
     # Crea il risultato base dai dati regex
     result = PrematchAnalysisExtracted(
@@ -2171,6 +2594,34 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         away_team=regex_data["away_team"],
         league_name=regex_data["league_name"],
         match_date=regex_data["match_date"],
+        # === NUOVI CAMPI ===
+        # Partite recenti
+        home_recent_results=regex_data["home_recent_results"],
+        away_recent_results=regex_data["away_recent_results"],
+        home_form_trend=regex_data["home_form_trend"],
+        away_form_trend=regex_data["away_form_trend"],
+        home_xg_from_recent=regex_data["home_xg_from_recent"],
+        away_xg_from_recent=regex_data["away_xg_from_recent"],
+        # Quote multi-bookmaker
+        ah_line_open=regex_data["ah_line_open"],
+        ah_line_close=regex_data["ah_line_close"],
+        ah_home_odds_open=regex_data["ah_home_odds_open"],
+        ah_away_odds_open=regex_data["ah_away_odds_open"],
+        total_line_open=regex_data["total_line_open"],
+        total_line_close=regex_data["total_line_close"],
+        total_over_odds_open=regex_data["total_over_odds_open"],
+        total_under_odds_open=regex_data["total_under_odds_open"],
+        line_movement_ah=regex_data["line_movement_ah"],
+        line_movement_total=regex_data["line_movement_total"],
+        odds_sharp_signal=regex_data["odds_sharp_signal"],
+        # Punti e motivazione
+        home_points=regex_data["home_points"],
+        away_points=regex_data["away_points"],
+        home_motivation=regex_data["home_motivation"],
+        away_motivation=regex_data["away_motivation"],
+        # ID squadre
+        home_id=regex_data["home_id"],
+        away_id=regex_data["away_id"],
     )
     
     # Calcola forma_mult
@@ -2184,6 +2635,16 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         result.away_last6_win, result.away_last6_draw, result.away_last6_lose,
         result.away_scored, result.away_conceded, result.away_matches,
     )
+    
+    # Se abbiamo dati partite recenti, migliora forma_mult con trend reale
+    if result.home_recent_results and len(result.home_recent_results) >= 6:
+        # Forma_mult già calcolato da standings, aggiusta con trend partite
+        trend_adj = result.home_form_trend * 0.04  # Max ±4% aggiustamento
+        result.forma_mult_h = max(0.88, min(1.12, result.forma_mult_h + trend_adj))
+    
+    if result.away_recent_results and len(result.away_recent_results) >= 6:
+        trend_adj = result.away_form_trend * 0.04
+        result.forma_mult_a = max(0.88, min(1.12, result.forma_mult_a + trend_adj))
     
     # Calcola fixture_historical_total (media gol H2H totali)
     if result.h2h_avg_goals_home > 0 or result.h2h_avg_goals_away > 0:
@@ -2333,6 +2794,7 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
         )
 
     try:
+        # 1. Fetch text content via Jina Reader (per standings, H2H, strength)
         page_text = _fetch_jina_reader(url)
     except Exception as e:
         return PrematchAnalysisExtracted(
@@ -2346,7 +2808,22 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
             error_message="Pagina vuota o non leggibile tramite Jina Reader",
         )
 
-    return _extract_prematch_analysis_from_text(page_text)
+    # 2. Fetch raw HTML (per JavaScript: h_data, a_data, Vs_hOdds, team names)
+    raw_html = ""
+    try:
+        raw_html = _fetch_raw_html(url)
+    except Exception:
+        pass  # Non critico, continuiamo con solo Jina Reader
+
+    # 3. Combina testo + HTML per estrazione completa
+    combined_text = page_text
+    if raw_html:
+        # Aggiungi l'HTML grezzo alla fine per permettere estrazione JS
+        # NOTA: Usiamo 100000 caratteri (invece di 50000) per includere
+        # completamente Vs_hOdds che è intorno ai 28000-40000 caratteri
+        combined_text = page_text + "\n\n=== RAW HTML ===\n" + raw_html[:100000]
+
+    return _extract_prematch_analysis_from_text(combined_text)
 
 
 # ============================================================================

@@ -1148,6 +1148,12 @@ def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
 def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
     """Mostra un riepilogo compatto dei dati estratti dallo screen Analysis."""
     with st.expander("✅ Dati Analisi estratti", expanded=False):
+        # Nomi squadre
+        if data.home_team or data.away_team:
+            st.markdown(f"**{data.home_team}** vs **{data.away_team}**")
+            if data.league_name:
+                st.caption(f"📍 {data.league_name}")
+        
         c1, c2, c3 = st.columns(3)
         c1.metric("H2H Casa", f"{data.h2h_home_win_pct:.0f}%")
         c2.metric("H2H X", f"{data.h2h_draw_pct:.0f}%")
@@ -1171,6 +1177,43 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
         fm1, fm2 = st.columns(2)
         fm1.metric("Forma mult. Casa", f"{data.forma_mult_h:.3f}")
         fm2.metric("Forma mult. Trasf.", f"{data.forma_mult_a:.3f}")
+
+        # === NUOVO: Linee AH/Total estratte ===
+        if data.ah_line_open != 0 or data.total_line_open != 0:
+            st.divider()
+            st.markdown("**📈 Linee di Mercato (da Nowgoal)**")
+            l1, l2 = st.columns(2)
+            with l1:
+                if data.ah_line_open != 0:
+                    st.caption(f"AH Apertura: **{data.ah_line_open:+.2f}**")
+                    if data.ah_line_close != 0 and data.ah_line_close != data.ah_line_open:
+                        st.caption(f"AH Chiusura: **{data.ah_line_close:+.2f}** (movimento: {data.line_movement_ah:+.2f})")
+            with l2:
+                if data.total_line_open != 0:
+                    st.caption(f"Total Apertura: **{data.total_line_open:.2f}**")
+                    if data.total_line_close != 0 and data.total_line_close != data.total_line_open:
+                        st.caption(f"Total Chiusura: **{data.total_line_close:.2f}** (movimento: {data.line_movement_total:+.2f})")
+            
+            # Sharp signal
+            if data.odds_sharp_signal > 0:
+                st.caption(f"⚠️ Sharp signal: movimento significativo {data.odds_sharp_signal:.2f}")
+        
+        # === NUOVO: Form trend da partite recenti ===
+        if data.home_form_trend != 0 or data.away_form_trend != 0:
+            st.divider()
+            st.markdown("**📊 Trend Forma (da partite recenti)**")
+            t1, t2 = st.columns(2)
+            with t1:
+                if data.home_form_trend != 0:
+                    trend_str = "📈 in miglioramento" if data.home_form_trend > 0 else "📉 in peggioramento"
+                    st.caption(f"Casa: {trend_str} ({data.home_form_trend:+.2f})")
+            with t2:
+                if data.away_form_trend != 0:
+                    trend_str = "📈 in miglioramento" if data.away_form_trend > 0 else "📉 in peggioramento"
+                    st.caption(f"Trasf.: {trend_str} ({data.away_form_trend:+.2f})")
+            
+            if data.home_xg_from_recent > 0 or data.away_xg_from_recent > 0:
+                st.caption(f"xG recenti — Casa: {data.home_xg_from_recent:.2f} · Trasf.: {data.away_xg_from_recent:.2f}")
 
         # Quote 1X2 iniziali (solo se estratte via URL)
         if data.mkt_init_1 > 0:
@@ -1201,20 +1244,36 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
             st.rerun()
 
 
-def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
+def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0, prematch_data: PrematchAnalysisExtracted | None = None) -> dict:
     """
     Render semplificato delle linee: 4 campi in 2 colonne.
     Sempre modalità Full Game — nessun radio button.
+    
+    Se prematch_data è disponibile e contiene linee estratte, le usa come default.
 
     Returns:
         Dict compatibile con render_asian_lines (ah_op, tot_op, ah_cur, tot_cur, ...).
     """
+    # Determina i valori di default dai dati estratti (se disponibili)
+    default_ah = -0.25
+    default_tot = 2.50
+    
+    if prematch_data and prematch_data.extraction_success:
+        # Usa le linee estratte da Vs_hOdds come default
+        if prematch_data.ah_line_open != 0:
+            default_ah = prematch_data.ah_line_open
+        if prematch_data.total_line_open != 0:
+            default_tot = prematch_data.total_line_open
+    
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("**Spread (AH)**")
+        # Se abbiamo dati estratti, mostra un messaggio
+        if prematch_data and prematch_data.ah_line_open != 0:
+            st.caption(f"💡 Estratto da Nowgoal: {prematch_data.ah_line_open:+.2f}")
         ah_op = st.number_input(
-            "Apertura", value=-0.25, step=0.25, key="lines_ah_op",
+            "Apertura", value=default_ah, step=0.25, key="lines_ah_op",
             help="Handicap asiatico all'apertura del mercato.",
         )
         if "ah_cur_raw_input" not in st.session_state:
@@ -1226,8 +1285,10 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
 
     with col2:
         st.markdown("**Total (O/U)**")
+        if prematch_data and prematch_data.total_line_open != 0:
+            st.caption(f"💡 Estratto da Nowgoal: {prematch_data.total_line_open:.2f}")
         tot_op = st.number_input(
-            "Apertura", value=2.50, step=0.25, key="lines_tot_op",
+            "Apertura", value=default_tot, step=0.25, key="lines_tot_op",
             help="Linea Over/Under all'apertura (gol totali intera partita).",
         )
         if "tot_cur_raw_input" not in st.session_state:
