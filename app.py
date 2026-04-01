@@ -211,9 +211,10 @@ if _btn_prematch or _btn_live:
     # ── Prediction Logging (salvataggio automatico) ───────────────────────────────
     from src.tracking.prediction_log import get_prediction_log, create_record_from_analysis
 
-    _squadra_casa = getattr(_pa, "squadra_casa", "") if _pa else ""
-    _squadra_trasf = getattr(_pa, "squadra_trasf", "") if _pa else ""
-    _lega = getattr(_pa, "lega", "") if _pa else ""
+    # I nomi dei campi in PrematchAnalysisExtracted sono home_team/away_team/league_name
+    _squadra_casa = getattr(_pa, "home_team", "") if _pa else ""
+    _squadra_trasf = getattr(_pa, "away_team", "") if _pa else ""
+    _lega = getattr(_pa, "league_name", "") if _pa else ""
 
     # Se non ci sono i nomi, usa placeholder
     if not _squadra_casa:
