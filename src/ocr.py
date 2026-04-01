@@ -2497,9 +2497,18 @@ def _extract_all_with_regex(text: str) -> dict:
             result["away_rank"] = int(rank_matches[1])
     
     # === PREVIOUS SCORES ===
+    # FIX: Cerca nella sezione "Previous Scores Statistics" per evitare di
+    # confondere con H2H Win (che appare prima nel testo con lo stesso pattern).
+    # Se la sezione non viene trovata, fallback sul testo intero.
+    _prev_section = re.search(
+        r'Previous\s+Score.*?(?=\*\*Last Updated|HT/FT|$)',
+        text, re.IGNORECASE | re.DOTALL
+    )
+    _prev_text = _prev_section.group(0) if _prev_section else text
+
     # Es: "Win 8 (80%)" nella sezione Previous
     prev_win_pattern = r"Win\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)"
-    prev_matches = re.findall(prev_win_pattern, text, re.IGNORECASE)
+    prev_matches = re.findall(prev_win_pattern, _prev_text, re.IGNORECASE)
     if prev_matches:
         if len(prev_matches) >= 1:
             result["prev_home_win_pct"] = float(prev_matches[0][1])
@@ -2507,8 +2516,9 @@ def _extract_all_with_regex(text: str) -> dict:
             result["prev_away_win_pct"] = float(prev_matches[1][1])
     
     # Previous Over %
-    prev_over_pattern = r"Over\s+(\d+(?:\.\d+)?)\s*%"
-    prev_over_matches = re.findall(prev_over_pattern, text, re.IGNORECASE)
+    # FIX: Usa pattern "% Over" invece di "Over %" per evitare garbage
+    prev_over_pattern = r"(\d+(?:\.\d+)?)%\s*Over"
+    prev_over_matches = re.findall(prev_over_pattern, _prev_text, re.IGNORECASE)
     if prev_over_matches:
         if len(prev_over_matches) >= 1:
             result["prev_home_over_pct"] = float(prev_over_matches[0])
@@ -2516,12 +2526,11 @@ def _extract_all_with_regex(text: str) -> dict:
             result["prev_away_over_pct"] = float(prev_over_matches[1])
     
     # Previous avg goals
-    # Es: "1.6 goals  Goal Score/Loss per Game  1.3 goals"
-    # Ci sono DUE sezioni: una per la casa e una per la trasferta
-    # Es: Andorra FC (Home): "1.6 goals ... 1.3 goals"
-    #     Malaga (Away): "2 goals ... 1.1 goals"
-    prev_goals_pattern = r"(\d+[.,]\d+)\s*goals?\s*(?:Score|per Game).*?(\d+[.,]\d+)\s*goals?"
-    prev_goals_matches = re.findall(prev_goals_pattern, text, re.IGNORECASE)
+    # FIX: Il formato reale è "1.3 goals Goal Score/Loss per Game 1.4 goals"
+    # Il vecchio pattern cercava "Score" o "per Game" subito dopo "goals",
+    # ma il testo ha "Goal Score/Loss per Game" (la parola "Goal" in mezzo).
+    prev_goals_pattern = r"(\d+[.,]\d+)\s*goals?\s*Goal\s+Score/Loss\s+per\s+Game\s*(\d+[.,]\d+)\s*goals?"
+    prev_goals_matches = re.findall(prev_goals_pattern, _prev_text, re.IGNORECASE)
     if prev_goals_matches:
         # Prima occorrenza = casa
         if len(prev_goals_matches) >= 1:
@@ -2568,7 +2577,12 @@ def _extract_all_with_regex(text: str) -> dict:
     
     # === INFO PARTITA ===
     # Nomi squadre: "Team A vs Team B" o "Team A - Team B"
-    teams_match = re.search(r"^([A-Za-z][A-Za-z\s]{2,30}?)\s+(?:vs|VS|-|–)\s+([A-Za-z][A-Za-z\s]{2,30}?)", text, re.MULTILINE)
+    # FIX: Usa spazio letterale (non \s) per evitare match su newlines.
+    # Aggiunge word boundary alla fine per catturare il nome completo.
+    teams_match = re.search(
+        r"^([A-Za-z][A-Za-z ]{2,30}?)\s+(?:vs|VS|-|–)\s+([A-Za-z][A-Za-z ]{2,30}?)(?:\s*$|\s*[,\.\|])",
+        text, re.MULTILINE
+    )
     if teams_match:
         result["home_team"] = teams_match.group(1).strip()
         result["away_team"] = teams_match.group(2).strip()
@@ -2822,14 +2836,33 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["away_team"] = meta_match.group(2).strip()
     
     # === 4. PUNTI CLASSIFICA (dalla tabella standings) ===
-    # Cerca colonna Pts (solitamente colonna 7 dopo Scored/Conceded)
-    pts_pattern = r"Total\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)"
-    pts_matches = re.findall(pts_pattern, text, re.IGNORECASE)
-    if pts_matches:
-        if len(pts_matches) >= 1:
-            result["home_points"] = int(pts_matches[0])
-        if len(pts_matches) >= 2:
-            result["away_points"] = int(pts_matches[1])
+    # FIX: La tabella standings ha righe FT e HT per OGNI squadra.
+    # Dobbiamo prendere SOLO le righe FT Total (non HT Total).
+    # Entrambe le squadre sono nella sezione "## Standings ... ## Head to Head".
+    # Soluzione: cerca tutte le righe "Total" che seguono "FT Matches" e
+    # sono prima del primo "HT Matches" per ciascuna squadra.
+    _standings_section = re.search(
+        r'## Standings.*?(?:## Head to Head|## Previous|$)',
+        text, re.IGNORECASE | re.DOTALL
+    )
+    if _standings_section:
+        _st_text = _standings_section.group(0)
+        # Estrai i blocchi FT (dopo "FT Matches" fino a "HT Matches" o fine sezione)
+        _ft_blocks = re.findall(
+            r'FT\s+Matches.*?(?=HT\s+Matches|$)',
+            _st_text, re.IGNORECASE | re.DOTALL
+        )
+        _all_pts = []
+        for _block in _ft_blocks:
+            _pts = re.findall(
+                r"Total\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)",
+                _block, re.IGNORECASE
+            )
+            _all_pts.extend(_pts)
+        if len(_all_pts) >= 1:
+            result["home_points"] = int(_all_pts[0])
+        if len(_all_pts) >= 2:
+            result["away_points"] = int(_all_pts[1])
     
     # === 5. MOTIVAZIONE (basata su posizione classifica) ===
     # Calcolata dopo aver estratto rank e matches
@@ -3097,7 +3130,9 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         )
     
     # Prova Gemini
-    full_prompt = f"TESTO PAGINA NOWGOAL:\n\n{text_truncated}\n\n---\n\n{PREMATCH_ANALYSIS_TEXT_PROMPT}"
+    # FIX: text_truncated non esisteva — usiamo page_text limitato a 30000 caratteri
+    _trunc = page_text[:30000] if page_text else ""
+    full_prompt = f"TESTO PAGINA NOWGOAL:\n\n{_trunc}\n\n---\n\n{PREMATCH_ANALYSIS_TEXT_PROMPT}"
     request_body = {
         "contents": [{"parts": [{"text": full_prompt}]}],
         "generationConfig": {
