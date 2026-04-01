@@ -153,10 +153,34 @@ if _btn_prematch or _btn_live:
     _h2h_over = float(getattr(_pa, "h2h_over_pct", 0.0)) if _pa else 0.0
     _str_home = int(getattr(_pa, "strength_home", 0)) if _pa else 0
     _str_away = int(getattr(_pa, "strength_away", 0)) if _pa else 0
+    
+    # Previous Scores (da sezione H2H)
     _prev_sc_h = float(getattr(_pa, "home_prev_avg_scored", 0.0)) if _pa else 0.0
     _prev_co_h = float(getattr(_pa, "home_prev_avg_conceded", 0.0)) if _pa else 0.0
     _prev_sc_a = float(getattr(_pa, "away_prev_avg_scored", 0.0)) if _pa else 0.0
     _prev_co_a = float(getattr(_pa, "away_prev_avg_conceded", 0.0)) if _pa else 0.0
+    
+    # Team Statistics (da tabella con possesso/corner - più affidabile, Recent 10 Matches)
+    _ts_sc_h = float(getattr(_pa, "team_stats_home_goals", 0.0)) if _pa else 0.0
+    _ts_co_h = float(getattr(_pa, "team_stats_home_conceded", 0.0)) if _pa else 0.0
+    _ts_sc_a = float(getattr(_pa, "team_stats_away_goals", 0.0)) if _pa else 0.0
+    _ts_co_a = float(getattr(_pa, "team_stats_away_conceded", 0.0)) if _pa else 0.0
+    
+    # FUSIONE: media di Previous Scores e Team Statistics quando entrambi disponibili
+    # Questo riduce errori di estrazione e rende i dati più affidabili
+    def _fuse(prev_val: float, ts_val: float) -> float:
+        """Fonde due fonti. Se entrambe disponibili, media. Se una sola, usa quella."""
+        if prev_val > 0 and ts_val > 0:
+            return (prev_val + ts_val) / 2.0  # Media
+        elif ts_val > 0:
+            return ts_val  # Fallback su Team Statistics
+        else:
+            return prev_val  # Fallback su Previous Scores (o 0)
+    
+    _final_sc_h = _fuse(_prev_sc_h, _ts_sc_h)
+    _final_co_h = _fuse(_prev_co_h, _ts_co_h)
+    _final_sc_a = _fuse(_prev_sc_a, _ts_sc_a)
+    _final_co_a = _fuse(_prev_co_a, _ts_co_a)
 
     try:
         state = build_match_state(
@@ -173,10 +197,10 @@ if _btn_prematch or _btn_live:
             h2h_over_pct=_h2h_over,
             strength_home=_str_home,
             strength_away=_str_away,
-            prev_avg_scored_h=_prev_sc_h,
-            prev_avg_conceded_h=_prev_co_h,
-            prev_avg_scored_a=_prev_sc_a,
-            prev_avg_conceded_a=_prev_co_a,
+            prev_avg_scored_h=_final_sc_h,
+            prev_avg_conceded_h=_final_co_h,
+            prev_avg_scored_a=_final_sc_a,
+            prev_avg_conceded_a=_final_co_a,
         )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")

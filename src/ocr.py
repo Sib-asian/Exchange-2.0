@@ -2501,11 +2501,21 @@ def _extract_all_with_regex(text: str) -> dict:
             result["prev_away_over_pct"] = float(prev_over_matches[1])
     
     # Previous avg goals
-    # Es: "1.9 goals  Goal Score/Loss per Game  1.3 goals"
-    prev_goals = re.search(r"(\d+[.,]\d+)\s*goals?\s*(?:Score|per Game).*?(\d+[.,]\d+)\s*goals?", text, re.IGNORECASE)
-    if prev_goals:
-        result["prev_home_avg_scored"] = float(prev_goals.group(1).replace(",", "."))
-        result["prev_home_avg_conceded"] = float(prev_goals.group(2).replace(",", "."))
+    # Es: "1.6 goals  Goal Score/Loss per Game  1.3 goals"
+    # Ci sono DUE sezioni: una per la casa e una per la trasferta
+    # Es: Andorra FC (Home): "1.6 goals ... 1.3 goals"
+    #     Malaga (Away): "2 goals ... 1.1 goals"
+    prev_goals_pattern = r"(\d+[.,]\d+)\s*goals?\s*(?:Score|per Game).*?(\d+[.,]\d+)\s*goals?"
+    prev_goals_matches = re.findall(prev_goals_pattern, text, re.IGNORECASE)
+    if prev_goals_matches:
+        # Prima occorrenza = casa
+        if len(prev_goals_matches) >= 1:
+            result["prev_home_avg_scored"] = float(prev_goals_matches[0][0].replace(",", "."))
+            result["prev_home_avg_conceded"] = float(prev_goals_matches[0][1].replace(",", "."))
+        # Seconda occorrenza = trasferta
+        if len(prev_goals_matches) >= 2:
+            result["prev_away_avg_scored"] = float(prev_goals_matches[1][0].replace(",", "."))
+            result["prev_away_avg_conceded"] = float(prev_goals_matches[1][1].replace(",", "."))
     
     # === QUOTE INIZIALI ===
     # Es: "1 @2.10  X @3.25  2 @3.40" o "1: 2.10  X: 3.25  2: 3.40"
@@ -3328,59 +3338,63 @@ def _extract_live_page_data(text: str) -> dict:
                 result[f"htft_away_{key}"] = int(match.group(4))  # trasferta in trasferta
     
     # === 3. TEAM STATISTICS ===
-    # Tabella con "Recent 10 Matches"
-    # Formato: | Home | Recent 10 Matches | Away |
-    #          | 2.2 | Goal | 2.6 |
+    # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
+    # Formato: | Home | Recent 3 Matches | Away | Home | Recent 10 Matches | Away |
+    #          | 1.7  | Goal             | 2.7  | 1.6  | Goal              | 2    |
+    # DEVO estrarre dall'ULTIMO gruppo (Recent 10 Matches) non dal primo!
     
     team_stats_section = re.search(
-        r'Team Statistics.*?Recent 10 Matches.*?(?=\*\*Last Updated|HT/FT|$)',
+        r'Team Statistics.*?(?=\*\*Last Updated|HT/FT|$)',
         text, re.IGNORECASE | re.DOTALL
     )
     if team_stats_section:
         stats_text = team_stats_section.group(0)
         
-        # Estrai valori dalla tabella
-        # Riga Goal: | 2.2 | Goal | 2.6 |
-        goals_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Goal\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
-        if goals_match:
-            result["team_stats_home_goals"] = float(goals_match.group(1))
-            result["team_stats_away_goals"] = float(goals_match.group(2))
+        # Estrai valori dalla tabella usando findall per trovare TUTTI i match
+        # e prendere l'ULTIMO (Recent 10 Matches)
+        
+        # Riga Goal: | 2.2 | Goal | 2.6 | (appare 2 volte, prendi l'ultima)
+        goals_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Goal\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if goals_matches:
+            # Prendi l'ULTIMO match (Recent 10 Matches)
+            result["team_stats_home_goals"] = float(goals_matches[-1][0])
+            result["team_stats_away_goals"] = float(goals_matches[-1][1])
         
         # Riga Loss (gol subiti): | 0.9 | Loss | 1.1 |
-        loss_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Loss\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
-        if loss_match:
-            result["team_stats_home_conceded"] = float(loss_match.group(1))
-            result["team_stats_away_conceded"] = float(loss_match.group(2))
+        loss_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Loss\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if loss_matches:
+            result["team_stats_home_conceded"] = float(loss_matches[-1][0])
+            result["team_stats_away_conceded"] = float(loss_matches[-1][1])
         
         # Riga Shots: | 7 | Opponent Shots | 7.8 |
-        shots_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Opponent Shots\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
-        if shots_match:
-            result["team_stats_home_shots"] = float(shots_match.group(1))
-            result["team_stats_away_shots"] = float(shots_match.group(2))
+        shots_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Opponent Shots\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if shots_matches:
+            result["team_stats_home_shots"] = float(shots_matches[-1][0])
+            result["team_stats_away_shots"] = float(shots_matches[-1][1])
         
         # Riga Corners: | 5 | Corners | 6.7 |
-        corners_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Corners\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
-        if corners_match:
-            result["team_stats_home_corners"] = float(corners_match.group(1))
-            result["team_stats_away_corners"] = float(corners_match.group(2))
+        corners_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Corners\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if corners_matches:
+            result["team_stats_home_corners"] = float(corners_matches[-1][0])
+            result["team_stats_away_corners"] = float(corners_matches[-1][1])
         
         # Riga Yellow Cards: | 2.2 | Yellow Cards | 1.4 |
-        yellows_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Yellow Cards\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
-        if yellows_match:
-            result["team_stats_home_yellows"] = float(yellows_match.group(1))
-            result["team_stats_away_yellows"] = float(yellows_match.group(2))
+        yellows_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Yellow Cards\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if yellows_matches:
+            result["team_stats_home_yellows"] = float(yellows_matches[-1][0])
+            result["team_stats_away_yellows"] = float(yellows_matches[-1][1])
         
         # Riga Fouls: | 16.7 | Fouls | 13 |
-        fouls_match = re.search(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Fouls\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
-        if fouls_match:
-            result["team_stats_home_fouls"] = float(fouls_match.group(1))
-            result["team_stats_away_fouls"] = float(fouls_match.group(2))
+        fouls_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Fouls\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        if fouls_matches:
+            result["team_stats_home_fouls"] = float(fouls_matches[-1][0])
+            result["team_stats_away_fouls"] = float(fouls_matches[-1][1])
         
         # Riga Possession: | 51.5% | Possession | 57.5% |
-        poss_match = re.search(r'\|\s*([\d.]+)%?\s*\|\s*\*?\*?Possession\*?\*?\s*\|\s*([\d.]+)%?\s*\|', stats_text, re.IGNORECASE)
-        if poss_match:
-            result["team_stats_home_possession"] = float(poss_match.group(1))
-            result["team_stats_away_possession"] = float(poss_match.group(2))
+        poss_matches = re.findall(r'\|\s*([\d.]+)%?\s*\|\s*\*?\*?Possession\*?\*?\s*\|\s*([\d.]+)%?\s*\|', stats_text, re.IGNORECASE)
+        if poss_matches:
+            result["team_stats_home_possession"] = float(poss_matches[-1][0])
+            result["team_stats_away_possession"] = float(poss_matches[-1][1])
     
     # === 4. QUOTE LIVE ===
     # Cerca la tabella Live Odds con righe "Live"
