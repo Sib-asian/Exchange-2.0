@@ -2268,15 +2268,57 @@ def _extract_all_with_regex(text: str) -> dict:
                     result["h2h_avg_goals_home"] = float(goals_matches[0].replace(",", "."))
                     result["h2h_avg_goals_away"] = float(goals_matches[1].replace(",", "."))
     # Se H2H percentuali sono 0, lascia h2h_avg_goals a 0 (nessun H2H disponibile)
-    
+
     # === STRENGTH ===
-    # Es: "Strength: 60 vs 40" o due numeri grandi separati
-    strength_match = re.search(r"(\d{1,3})\s*(?:vs|VS|-|–|/)\s*(\d{1,3})", text)
-    if strength_match:
-        s1, s2 = int(strength_match.group(1)), int(strength_match.group(2))
-        if 0 <= s1 <= 100 and 0 <= s2 <= 100:
+    # Nowgoal mostra la Strength come due numeri su righe isolate, seguiti dalle etichette:
+    #   62
+    #
+    #   38
+    #
+    #   *   H2H
+    #   *   State
+    #   *   Attack
+    # NOTA: NON usare "/" come separatore perché matcherebbe erroneamente "2/2" da "2/2.5" nelle quote!
+    strength_found = False
+
+    # Pattern 1: Due numeri su righe isolate seguiti da H2H/State/Attack (formato Nowgoal via Jina)
+    # Cerca: numero \n\n numero \n\n seguito da H2H o State entro 200 caratteri
+    strength_nowgoal = re.search(
+        r"\n\s*(\d{1,3})\s*\n+\s*(\d{1,3})\s*\n.{0,200}?(?:H2H|State|Attack|Defence)",
+        text, re.IGNORECASE | re.DOTALL
+    )
+    if strength_nowgoal:
+        s1, s2 = int(strength_nowgoal.group(1)), int(strength_nowgoal.group(2))
+        # Validazione: entrambi devono essere > 0 e somma ragionevole (non sono quote o piccoli numeri)
+        if s1 > 0 and s2 > 0 and s1 + s2 > 20:
             result["strength_home"] = s1
             result["strength_away"] = s2
+            strength_found = True
+
+    # Pattern 2: "Strength: 60 vs 40" o "Strength Comparison: 60 - 40"
+    if not strength_found:
+        strength_labeled = re.search(
+            r"Strength[^:]*?:\s*(\d{1,3})\s*(?:vs|VS|-|–)\s*(\d{1,3})",
+            text, re.IGNORECASE
+        )
+        if strength_labeled:
+            s1, s2 = int(strength_labeled.group(1)), int(strength_labeled.group(2))
+            if 0 <= s1 <= 100 and 0 <= s2 <= 100:
+                result["strength_home"] = s1
+                result["strength_away"] = s2
+                strength_found = True
+
+    # Pattern 3: "% H2H Comparison %" - es: "71%H2H Comparison 29%"
+    # Questi sono i percentuali di forza relativa
+    if not strength_found:
+        h2h_comp_match = re.search(r"(\d{1,3})%\s*H2H\s*Comparison\s*(\d{1,3})%", text, re.IGNORECASE)
+        if h2h_comp_match:
+            s1, s2 = int(h2h_comp_match.group(1)), int(h2h_comp_match.group(2))
+            # Questi sono percentuali, non valori assoluti. Convertiamo in punteggio 0-100
+            if s1 + s2 == 100:
+                result["strength_home"] = s1
+                result["strength_away"] = s2
+                strength_found = True
     
     # === STANDINGS ===
     # Cerca tabelle con righe Total/Home/Away/Last 6
