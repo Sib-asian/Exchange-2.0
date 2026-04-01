@@ -158,11 +158,18 @@ class MatchState:
     early_conceded_pct_h: float = 0.0  # % gol subiti nei minuti 0-30 casa
     early_conceded_pct_a: float = 0.0  # % gol subiti nei minuti 0-30 trasferta
 
-    # Weather impact on xxG (da OpenWeather API o da Gemini Vision)
-    weather_xg_impact: float = 0.0       # impatto meteo su xG (-0.15 = -10%, max +2% xG
+    # === BTTS Calibration - Dati aggiuntivi ===
+    h2h_btts_pct: float = 0.0          # % storica partite H2H con BTTS (0-100)
+    scoring_streak_h: int = 0          # partite consecutive con gol segnato casa
+    scoring_streak_a: int = 0          # partite consecutive con gol segnato trasferta
+    clean_sheet_streak_h: int = 0      # partite consecutive senza subire casa
+    clean_sheet_streak_a: int = 0      # partite consecutive senza subire trasferta
 
-    # Contradiction Detection: warning quando live stats contraddicon pre-match expectations
-    contradiction_warning: str = ""      # messaggio di warning per l'utente
+    # Weather impact on xG (da OpenWeather API o da Gemini Vision)
+    weather_xg_impact: float = 0.0     # impatto meteo su xG (-0.15 a +0.02)
+
+    # Contradiction Detection: warning quando live stats contraddicono pre-match expectations
+    contradiction_warning: str = ""    # messaggio di warning per l'utente
     has_contradiction: bool = False    # True se rilevata contraddizione significativa
 
     # Bankroll e commissione
