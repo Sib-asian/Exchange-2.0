@@ -77,8 +77,6 @@ def render_tracking_tab() -> None:
 
     Da chiamare come tab aggiuntiva nell'app principale.
     """
-    st.header("📋 Prediction Tracker")
-
     log = get_prediction_log()
     counts = log.count()
 

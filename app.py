@@ -104,9 +104,6 @@ with st.expander("📺 Dati Live", expanded=_live_exp_open):
 
 # ── Prediction Tracker (sempre visibile) ───────────────────────────────────────
 st.divider()
-st.markdown("---")
-st.markdown("## 🔔 QUI DOVREBBE ESSERE IL PREDICTION TRACKER 🔔")
-st.markdown("---")
 st.markdown("### 📋 Prediction Tracker")
 try:
     from src.tracking.ui import render_tracking_tab
