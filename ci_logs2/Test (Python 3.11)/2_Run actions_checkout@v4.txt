@@ -1,0 +1,88 @@
+﻿2026-03-23T10:44:17.9847538Z ##[group]Run actions/checkout@v4
+2026-03-23T10:44:17.9848389Z with:
+2026-03-23T10:44:17.9848807Z   repository: Sib-asian/Exchange-2.0
+2026-03-23T10:44:17.9849486Z   token: ***
+2026-03-23T10:44:17.9849874Z   ssh-strict: true
+2026-03-23T10:44:17.9850257Z   ssh-user: git
+2026-03-23T10:44:17.9850661Z   persist-credentials: true
+2026-03-23T10:44:17.9851115Z   clean: true
+2026-03-23T10:44:17.9851512Z   sparse-checkout-cone-mode: true
+2026-03-23T10:44:17.9851984Z   fetch-depth: 1
+2026-03-23T10:44:17.9852366Z   fetch-tags: false
+2026-03-23T10:44:17.9852779Z   show-progress: true
+2026-03-23T10:44:17.9853198Z   lfs: false
+2026-03-23T10:44:17.9853559Z   submodules: false
+2026-03-23T10:44:17.9853960Z   set-safe-directory: true
+2026-03-23T10:44:17.9854617Z ##[endgroup]
+2026-03-23T10:44:18.0930927Z Syncing repository: Sib-asian/Exchange-2.0
+2026-03-23T10:44:18.0932762Z ##[group]Getting Git version info
+2026-03-23T10:44:18.0933576Z Working directory is '/home/runner/work/Exchange-2.0/Exchange-2.0'
+2026-03-23T10:44:18.0934684Z [command]/usr/bin/git version
+2026-03-23T10:44:18.1017042Z git version 2.53.0
+2026-03-23T10:44:18.1042920Z ##[endgroup]
+2026-03-23T10:44:18.1056923Z Temporarily overriding HOME='/home/runner/work/_temp/c275c814-1230-41b3-95ec-8312598222db' before making global git config changes
+2026-03-23T10:44:18.1058567Z Adding repository directory to the temporary git global config as a safe directory
+2026-03-23T10:44:18.1061920Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:44:18.1101790Z Deleting the contents of '/home/runner/work/Exchange-2.0/Exchange-2.0'
+2026-03-23T10:44:18.1105489Z ##[group]Initializing the repository
+2026-03-23T10:44:18.1109647Z [command]/usr/bin/git init /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:44:18.1215410Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-03-23T10:44:18.1217006Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-03-23T10:44:18.1218252Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-03-23T10:44:18.1219122Z hint: call:
+2026-03-23T10:44:18.1219881Z hint:
+2026-03-23T10:44:18.1220768Z hint: 	git config --global init.defaultBranch <name>
+2026-03-23T10:44:18.1221732Z hint:
+2026-03-23T10:44:18.1222607Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-03-23T10:44:18.1224073Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-03-23T10:44:18.1224904Z hint:
+2026-03-23T10:44:18.1225505Z hint: 	git branch -m <name>
+2026-03-23T10:44:18.1226426Z hint:
+2026-03-23T10:44:18.1227319Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-03-23T10:44:18.1228406Z Initialized empty Git repository in /home/runner/work/Exchange-2.0/Exchange-2.0/.git/
+2026-03-23T10:44:18.1231499Z [command]/usr/bin/git remote add origin https://github.com/Sib-asian/Exchange-2.0
+2026-03-23T10:44:18.1267109Z ##[endgroup]
+2026-03-23T10:44:18.1267996Z ##[group]Disabling automatic garbage collection
+2026-03-23T10:44:18.1271074Z [command]/usr/bin/git config --local gc.auto 0
+2026-03-23T10:44:18.1302593Z ##[endgroup]
+2026-03-23T10:44:18.1303907Z ##[group]Setting up auth
+2026-03-23T10:44:18.1310530Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-03-23T10:44:18.1342781Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-03-23T10:44:18.1701035Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-03-23T10:44:18.1730346Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-03-23T10:44:18.1959566Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-03-23T10:44:18.1999108Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-03-23T10:44:18.2230538Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-03-23T10:44:18.2265535Z ##[endgroup]
+2026-03-23T10:44:18.2267072Z ##[group]Fetching the repository
+2026-03-23T10:44:18.2276085Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +8831a3768d5bc514c6ea61f74612153d577f362d:refs/remotes/pull/45/merge
+2026-03-23T10:44:18.4221513Z From https://github.com/Sib-asian/Exchange-2.0
+2026-03-23T10:44:18.4223601Z  * [new ref]         8831a3768d5bc514c6ea61f74612153d577f362d -> pull/45/merge
+2026-03-23T10:44:18.4258932Z ##[endgroup]
+2026-03-23T10:44:18.4260783Z ##[group]Determining the checkout info
+2026-03-23T10:44:18.4262775Z ##[endgroup]
+2026-03-23T10:44:18.4267412Z [command]/usr/bin/git sparse-checkout disable
+2026-03-23T10:44:18.4315360Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-03-23T10:44:18.4344786Z ##[group]Checking out the ref
+2026-03-23T10:44:18.4349380Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/45/merge
+2026-03-23T10:44:18.4420597Z Note: switching to 'refs/remotes/pull/45/merge'.
+2026-03-23T10:44:18.4421877Z 
+2026-03-23T10:44:18.4422615Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-03-23T10:44:18.4424331Z changes and commit them, and you can discard any commits you make in this
+2026-03-23T10:44:18.4427164Z state without impacting any branches by switching back to a branch.
+2026-03-23T10:44:18.4428823Z 
+2026-03-23T10:44:18.4429865Z If you want to create a new branch to retain commits you create, you may
+2026-03-23T10:44:18.4432349Z do so (now or later) by using -c with the switch command. Example:
+2026-03-23T10:44:18.4433820Z 
+2026-03-23T10:44:18.4434791Z   git switch -c <new-branch-name>
+2026-03-23T10:44:18.4436114Z 
+2026-03-23T10:44:18.4436716Z Or undo this operation with:
+2026-03-23T10:44:18.4437600Z 
+2026-03-23T10:44:18.4438056Z   git switch -
+2026-03-23T10:44:18.4438714Z 
+2026-03-23T10:44:18.4439904Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-03-23T10:44:18.4441911Z 
+2026-03-23T10:44:18.4443294Z HEAD is now at 8831a37 Merge b44172a89f4b5bd11e2b47956923f19b9f5acf46 into 1c5997cb98469f81bd79cc799854537ab1b0b45f
+2026-03-23T10:44:18.4447770Z ##[endgroup]
+2026-03-23T10:44:18.4470323Z [command]/usr/bin/git log -1 --format=%H
+2026-03-23T10:44:18.4493705Z 8831a3768d5bc514c6ea61f74612153d577f362d

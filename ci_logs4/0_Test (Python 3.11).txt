@@ -1,0 +1,626 @@
+﻿2026-03-23T10:48:26.4007113Z Current runner version: '2.332.0'
+2026-03-23T10:48:26.4041208Z ##[group]Runner Image Provisioner
+2026-03-23T10:48:26.4042938Z Hosted Compute Agent
+2026-03-23T10:48:26.4043631Z Version: 20260213.493
+2026-03-23T10:48:26.4044479Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+2026-03-23T10:48:26.4045672Z Build Date: 2026-02-13T00:28:41Z
+2026-03-23T10:48:26.4046753Z Worker ID: {7c73c75d-8792-447b-9a07-8c5c021f54fa}
+2026-03-23T10:48:26.4047859Z Azure Region: centralus
+2026-03-23T10:48:26.4048761Z ##[endgroup]
+2026-03-23T10:48:26.4050960Z ##[group]Operating System
+2026-03-23T10:48:26.4051961Z Ubuntu
+2026-03-23T10:48:26.4052750Z 24.04.3
+2026-03-23T10:48:26.4053531Z LTS
+2026-03-23T10:48:26.4054078Z ##[endgroup]
+2026-03-23T10:48:26.4055074Z ##[group]Runner Image
+2026-03-23T10:48:26.4056045Z Image: ubuntu-24.04
+2026-03-23T10:48:26.4056831Z Version: 20260309.50.1
+2026-03-23T10:48:26.4058870Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260309.50/images/ubuntu/Ubuntu2404-Readme.md
+2026-03-23T10:48:26.4061438Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260309.50
+2026-03-23T10:48:26.4063157Z ##[endgroup]
+2026-03-23T10:48:26.4064622Z ##[group]GITHUB_TOKEN Permissions
+2026-03-23T10:48:26.4067351Z Contents: read
+2026-03-23T10:48:26.4068391Z Metadata: read
+2026-03-23T10:48:26.4069199Z Packages: read
+2026-03-23T10:48:26.4070058Z ##[endgroup]
+2026-03-23T10:48:26.4073061Z Secret source: Actions
+2026-03-23T10:48:26.4074169Z Prepare workflow directory
+2026-03-23T10:48:26.5472863Z Prepare all required actions
+2026-03-23T10:48:26.5511918Z Getting action download info
+2026-03-23T10:48:26.8830998Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-03-23T10:48:27.0186358Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-03-23T10:48:27.1291599Z Download action repository 'codecov/codecov-action@v4' (SHA:b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238)
+2026-03-23T10:48:27.9312487Z Complete job name: Test (Python 3.11)
+2026-03-23T10:48:28.3737674Z ##[group]Run actions/checkout@v4
+2026-03-23T10:48:28.3739038Z with:
+2026-03-23T10:48:28.3739657Z   repository: Sib-asian/Exchange-2.0
+2026-03-23T10:48:28.3740626Z   token: ***
+2026-03-23T10:48:28.3741035Z   ssh-strict: true
+2026-03-23T10:48:28.3741451Z   ssh-user: git
+2026-03-23T10:48:28.3741881Z   persist-credentials: true
+2026-03-23T10:48:28.3742353Z   clean: true
+2026-03-23T10:48:28.3742780Z   sparse-checkout-cone-mode: true
+2026-03-23T10:48:28.3743268Z   fetch-depth: 1
+2026-03-23T10:48:28.3743678Z   fetch-tags: false
+2026-03-23T10:48:28.3744101Z   show-progress: true
+2026-03-23T10:48:28.3744529Z   lfs: false
+2026-03-23T10:48:28.3744915Z   submodules: false
+2026-03-23T10:48:28.3745334Z   set-safe-directory: true
+2026-03-23T10:48:28.3746227Z ##[endgroup]
+2026-03-23T10:48:28.4946931Z Syncing repository: Sib-asian/Exchange-2.0
+2026-03-23T10:48:28.4950240Z ##[group]Getting Git version info
+2026-03-23T10:48:28.4951654Z Working directory is '/home/runner/work/Exchange-2.0/Exchange-2.0'
+2026-03-23T10:48:28.4953505Z [command]/usr/bin/git version
+2026-03-23T10:48:28.5002868Z git version 2.53.0
+2026-03-23T10:48:28.5030919Z ##[endgroup]
+2026-03-23T10:48:28.5048176Z Temporarily overriding HOME='/home/runner/work/_temp/bc881591-542d-487e-aa5a-e2d12690e90b' before making global git config changes
+2026-03-23T10:48:28.5051055Z Adding repository directory to the temporary git global config as a safe directory
+2026-03-23T10:48:28.5056004Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:48:28.5098093Z Deleting the contents of '/home/runner/work/Exchange-2.0/Exchange-2.0'
+2026-03-23T10:48:28.5102228Z ##[group]Initializing the repository
+2026-03-23T10:48:28.5107363Z [command]/usr/bin/git init /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:48:28.5207540Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-03-23T10:48:28.5209075Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-03-23T10:48:28.5211345Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-03-23T10:48:28.5212380Z hint: call:
+2026-03-23T10:48:28.5213122Z hint:
+2026-03-23T10:48:28.5214130Z hint: 	git config --global init.defaultBranch <name>
+2026-03-23T10:48:28.5215340Z hint:
+2026-03-23T10:48:28.5216444Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-03-23T10:48:28.5218343Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-03-23T10:48:28.5219968Z hint:
+2026-03-23T10:48:28.5220693Z hint: 	git branch -m <name>
+2026-03-23T10:48:28.5221598Z hint:
+2026-03-23T10:48:28.5222785Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-03-23T10:48:28.5224923Z Initialized empty Git repository in /home/runner/work/Exchange-2.0/Exchange-2.0/.git/
+2026-03-23T10:48:28.5228225Z [command]/usr/bin/git remote add origin https://github.com/Sib-asian/Exchange-2.0
+2026-03-23T10:48:28.5263130Z ##[endgroup]
+2026-03-23T10:48:28.5264469Z ##[group]Disabling automatic garbage collection
+2026-03-23T10:48:28.5268230Z [command]/usr/bin/git config --local gc.auto 0
+2026-03-23T10:48:28.5302371Z ##[endgroup]
+2026-03-23T10:48:28.5303735Z ##[group]Setting up auth
+2026-03-23T10:48:28.5310946Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-03-23T10:48:28.5346817Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-03-23T10:48:28.5670193Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-03-23T10:48:28.5706290Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-03-23T10:48:28.5955658Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-03-23T10:48:28.5997780Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-03-23T10:48:28.6240411Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-03-23T10:48:28.6276432Z ##[endgroup]
+2026-03-23T10:48:28.6277270Z ##[group]Fetching the repository
+2026-03-23T10:48:28.6286201Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +3896244c4f3f234ccd05d9033952514531194664:refs/remotes/pull/45/merge
+2026-03-23T10:48:28.9707208Z From https://github.com/Sib-asian/Exchange-2.0
+2026-03-23T10:48:28.9710187Z  * [new ref]         3896244c4f3f234ccd05d9033952514531194664 -> pull/45/merge
+2026-03-23T10:48:28.9744881Z ##[endgroup]
+2026-03-23T10:48:28.9745877Z ##[group]Determining the checkout info
+2026-03-23T10:48:28.9747454Z ##[endgroup]
+2026-03-23T10:48:28.9753989Z [command]/usr/bin/git sparse-checkout disable
+2026-03-23T10:48:28.9798196Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-03-23T10:48:28.9827000Z ##[group]Checking out the ref
+2026-03-23T10:48:28.9831046Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/45/merge
+2026-03-23T10:48:28.9903778Z Note: switching to 'refs/remotes/pull/45/merge'.
+2026-03-23T10:48:28.9904600Z 
+2026-03-23T10:48:28.9905352Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-03-23T10:48:28.9907044Z changes and commit them, and you can discard any commits you make in this
+2026-03-23T10:48:28.9909264Z state without impacting any branches by switching back to a branch.
+2026-03-23T10:48:28.9911140Z 
+2026-03-23T10:48:28.9912227Z If you want to create a new branch to retain commits you create, you may
+2026-03-23T10:48:28.9914666Z do so (now or later) by using -c with the switch command. Example:
+2026-03-23T10:48:28.9916088Z 
+2026-03-23T10:48:28.9917272Z   git switch -c <new-branch-name>
+2026-03-23T10:48:28.9918224Z 
+2026-03-23T10:48:28.9918765Z Or undo this operation with:
+2026-03-23T10:48:28.9919933Z 
+2026-03-23T10:48:28.9920425Z   git switch -
+2026-03-23T10:48:28.9921163Z 
+2026-03-23T10:48:28.9922311Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-03-23T10:48:28.9924059Z 
+2026-03-23T10:48:28.9925978Z HEAD is now at 3896244 Merge bda1787e3da423cd7d77f41642eb813c400cb299 into 1c5997cb98469f81bd79cc799854537ab1b0b45f
+2026-03-23T10:48:28.9931219Z ##[endgroup]
+2026-03-23T10:48:28.9958733Z [command]/usr/bin/git log -1 --format=%H
+2026-03-23T10:48:28.9983995Z 3896244c4f3f234ccd05d9033952514531194664
+2026-03-23T10:48:29.2358893Z ##[group]Run actions/setup-python@v5
+2026-03-23T10:48:29.2360185Z with:
+2026-03-23T10:48:29.2360940Z   python-version: 3.11
+2026-03-23T10:48:29.2361810Z   cache: pip
+2026-03-23T10:48:29.2362880Z   cache-dependency-path: pyproject.toml
+requirements.txt
+
+2026-03-23T10:48:29.2364282Z   check-latest: false
+2026-03-23T10:48:29.2365508Z   token: ***
+2026-03-23T10:48:29.2366314Z   update-environment: true
+2026-03-23T10:48:29.2367299Z   allow-prereleases: false
+2026-03-23T10:48:29.2368248Z   freethreaded: false
+2026-03-23T10:48:29.2369116Z ##[endgroup]
+2026-03-23T10:48:29.4153373Z ##[group]Installed versions
+2026-03-23T10:48:29.4456615Z Successfully set up CPython (3.11.15)
+2026-03-23T10:48:29.4458519Z ##[endgroup]
+2026-03-23T10:48:29.4798919Z [command]/opt/hostedtoolcache/Python/3.11.15/x64/bin/pip cache dir
+2026-03-23T10:48:30.6932408Z /home/runner/.cache/pip
+2026-03-23T10:48:30.8647824Z Cache hit for: setup-python-Linux-x64-24.04-Ubuntu-python-3.11.15-pip-20470b45746ead06c663207576ec8cba2bb4e840077e771498b140db3879fddc
+2026-03-23T10:48:32.0390543Z Received 109677809 of 122260721 (89.7%), 104.6 MBs/sec
+2026-03-23T10:48:32.1973390Z Received 122260721 of 122260721 (100.0%), 100.6 MBs/sec
+2026-03-23T10:48:32.1975944Z Cache Size: ~117 MB (122260721 B)
+2026-03-23T10:48:32.2017239Z [command]/usr/bin/tar -xf /home/runner/work/_temp/41417453-b041-4d2f-aa33-1f8392908bb9/cache.tzst -P -C /home/runner/work/Exchange-2.0/Exchange-2.0 --use-compress-program unzstd
+2026-03-23T10:48:32.4027067Z Cache restored successfully
+2026-03-23T10:48:32.4310814Z Cache restored from key: setup-python-Linux-x64-24.04-Ubuntu-python-3.11.15-pip-20470b45746ead06c663207576ec8cba2bb4e840077e771498b140db3879fddc
+2026-03-23T10:48:32.5539879Z ##[group]Run python -m pip install --upgrade pip wheel
+2026-03-23T10:48:32.5540414Z [36;1mpython -m pip install --upgrade pip wheel[0m
+2026-03-23T10:48:32.5540755Z [36;1mpip install -e ".[dev]"[0m
+2026-03-23T10:48:32.5541029Z [36;1mpip list --format=freeze[0m
+2026-03-23T10:48:32.5602074Z shell: /usr/bin/bash -e {0}
+2026-03-23T10:48:32.5602389Z env:
+2026-03-23T10:48:32.5602694Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:32.5603205Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-03-23T10:48:32.5603648Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:32.5604066Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:32.5604461Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:32.5604846Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-03-23T10:48:32.5605179Z ##[endgroup]
+2026-03-23T10:48:33.4363166Z Requirement already satisfied: pip in /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages (26.0.1)
+2026-03-23T10:48:33.5929319Z Collecting wheel
+2026-03-23T10:48:33.5947190Z   Using cached wheel-0.46.3-py3-none-any.whl.metadata (2.4 kB)
+2026-03-23T10:48:33.6238571Z Collecting packaging>=24.0 (from wheel)
+2026-03-23T10:48:33.6255668Z   Using cached packaging-26.0-py3-none-any.whl.metadata (3.3 kB)
+2026-03-23T10:48:33.6286791Z Using cached wheel-0.46.3-py3-none-any.whl (30 kB)
+2026-03-23T10:48:33.6301502Z Using cached packaging-26.0-py3-none-any.whl (74 kB)
+2026-03-23T10:48:33.6572537Z Installing collected packages: packaging, wheel
+2026-03-23T10:48:33.7280396Z 
+2026-03-23T10:48:33.7288883Z Successfully installed packaging-26.0 wheel-0.46.3
+2026-03-23T10:48:34.1017137Z Obtaining file:///home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:48:34.1035116Z   Installing build dependencies: started
+2026-03-23T10:48:34.8306018Z   Installing build dependencies: finished with status 'done'
+2026-03-23T10:48:34.8312280Z   Checking if build backend supports build_editable: started
+2026-03-23T10:48:35.1615695Z   Checking if build backend supports build_editable: finished with status 'done'
+2026-03-23T10:48:35.1623568Z   Getting requirements to build editable: started
+2026-03-23T10:48:35.9066187Z   Getting requirements to build editable: finished with status 'done'
+2026-03-23T10:48:35.9078821Z   Preparing editable metadata (pyproject.toml): started
+2026-03-23T10:48:36.0946136Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+2026-03-23T10:48:36.2420567Z Collecting streamlit>=1.35.0 (from radar-pro-live==2.0.0)
+2026-03-23T10:48:36.2437625Z   Using cached streamlit-1.55.0-py3-none-any.whl.metadata (9.8 kB)
+2026-03-23T10:48:36.4344512Z Collecting pytest>=8.0 (from radar-pro-live==2.0.0)
+2026-03-23T10:48:36.4360752Z   Using cached pytest-9.0.2-py3-none-any.whl.metadata (7.6 kB)
+2026-03-23T10:48:36.4697813Z Collecting pytest-cov>=5.0 (from radar-pro-live==2.0.0)
+2026-03-23T10:48:36.4716459Z   Using cached pytest_cov-7.1.0-py3-none-any.whl.metadata (32 kB)
+2026-03-23T10:48:36.8203165Z Collecting ruff>=0.4 (from radar-pro-live==2.0.0)
+2026-03-23T10:48:36.8219079Z   Using cached ruff-0.15.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (26 kB)
+2026-03-23T10:48:36.8623770Z Collecting iniconfig>=1.0.1 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:36.8637454Z   Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T10:48:36.8655398Z Requirement already satisfied: packaging>=22 in /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages (from pytest>=8.0->radar-pro-live==2.0.0) (26.0)
+2026-03-23T10:48:36.8862181Z Collecting pluggy<2,>=1.5 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:36.8876555Z   Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+2026-03-23T10:48:36.9148676Z Collecting pygments>=2.7.2 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:36.9163828Z   Using cached pygments-2.19.2-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T10:48:37.2709645Z Collecting coverage>=7.10.6 (from coverage[toml]>=7.10.6->pytest-cov>=5.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.2726500Z   Using cached coverage-7.13.5-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (8.5 kB)
+2026-03-23T10:48:37.3040224Z Collecting altair!=5.4.0,!=5.4.1,<7,>=4.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.3054470Z   Using cached altair-6.0.0-py3-none-any.whl.metadata (11 kB)
+2026-03-23T10:48:37.3297380Z Collecting blinker<2,>=1.5.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.3311619Z   Using cached blinker-1.9.0-py3-none-any.whl.metadata (1.6 kB)
+2026-03-23T10:48:37.3562867Z Collecting cachetools<8,>=5.5 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.3576952Z   Using cached cachetools-7.0.5-py3-none-any.whl.metadata (5.6 kB)
+2026-03-23T10:48:37.3844555Z Collecting click<9,>=7.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.3858261Z   Using cached click-8.3.1-py3-none-any.whl.metadata (2.6 kB)
+2026-03-23T10:48:37.4150667Z Collecting gitpython!=3.1.19,<4,>=3.0.7 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.4165762Z   Using cached gitpython-3.1.46-py3-none-any.whl.metadata (13 kB)
+2026-03-23T10:48:37.6311997Z Collecting numpy<3,>=1.23 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.6328023Z   Using cached numpy-2.4.3-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+2026-03-23T10:48:37.7441820Z Collecting pandas<3,>=1.4.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.7458162Z   Using cached pandas-2.3.3-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (91 kB)
+2026-03-23T10:48:37.9256938Z Collecting pillow<13,>=7.1.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.9272635Z   Using cached pillow-12.1.1-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (8.8 kB)
+2026-03-23T10:48:37.9526450Z Collecting pydeck<1,>=0.8.0b4 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:37.9540430Z   Using cached pydeck-0.9.1-py2.py3-none-any.whl.metadata (4.1 kB)
+2026-03-23T10:48:38.1490491Z Collecting protobuf<7,>=3.20 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.1513212Z   Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+2026-03-23T10:48:38.2385219Z Collecting pyarrow>=7.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.2399881Z   Using cached pyarrow-23.0.1-cp311-cp311-manylinux_2_28_x86_64.whl.metadata (3.1 kB)
+2026-03-23T10:48:38.2693164Z Collecting requests<3,>=2.27 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.2706925Z   Using cached requests-2.32.5-py3-none-any.whl.metadata (4.9 kB)
+2026-03-23T10:48:38.2951440Z Collecting tenacity<10,>=8.1.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.2964629Z   Using cached tenacity-9.1.4-py3-none-any.whl.metadata (1.2 kB)
+2026-03-23T10:48:38.3165987Z Collecting toml<2,>=0.10.1 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.3179162Z   Using cached toml-0.10.2-py2.py3-none-any.whl.metadata (7.1 kB)
+2026-03-23T10:48:38.3603474Z Collecting tornado!=6.5.0,<7,>=6.0.3 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.3618320Z   Using cached tornado-6.5.5-cp39-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (2.8 kB)
+2026-03-23T10:48:38.3863985Z Collecting typing-extensions<5,>=4.10.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.3877482Z   Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+2026-03-23T10:48:38.4383211Z Collecting watchdog<7,>=2.1.5 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.4397310Z   Using cached watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl.metadata (44 kB)
+2026-03-23T10:48:38.4666733Z Collecting jinja2 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.4680146Z   Using cached jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+2026-03-23T10:48:38.4990189Z Collecting jsonschema>=3.0 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.5003571Z   Using cached jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)
+2026-03-23T10:48:38.5433353Z Collecting narwhals>=1.27.1 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.5447641Z   Using cached narwhals-2.18.0-py3-none-any.whl.metadata (14 kB)
+2026-03-23T10:48:38.5716932Z Collecting gitdb<5,>=4.0.1 (from gitpython!=3.1.19,<4,>=3.0.7->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.5730559Z   Using cached gitdb-4.0.12-py3-none-any.whl.metadata (1.2 kB)
+2026-03-23T10:48:38.5946569Z Collecting smmap<6,>=3.0.1 (from gitdb<5,>=4.0.1->gitpython!=3.1.19,<4,>=3.0.7->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.5960101Z   Using cached smmap-5.0.3-py3-none-any.whl.metadata (4.6 kB)
+2026-03-23T10:48:38.6226723Z Collecting python-dateutil>=2.8.2 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.6240867Z   Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+2026-03-23T10:48:38.6666143Z Collecting pytz>=2020.1 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.6680764Z   Using cached pytz-2026.1.post1-py2.py3-none-any.whl.metadata (22 kB)
+2026-03-23T10:48:38.6926778Z Collecting tzdata>=2022.7 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.6940244Z   Using cached tzdata-2025.3-py2.py3-none-any.whl.metadata (1.4 kB)
+2026-03-23T10:48:38.8478851Z Collecting charset_normalizer<4,>=2 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.8494966Z   Using cached charset_normalizer-3.4.6-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+2026-03-23T10:48:38.8744248Z Collecting idna<4,>=2.5 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.8757746Z   Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)
+2026-03-23T10:48:38.9072880Z Collecting urllib3<3,>=1.21.1 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.9087009Z   Using cached urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)
+2026-03-23T10:48:38.9376088Z Collecting certifi>=2017.4.17 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:38.9390953Z   Using cached certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T10:48:39.0040368Z Collecting MarkupSafe>=2.0 (from jinja2->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:39.0056925Z   Using cached markupsafe-3.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+2026-03-23T10:48:39.0289078Z Collecting attrs>=22.2.0 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:39.0303025Z   Using cached attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+2026-03-23T10:48:39.0523423Z Collecting jsonschema-specifications>=2023.03.6 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:39.0537244Z   Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+2026-03-23T10:48:39.0830539Z Collecting referencing>=0.28.4 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:39.0844479Z   Using cached referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+2026-03-23T10:48:39.3228075Z Collecting rpds-py>=0.25.0 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:39.3244146Z   Using cached rpds_py-0.30.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+2026-03-23T10:48:39.3517646Z Collecting six>=1.5 (from python-dateutil>=2.8.2->pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:48:39.3531392Z   Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+2026-03-23T10:48:39.3614196Z Using cached pytest-9.0.2-py3-none-any.whl (374 kB)
+2026-03-23T10:48:39.3630629Z Using cached pluggy-1.6.0-py3-none-any.whl (20 kB)
+2026-03-23T10:48:39.3644209Z Using cached iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+2026-03-23T10:48:39.3657706Z Using cached pygments-2.19.2-py3-none-any.whl (1.2 MB)
+2026-03-23T10:48:39.3680240Z Using cached pytest_cov-7.1.0-py3-none-any.whl (22 kB)
+2026-03-23T10:48:39.3694083Z Using cached coverage-7.13.5-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (252 kB)
+2026-03-23T10:48:39.3709309Z Using cached ruff-0.15.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (11.2 MB)
+2026-03-23T10:48:39.3800958Z Using cached streamlit-1.55.0-py3-none-any.whl (9.1 MB)
+2026-03-23T10:48:39.3877418Z Using cached altair-6.0.0-py3-none-any.whl (795 kB)
+2026-03-23T10:48:39.3896652Z Using cached blinker-1.9.0-py3-none-any.whl (8.5 kB)
+2026-03-23T10:48:39.3910110Z Using cached cachetools-7.0.5-py3-none-any.whl (13 kB)
+2026-03-23T10:48:39.3923790Z Using cached click-8.3.1-py3-none-any.whl (108 kB)
+2026-03-23T10:48:39.3938098Z Using cached gitpython-3.1.46-py3-none-any.whl (208 kB)
+2026-03-23T10:48:39.3952836Z Using cached gitdb-4.0.12-py3-none-any.whl (62 kB)
+2026-03-23T10:48:39.3966967Z Using cached numpy-2.4.3-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.9 MB)
+2026-03-23T10:48:39.4095432Z Using cached pandas-2.3.3-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (12.8 MB)
+2026-03-23T10:48:39.4196281Z Using cached pillow-12.1.1-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (7.0 MB)
+2026-03-23T10:48:39.4258283Z Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
+2026-03-23T10:48:39.4273798Z Using cached pydeck-0.9.1-py2.py3-none-any.whl (6.9 MB)
+2026-03-23T10:48:39.4334044Z Using cached requests-2.32.5-py3-none-any.whl (64 kB)
+2026-03-23T10:48:39.4348336Z Using cached charset_normalizer-3.4.6-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (204 kB)
+2026-03-23T10:48:39.4362698Z Using cached idna-3.11-py3-none-any.whl (71 kB)
+2026-03-23T10:48:39.4376291Z Using cached smmap-5.0.3-py3-none-any.whl (24 kB)
+2026-03-23T10:48:39.4390128Z Using cached tenacity-9.1.4-py3-none-any.whl (28 kB)
+2026-03-23T10:48:39.4403674Z Using cached toml-0.10.2-py2.py3-none-any.whl (16 kB)
+2026-03-23T10:48:39.4417533Z Using cached tornado-6.5.5-cp39-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (447 kB)
+2026-03-23T10:48:39.4433922Z Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+2026-03-23T10:48:39.4447411Z Using cached urllib3-2.6.3-py3-none-any.whl (131 kB)
+2026-03-23T10:48:39.4461750Z Using cached watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl (79 kB)
+2026-03-23T10:48:39.4475473Z Using cached certifi-2026.2.25-py3-none-any.whl (153 kB)
+2026-03-23T10:48:39.4489796Z Using cached jinja2-3.1.6-py3-none-any.whl (134 kB)
+2026-03-23T10:48:39.4504038Z Using cached jsonschema-4.26.0-py3-none-any.whl (90 kB)
+2026-03-23T10:48:39.4517681Z Using cached attrs-26.1.0-py3-none-any.whl (67 kB)
+2026-03-23T10:48:39.4531544Z Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+2026-03-23T10:48:39.4545526Z Using cached markupsafe-3.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB)
+2026-03-23T10:48:39.4558749Z Using cached narwhals-2.18.0-py3-none-any.whl (444 kB)
+2026-03-23T10:48:39.4574904Z Using cached pyarrow-23.0.1-cp311-cp311-manylinux_2_28_x86_64.whl (47.6 MB)
+2026-03-23T10:48:39.4917252Z Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+2026-03-23T10:48:39.4932393Z Using cached pytz-2026.1.post1-py2.py3-none-any.whl (510 kB)
+2026-03-23T10:48:39.4949303Z Using cached referencing-0.37.0-py3-none-any.whl (26 kB)
+2026-03-23T10:48:39.4963136Z Using cached rpds_py-0.30.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (390 kB)
+2026-03-23T10:48:39.4978539Z Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+2026-03-23T10:48:39.4991833Z Using cached tzdata-2025.3-py2.py3-none-any.whl (348 kB)
+2026-03-23T10:48:39.6357366Z Building wheels for collected packages: radar-pro-live
+2026-03-23T10:48:39.6366176Z   Building editable for radar-pro-live (pyproject.toml): started
+2026-03-23T10:48:39.8273970Z   Building editable for radar-pro-live (pyproject.toml): finished with status 'done'
+2026-03-23T10:48:39.8280615Z   Created wheel for radar-pro-live: filename=radar_pro_live-2.0.0-0.editable-py3-none-any.whl size=1459 sha256=e955d65f7f55c2f16cd2c3e60f0af1224f8412ca2d89eea1992f2792ad217e9b
+2026-03-23T10:48:39.8282599Z   Stored in directory: /tmp/pip-ephem-wheel-cache-b9g8nmmm/wheels/fd/85/7b/7d23576a10cb5315c398b43593b7eab7fcf9d81f04d23d66d3
+2026-03-23T10:48:39.8295696Z Successfully built radar-pro-live
+2026-03-23T10:48:39.9200000Z Installing collected packages: pytz, watchdog, urllib3, tzdata, typing-extensions, tornado, toml, tenacity, smmap, six, ruff, rpds-py, pygments, pyarrow, protobuf, pluggy, pillow, numpy, narwhals, MarkupSafe, iniconfig, idna, coverage, click, charset_normalizer, certifi, cachetools, blinker, attrs, requests, referencing, python-dateutil, pytest, jinja2, gitdb, pytest-cov, pydeck, pandas, jsonschema-specifications, gitpython, jsonschema, altair, streamlit, radar-pro-live
+2026-03-23T10:48:51.2142571Z 
+2026-03-23T10:48:51.2169009Z Successfully installed MarkupSafe-3.0.3 altair-6.0.0 attrs-26.1.0 blinker-1.9.0 cachetools-7.0.5 certifi-2026.2.25 charset_normalizer-3.4.6 click-8.3.1 coverage-7.13.5 gitdb-4.0.12 gitpython-3.1.46 idna-3.11 iniconfig-2.3.0 jinja2-3.1.6 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 narwhals-2.18.0 numpy-2.4.3 pandas-2.3.3 pillow-12.1.1 pluggy-1.6.0 protobuf-6.33.6 pyarrow-23.0.1 pydeck-0.9.1 pygments-2.19.2 pytest-9.0.2 pytest-cov-7.1.0 python-dateutil-2.9.0.post0 pytz-2026.1.post1 radar-pro-live-2.0.0 referencing-0.37.0 requests-2.32.5 rpds-py-0.30.0 ruff-0.15.7 six-1.17.0 smmap-5.0.3 streamlit-1.55.0 tenacity-9.1.4 toml-0.10.2 tornado-6.5.5 typing-extensions-4.15.0 tzdata-2025.3 urllib3-2.6.3 watchdog-6.0.0
+2026-03-23T10:48:51.8700390Z altair==6.0.0
+2026-03-23T10:48:51.8706368Z attrs==26.1.0
+2026-03-23T10:48:51.8711447Z blinker==1.9.0
+2026-03-23T10:48:51.8716768Z cachetools==7.0.5
+2026-03-23T10:48:51.8722551Z certifi==2026.2.25
+2026-03-23T10:48:51.8741001Z charset-normalizer==3.4.6
+2026-03-23T10:48:51.8745593Z click==8.3.1
+2026-03-23T10:48:51.8751586Z coverage==7.13.5
+2026-03-23T10:48:51.8756231Z gitdb==4.0.12
+2026-03-23T10:48:51.8762364Z GitPython==3.1.46
+2026-03-23T10:48:51.8767323Z idna==3.11
+2026-03-23T10:48:51.8772216Z iniconfig==2.3.0
+2026-03-23T10:48:51.8776359Z Jinja2==3.1.6
+2026-03-23T10:48:51.8781698Z jsonschema==4.26.0
+2026-03-23T10:48:51.8786301Z jsonschema-specifications==2025.9.1
+2026-03-23T10:48:51.8791007Z MarkupSafe==3.0.3
+2026-03-23T10:48:51.8797854Z narwhals==2.18.0
+2026-03-23T10:48:51.8803543Z numpy==2.4.3
+2026-03-23T10:48:51.8808300Z packaging==26.0
+2026-03-23T10:48:51.8850425Z pandas==2.3.3
+2026-03-23T10:48:51.8855731Z pillow==12.1.1
+2026-03-23T10:48:51.8860935Z pip==26.0.1
+2026-03-23T10:48:51.8865442Z pluggy==1.6.0
+2026-03-23T10:48:51.8869648Z protobuf==6.33.6
+2026-03-23T10:48:51.8874099Z pyarrow==23.0.1
+2026-03-23T10:48:51.8878623Z pydeck==0.9.1
+2026-03-23T10:48:51.8883109Z Pygments==2.19.2
+2026-03-23T10:48:51.8888093Z pytest==9.0.2
+2026-03-23T10:48:51.8896313Z pytest-cov==7.1.0
+2026-03-23T10:48:51.8901990Z python-dateutil==2.9.0.post0
+2026-03-23T10:48:51.8909211Z pytz==2026.1.post1
+2026-03-23T10:48:51.8912852Z radar-pro-live==2.0.0
+2026-03-23T10:48:51.8917332Z referencing==0.37.0
+2026-03-23T10:48:51.8922751Z requests==2.32.5
+2026-03-23T10:48:51.8927489Z rpds-py==0.30.0
+2026-03-23T10:48:51.8935670Z ruff==0.15.7
+2026-03-23T10:48:51.8941207Z setuptools==79.0.1
+2026-03-23T10:48:51.8945292Z six==1.17.0
+2026-03-23T10:48:51.8950482Z smmap==5.0.3
+2026-03-23T10:48:51.8956469Z streamlit==1.55.0
+2026-03-23T10:48:51.8960587Z tenacity==9.1.4
+2026-03-23T10:48:51.8966156Z toml==0.10.2
+2026-03-23T10:48:51.8970827Z tornado==6.5.5
+2026-03-23T10:48:51.8975500Z typing_extensions==4.15.0
+2026-03-23T10:48:51.8979795Z tzdata==2025.3
+2026-03-23T10:48:51.8984895Z urllib3==2.6.3
+2026-03-23T10:48:51.8994027Z watchdog==6.0.0
+2026-03-23T10:48:51.8998113Z wheel==0.46.3
+2026-03-23T10:48:51.9486205Z ##[group]Run ruff check src/ tests/ --output-format=github
+2026-03-23T10:48:51.9486674Z [36;1mruff check src/ tests/ --output-format=github[0m
+2026-03-23T10:48:51.9536684Z shell: /usr/bin/bash -e {0}
+2026-03-23T10:48:51.9536925Z env:
+2026-03-23T10:48:51.9537187Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:51.9537634Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-03-23T10:48:51.9538056Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:51.9538440Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:51.9538830Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:51.9539225Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-03-23T10:48:51.9539702Z ##[endgroup]
+2026-03-23T10:48:52.0001417Z ##[group]Run pytest tests/ \
+2026-03-23T10:48:52.0001883Z [36;1mpytest tests/ \[0m
+2026-03-23T10:48:52.0002262Z [36;1m  --cov=src \[0m
+2026-03-23T10:48:52.0002643Z [36;1m  --cov-report=term-missing \[0m
+2026-03-23T10:48:52.0003082Z [36;1m  --cov-report=xml \[0m
+2026-03-23T10:48:52.0003484Z [36;1m  --cov-fail-under=70 \[0m
+2026-03-23T10:48:52.0003868Z [36;1m  -v \[0m
+2026-03-23T10:48:52.0004163Z [36;1m  --tb=short[0m
+2026-03-23T10:48:52.0070219Z shell: /usr/bin/bash -e {0}
+2026-03-23T10:48:52.0070830Z env:
+2026-03-23T10:48:52.0071234Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:52.0071945Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-03-23T10:48:52.0072697Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:52.0073325Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:52.0073948Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:52.0074625Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-03-23T10:48:52.0075169Z ##[endgroup]
+2026-03-23T10:48:52.8327914Z ============================= test session starts ==============================
+2026-03-23T10:48:52.8329012Z platform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /opt/hostedtoolcache/Python/3.11.15/x64/bin/python
+2026-03-23T10:48:52.8330336Z cachedir: .pytest_cache
+2026-03-23T10:48:52.8330879Z rootdir: /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:48:52.8331443Z configfile: pyproject.toml
+2026-03-23T10:48:52.8331832Z plugins: cov-7.1.0
+2026-03-23T10:48:53.1820626Z collecting ... collected 170 items
+2026-03-23T10:48:53.1821078Z 
+2026-03-23T10:48:53.2007957Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_output_positive PASSED [  0%]
+2026-03-23T10:48:53.2026006Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_total_xg_close_to_tot_bayes PASSED [  1%]
+2026-03-23T10:48:53.2084379Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_negative_ah_implies_home_favorite PASSED [  1%]
+2026-03-23T10:48:53.2140660Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_positive_ah_implies_away_favorite PASSED [  2%]
+2026-03-23T10:48:53.2190219Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_flat_lines_returns_direct_values PASSED [  2%]
+2026-03-23T10:48:53.2361555Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_xg_positive_at_minute_0 PASSED [  3%]
+2026-03-23T10:48:53.2375983Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_xg_near_zero_at_minute_90 PASSED [  4%]
+2026-03-23T10:48:53.2719937Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_bigger_movement_increases_home_xg PASSED [  4%]
+2026-03-23T10:48:53.2882046Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_xg_sum_bounded PASSED [  5%]
+2026-03-23T10:48:53.2894062Z tests/test_calibration.py::TestBlendXGShots::test_output_positive PASSED [  5%]
+2026-03-23T10:48:53.2905987Z tests/test_calibration.py::TestBlendXGShots::test_no_shots_returns_line_estimates PASSED [  6%]
+2026-03-23T10:48:53.2918021Z tests/test_calibration.py::TestBlendXGShots::test_dominant_home_shots_increases_home_xg PASSED [  7%]
+2026-03-23T10:48:53.2930121Z tests/test_calibration.py::TestBlendXGShots::test_shot_dom_range PASSED  [  7%]
+2026-03-23T10:48:53.2941886Z tests/test_calibration.py::TestBlendXGShots::test_alpha_t_alpha_d_bounded PASSED [  8%]
+2026-03-23T10:48:53.2953964Z tests/test_calibration.py::TestBlendXGShots::test_game_state_leading_home_reduces_away_quality PASSED [  8%]
+2026-03-23T10:48:53.2966267Z tests/test_calibration.py::TestBlendXGShots::test_mu_max_cap_applied PASSED [  9%]
+2026-03-23T10:48:53.2980799Z tests/test_engine.py::TestMatchStateValidation::test_valid_state_no_exception PASSED [ 10%]
+2026-03-23T10:48:53.2995317Z tests/test_engine.py::TestMatchStateValidation::test_invalid_minuto_raises PASSED [ 10%]
+2026-03-23T10:48:53.3007909Z tests/test_engine.py::TestMatchStateValidation::test_negative_goals_raises PASSED [ 11%]
+2026-03-23T10:48:53.3020307Z tests/test_engine.py::TestMatchStateValidation::test_invalid_bankroll_raises PASSED [ 11%]
+2026-03-23T10:48:53.3554998Z tests/test_engine.py::TestEngineOutput::test_1x2_sum_to_one PASSED       [ 12%]
+2026-03-23T10:48:53.3775193Z tests/test_engine.py::TestEngineOutput::test_over_under_sum_to_one PASSED [ 12%]
+2026-03-23T10:48:53.3990900Z tests/test_engine.py::TestEngineOutput::test_btts_in_range PASSED        [ 13%]
+2026-03-23T10:48:53.4192803Z tests/test_engine.py::TestEngineOutput::test_xg_positive PASSED          [ 14%]
+2026-03-23T10:48:53.4400808Z tests/test_engine.py::TestEngineOutput::test_rho_in_range PASSED         [ 14%]
+2026-03-23T10:48:53.4719255Z tests/test_engine.py::TestEngineOutput::test_live_45_with_shots PASSED   [ 15%]
+2026-03-23T10:48:53.4794176Z tests/test_engine.py::TestEngineOutput::test_late_game_with_red_card PASSED [ 15%]
+2026-03-23T10:48:53.5184405Z tests/test_engine.py::TestEngineOutput::test_home_favorite_state PASSED  [ 16%]
+2026-03-23T10:48:53.5521612Z tests/test_engine.py::TestEngineOutput::test_away_favorite_state PASSED  [ 17%]
+2026-03-23T10:48:53.5718311Z tests/test_engine.py::TestEngineOutput::test_btts_settled_both_scored PASSED [ 17%]
+2026-03-23T10:48:53.5847546Z tests/test_engine.py::TestEngineOutput::test_over_already_won PASSED     [ 18%]
+2026-03-23T10:48:53.6053990Z tests/test_engine.py::TestEngineOutput::test_top_cs_not_empty PASSED     [ 18%]
+2026-03-23T10:48:53.6270723Z tests/test_engine.py::TestEngineOutput::test_top_cs_ordered_by_probability PASSED [ 19%]
+2026-03-23T10:48:53.6489128Z tests/test_engine.py::TestEngineOutput::test_gol_tot_dist_sums_to_one PASSED [ 20%]
+2026-03-23T10:48:53.6700538Z tests/test_engine.py::TestEngineOutput::test_momentum_zero_flat_lines PASSED [ 20%]
+2026-03-23T10:48:53.6712939Z tests/test_engine.py::TestExchangeQuotes::test_any_active_false_when_all_zero PASSED [ 21%]
+2026-03-23T10:48:53.6724836Z tests/test_engine.py::TestExchangeQuotes::test_any_active_true_when_one_set PASSED [ 21%]
+2026-03-23T10:48:53.6783552Z tests/test_engine.py::TestExchangeQuotes::test_prob_implicita PASSED     [ 22%]
+2026-03-23T10:48:53.6795347Z tests/test_kelly.py::TestQuotaNetta::test_zero_commission PASSED         [ 22%]
+2026-03-23T10:48:53.6807036Z tests/test_kelly.py::TestQuotaNetta::test_commission_reduces_odds PASSED [ 23%]
+2026-03-23T10:48:53.6818683Z tests/test_kelly.py::TestQuotaNetta::test_commission_formula PASSED      [ 24%]
+2026-03-23T10:48:53.6830574Z tests/test_kelly.py::TestEdgeBack::test_positive_edge_when_prob_above_implied PASSED [ 24%]
+2026-03-23T10:48:53.6842133Z tests/test_kelly.py::TestEdgeBack::test_zero_edge_at_fair_price PASSED   [ 25%]
+2026-03-23T10:48:53.6853738Z tests/test_kelly.py::TestEdgeBack::test_negative_edge_when_below_implied PASSED [ 25%]
+2026-03-23T10:48:53.6865424Z tests/test_kelly.py::TestEdgeLay::test_positive_edge_when_market_overpriced PASSED [ 26%]
+2026-03-23T10:48:53.6877426Z tests/test_kelly.py::TestEdgeLay::test_zero_edge_at_break_even PASSED    [ 27%]
+2026-03-23T10:48:53.6889071Z tests/test_kelly.py::TestEdgeLay::test_commission_reduces_lay_edge PASSED [ 27%]
+2026-03-23T10:48:53.6900861Z tests/test_kelly.py::TestKellyBack::test_zero_stake_at_zero_ev PASSED    [ 28%]
+2026-03-23T10:48:53.6912830Z tests/test_kelly.py::TestKellyBack::test_positive_stake_with_positive_edge PASSED [ 28%]
+2026-03-23T10:48:53.6924464Z tests/test_kelly.py::TestKellyBack::test_stake_capped_at_max_pct PASSED  [ 29%]
+2026-03-23T10:48:53.6936957Z tests/test_kelly.py::TestKellyBack::test_stake_proportional_to_bankroll PASSED [ 30%]
+2026-03-23T10:48:53.6948564Z tests/test_kelly.py::TestKellyBack::test_fraction_reduces_stake PASSED   [ 30%]
+2026-03-23T10:48:53.6960532Z tests/test_kelly.py::TestKellyLay::test_none_when_no_edge PASSED         [ 31%]
+2026-03-23T10:48:53.6972003Z tests/test_kelly.py::TestKellyLay::test_returns_tuple_with_edge PASSED   [ 31%]
+2026-03-23T10:48:53.6983582Z tests/test_kelly.py::TestKellyLay::test_liability_equals_stake_times_q_minus_1 PASSED [ 32%]
+2026-03-23T10:48:53.6995301Z tests/test_kelly.py::TestKellyLay::test_none_for_very_low_odds PASSED    [ 32%]
+2026-03-23T10:48:53.7006620Z tests/test_kelly.py::TestKellyLay::test_commission_adjusted_break_even PASSED [ 33%]
+2026-03-23T10:48:53.7018241Z tests/test_kelly.py::TestKellyFraction::test_base_fraction_early_game PASSED [ 34%]
+2026-03-23T10:48:53.7029931Z tests/test_kelly.py::TestKellyFraction::test_reduced_late_game PASSED    [ 34%]
+2026-03-23T10:48:53.7041657Z tests/test_kelly.py::TestKellyFraction::test_reduced_without_shots PASSED [ 35%]
+2026-03-23T10:48:53.7053553Z tests/test_kelly.py::TestKellyFraction::test_floor_not_breached PASSED   [ 35%]
+2026-03-23T10:48:53.7065618Z tests/test_kelly.py::TestEV::test_ev_back_positive_with_edge PASSED      [ 36%]
+2026-03-23T10:48:53.7077649Z tests/test_kelly.py::TestEV::test_ev_back_zero_at_fair PASSED            [ 37%]
+2026-03-23T10:48:53.7090420Z tests/test_kelly.py::TestEV::test_ev_lay_sign PASSED                     [ 37%]
+2026-03-23T10:48:53.7129078Z tests/test_markets.py::TestOverUnder::test_sum_to_one PASSED             [ 38%]
+2026-03-23T10:48:53.7167329Z tests/test_markets.py::TestOverUnder::test_over_when_goal_already_scored PASSED [ 38%]
+2026-03-23T10:48:53.7212005Z tests/test_markets.py::TestOverUnder::test_quarter_line_between_half_lines PASSED [ 39%]
+2026-03-23T10:48:53.7256710Z tests/test_markets.py::TestOverUnder::test_quarter_line_is_average_of_eff_probs PASSED [ 40%]
+2026-03-23T10:48:53.7292813Z tests/test_markets.py::TestOverUnder::test_high_expected_goals_high_over PASSED [ 40%]
+2026-03-23T10:48:53.7335332Z tests/test_markets.py::TestOverUnder::test_monotone_increasing_over_with_line PASSED [ 41%]
+2026-03-23T10:48:53.7392095Z tests/test_markets.py::TestAsianHandicap::test_results_count PASSED      [ 41%]
+2026-03-23T10:48:53.7449861Z tests/test_markets.py::TestAsianHandicap::test_probabilities_sum_to_one PASSED [ 42%]
+2026-03-23T10:48:53.7508219Z tests/test_markets.py::TestAsianHandicap::test_p_eff_in_range PASSED     [ 42%]
+2026-03-23T10:48:53.7550163Z tests/test_markets.py::TestAsianHandicap::test_ah0_symmetric PASSED      [ 43%]
+2026-03-23T10:48:53.7586937Z tests/test_markets.py::TestAsianHandicap::test_strong_home_ah_negative_high_coverage PASSED [ 44%]
+2026-03-23T10:48:53.7623598Z tests/test_markets.py::TestBTTS::test_btts_both_scored_is_one PASSED     [ 44%]
+2026-03-23T10:48:53.7664192Z tests/test_markets.py::TestBTTS::test_btts_home_only_scored PASSED       [ 45%]
+2026-03-23T10:48:53.7705240Z tests/test_markets.py::TestBTTS::test_btts_none_scored PASSED            [ 45%]
+2026-03-23T10:48:53.7744681Z tests/test_markets.py::TestBTTS::test_btts_in_range PASSED               [ 46%]
+2026-03-23T10:48:53.7813689Z tests/test_markets.py::TestBTTS::test_btts_increases_with_xg PASSED      [ 47%]
+2026-03-23T10:48:53.7827051Z tests/test_poisson.py::TestPoissonPMF::test_pmf_sums_to_one PASSED       [ 47%]
+2026-03-23T10:48:53.7839093Z tests/test_poisson.py::TestPoissonPMF::test_pmf_zero_mu PASSED           [ 48%]
+2026-03-23T10:48:53.7851338Z tests/test_poisson.py::TestPoissonPMF::test_pmf_negative_mu PASSED       [ 48%]
+2026-03-23T10:48:53.7863563Z tests/test_poisson.py::TestPoissonPMF::test_pmf_mode_is_floor_mu PASSED  [ 49%]
+2026-03-23T10:48:53.7876400Z tests/test_poisson.py::TestPoissonPMF::test_pmf_mean_close_to_mu PASSED  [ 50%]
+2026-03-23T10:48:53.7888594Z tests/test_poisson.py::TestPoissonPMF::test_pmf_monotone_tail PASSED     [ 50%]
+2026-03-23T10:48:53.7901555Z tests/test_poisson.py::TestPoissonPMF::test_pmf_large_mu PASSED          [ 51%]
+2026-03-23T10:48:53.7913744Z tests/test_poisson.py::TestDixonColes::test_tau_identity_for_high_scores PASSED [ 51%]
+2026-03-23T10:48:53.7925741Z tests/test_poisson.py::TestDixonColes::test_tau_00_with_negative_rho PASSED [ 52%]
+2026-03-23T10:48:53.7938008Z tests/test_poisson.py::TestDixonColes::test_tau_11_with_negative_rho PASSED [ 52%]
+2026-03-23T10:48:53.7950258Z tests/test_poisson.py::TestDixonColes::test_tau_10_with_negative_rho PASSED [ 53%]
+2026-03-23T10:48:53.7962232Z tests/test_poisson.py::TestDixonColes::test_tau_01_with_negative_rho PASSED [ 54%]
+2026-03-23T10:48:53.7974878Z tests/test_poisson.py::TestDixonColes::test_tau_clamp PASSED             [ 54%]
+2026-03-23T10:48:53.7986682Z tests/test_poisson.py::TestDixonColes::test_tau_zero_rho PASSED          [ 55%]
+2026-03-23T10:48:53.7998966Z tests/test_poisson.py::TestRhoDinamico::test_rho_decreases_with_time PASSED [ 55%]
+2026-03-23T10:48:53.8011249Z tests/test_poisson.py::TestRhoDinamico::test_rho_decreases_with_high_total PASSED [ 56%]
+2026-03-23T10:48:53.8023342Z tests/test_poisson.py::TestRhoDinamico::test_rho_decreases_with_shot_dominance PASSED [ 57%]
+2026-03-23T10:48:53.8035728Z tests/test_poisson.py::TestRhoDinamico::test_rho_floor PASSED            [ 57%]
+2026-03-23T10:48:53.8047720Z tests/test_poisson.py::TestRhoDinamico::test_rho_ceiling PASSED          [ 58%]
+2026-03-23T10:48:53.8060206Z tests/test_poisson.py::TestRhoDinamico::test_rho_decreases_with_goals PASSED [ 58%]
+2026-03-23T10:48:53.8092422Z tests/test_poisson.py::TestBivariateMatrix::test_joint_ind_sums_to_one PASSED [ 59%]
+2026-03-23T10:48:53.8124148Z tests/test_poisson.py::TestBivariateMatrix::test_full_matrix_sums_to_one PASSED [ 60%]
+2026-03-23T10:48:53.8159707Z tests/test_poisson.py::TestBivariateMatrix::test_1x2_probabilities_sum_to_one PASSED [ 60%]
+2026-03-23T10:48:53.8194003Z tests/test_poisson.py::TestBivariateMatrix::test_over_under_sum_to_one PASSED [ 61%]
+2026-03-23T10:48:53.8229807Z tests/test_poisson.py::TestBivariateMatrix::test_btts_prob_in_range PASSED [ 61%]
+2026-03-23T10:48:53.8262917Z tests/test_poisson.py::TestBivariateMatrix::test_btts_settled_both_scored PASSED [ 62%]
+2026-03-23T10:48:53.8294390Z tests/test_poisson.py::TestBivariateMatrix::test_rho_returned PASSED     [ 62%]
+2026-03-23T10:48:53.8328227Z tests/test_poisson.py::TestBivariateMatrix::test_strong_home_team_has_high_p1 PASSED [ 63%]
+2026-03-23T10:48:53.8362391Z tests/test_poisson.py::TestBivariateMatrix::test_symmetric_game_balanced_probs PASSED [ 64%]
+2026-03-23T10:48:53.8401623Z tests/test_poisson.py::TestCorrectScore::test_top_cs_probabilities_sum_leq_one PASSED [ 64%]
+2026-03-23T10:48:53.8440284Z tests/test_poisson.py::TestCorrectScore::test_gol_tot_dist_sums_to_one PASSED [ 65%]
+2026-03-23T10:48:53.8482183Z tests/test_poisson.py::TestCorrectScore::test_correct_score_accounts_for_current_goals PASSED [ 65%]
+2026-03-23T10:48:53.8551151Z tests/test_simulation.py::TestAHEVInterpolation::test_half_lines_exact PASSED [ 66%]
+2026-03-23T10:48:53.8652889Z tests/test_simulation.py::TestAHEVInterpolation::test_quarter_lines_split PASSED [ 67%]
+2026-03-23T10:48:53.8696429Z tests/test_simulation.py::TestAHEVInterpolation::test_non_standard_values_differ PASSED [ 67%]
+2026-03-23T10:48:53.9342933Z tests/test_simulation.py::TestAHEVInterpolation::test_continuity PASSED  [ 68%]
+2026-03-23T10:48:54.0531042Z tests/test_simulation.py::TestAHEVInterpolation::test_monotonicity_with_handicap PASSED [ 68%]
+2026-03-23T10:48:54.2580736Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[-0.75-2.5] PASSED [ 69%]
+2026-03-23T10:48:54.4428413Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[-0.25-2.3] PASSED [ 70%]
+2026-03-23T10:48:54.6470041Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[0.5-2.8] PASSED [ 70%]
+2026-03-23T10:48:54.8567074Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[-1.5-3.0] PASSED [ 71%]
+2026-03-23T10:48:54.8660931Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[0.0-2.0] PASSED [ 71%]
+2026-03-23T10:48:54.8763362Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_cap_pathological_flat_ah PASSED [ 72%]
+2026-03-23T10:48:54.8800284Z tests/test_simulation.py::TestXGBayesianiSimulation::test_xg_sum_equals_tot_bayes_flat PASSED [ 72%]
+2026-03-23T10:48:55.0743923Z tests/test_simulation.py::TestXGBayesianiSimulation::test_xg_decrease_with_time PASSED [ 73%]
+2026-03-23T10:48:55.1002654Z tests/test_simulation.py::TestXGBayesianiSimulation::test_gol_diff_shifts_xg PASSED [ 74%]
+2026-03-23T10:48:55.1044677Z tests/test_simulation.py::TestMarketConsistency::test_1x2_sums_to_one[1.5-1.0] PASSED [ 74%]
+2026-03-23T10:48:55.1077055Z tests/test_simulation.py::TestMarketConsistency::test_1x2_sums_to_one[0.8-0.8] PASSED [ 75%]
+2026-03-23T10:48:55.1113378Z tests/test_simulation.py::TestMarketConsistency::test_1x2_sums_to_one[2.0-0.5] PASSED [ 75%]
+2026-03-23T10:48:55.1138514Z tests/test_simulation.py::TestMarketConsistency::test_1x2_sums_to_one[0.3-0.3] PASSED [ 76%]
+2026-03-23T10:48:55.1178327Z tests/test_simulation.py::TestMarketConsistency::test_over_under_complement[1.5-1.0] PASSED [ 77%]
+2026-03-23T10:48:55.1208756Z tests/test_simulation.py::TestMarketConsistency::test_over_under_complement[0.5-0.5] PASSED [ 77%]
+2026-03-23T10:48:55.1247471Z tests/test_simulation.py::TestMarketConsistency::test_btts_complement[1.5-1.0] PASSED [ 78%]
+2026-03-23T10:48:55.1272493Z tests/test_simulation.py::TestMarketConsistency::test_btts_complement[0.3-0.3] PASSED [ 78%]
+2026-03-23T10:48:55.1306219Z tests/test_simulation.py::TestMarketConsistency::test_1x2_home_favorite PASSED [ 79%]
+2026-03-23T10:48:55.1365443Z tests/test_simulation.py::TestMarketConsistency::test_over_high_mu_means_high_over PASSED [ 80%]
+2026-03-23T10:48:55.1387479Z tests/test_simulation.py::TestMarketConsistency::test_btts_low_mu_means_low_btts PASSED [ 80%]
+2026-03-23T10:48:55.1400660Z tests/test_simulation.py::TestBlendXGShotsSimulation::test_progressive_shot_weight PASSED [ 81%]
+2026-03-23T10:48:55.1413308Z tests/test_simulation.py::TestBlendXGShotsSimulation::test_game_state_symmetric PASSED [ 81%]
+2026-03-23T10:48:55.1425762Z tests/test_simulation.py::TestBlendXGShotsSimulation::test_mu_max_cap_high_scoring PASSED [ 82%]
+2026-03-23T10:48:55.1470282Z tests/test_simulation.py::TestEndToEndScenarios::test_balanced_match PASSED [ 82%]
+2026-03-23T10:48:55.1564545Z tests/test_simulation.py::TestEndToEndScenarios::test_strong_favorite PASSED [ 83%]
+2026-03-23T10:48:55.1602937Z tests/test_simulation.py::TestEndToEndScenarios::test_low_scoring_match PASSED [ 84%]
+2026-03-23T10:48:55.1680417Z tests/test_simulation.py::TestEndToEndScenarios::test_late_game_probabilities PASSED [ 84%]
+2026-03-23T10:48:55.1802017Z tests/test_simulation.py::TestEndToEndScenarios::test_after_goal_scored PASSED [ 85%]
+2026-03-23T10:48:55.1961055Z tests/test_simulation.py::TestEndToEndScenarios::test_red_card_scenario PASSED [ 85%]
+2026-03-23T10:48:55.1976279Z tests/test_simulation.py::TestNumericalStability::test_very_small_total PASSED [ 86%]
+2026-03-23T10:48:55.2057867Z tests/test_simulation.py::TestNumericalStability::test_extreme_ah PASSED [ 87%]
+2026-03-23T10:48:55.2118704Z tests/test_simulation.py::TestNumericalStability::test_zero_minute PASSED [ 87%]
+2026-03-23T10:48:55.2133928Z tests/test_simulation.py::TestNumericalStability::test_minute_90 PASSED  [ 88%]
+2026-03-23T10:48:55.2146871Z tests/test_simulation.py::TestNumericalStability::test_ah_ev_very_low_lambdas PASSED [ 88%]
+2026-03-23T10:48:55.2159242Z tests/test_simulation.py::TestNumericalStability::test_blend_shots_minute_1 PASSED [ 89%]
+2026-03-23T10:48:55.2227534Z tests/test_simulation.py::TestNumericalStability::test_build_bivariate_matrix_consistency PASSED [ 90%]
+2026-03-23T10:48:55.2241395Z tests/test_time_decay.py::TestTimeDecay::test_output_positive PASSED     [ 90%]
+2026-03-23T10:48:55.2254051Z tests/test_time_decay.py::TestTimeDecay::test_no_adjustment_with_0_0_no_cards PASSED [ 91%]
+2026-03-23T10:48:55.2266393Z tests/test_time_decay.py::TestTimeDecay::test_home_trailing_increases_home_xg PASSED [ 91%]
+2026-03-23T10:48:55.2278548Z tests/test_time_decay.py::TestTimeDecay::test_home_leading_decreases_home_xg PASSED [ 92%]
+2026-03-23T10:48:55.2290943Z tests/test_time_decay.py::TestTimeDecay::test_score_effect_capped PASSED [ 92%]
+2026-03-23T10:48:55.2303070Z tests/test_time_decay.py::TestTimeDecay::test_red_card_home_reduces_home_xg PASSED [ 93%]
+2026-03-23T10:48:55.2315326Z tests/test_time_decay.py::TestTimeDecay::test_red_card_away_reduces_away_xg PASSED [ 94%]
+2026-03-23T10:48:55.2328075Z tests/test_time_decay.py::TestTimeDecay::test_two_reds_less_than_double_effect PASSED [ 94%]
+2026-03-23T10:48:55.2340160Z tests/test_time_decay.py::TestTimeDecay::test_minute_90_returns_floor PASSED [ 95%]
+2026-03-23T10:48:55.2352408Z tests/test_time_decay.py::TestTimeDecay::test_xg_floor_applied PASSED    [ 95%]
+2026-03-23T10:48:55.2364739Z tests/test_time_decay.py::TestTimeDecay::test_away_red_asymmetry PASSED  [ 96%]
+2026-03-23T10:48:55.2376762Z tests/test_time_decay.py::TestMomentum::test_zero_at_minute_zero PASSED  [ 97%]
+2026-03-23T10:48:55.2388805Z tests/test_time_decay.py::TestMomentum::test_positive_with_movement PASSED [ 97%]
+2026-03-23T10:48:55.2402347Z tests/test_time_decay.py::TestMomentum::test_capped_at_max PASSED        [ 98%]
+2026-03-23T10:48:55.2415342Z tests/test_time_decay.py::TestMomentum::test_same_delta_higher_minute_lower_momentum PASSED [ 98%]
+2026-03-23T10:48:55.2427538Z tests/test_time_decay.py::TestMomentum::test_zero_delta_zero_momentum PASSED [ 99%]
+2026-03-23T10:48:55.8216926Z tests/test_time_decay.py::TestMomentum::test_ah_delta_more_impactful_than_tot_delta PASSED [100%]
+2026-03-23T10:48:55.8217842Z ERROR: Coverage failure: total of 64 is less than fail-under=70
+2026-03-23T10:48:55.8218247Z 
+2026-03-23T10:48:55.8218254Z 
+2026-03-23T10:48:55.8218475Z ================================ tests coverage ================================
+2026-03-23T10:48:55.8219127Z _______________ coverage: platform linux, python 3.11.15-final-0 _______________
+2026-03-23T10:48:55.8219822Z 
+2026-03-23T10:48:55.8220013Z Name                            Stmts   Miss  Cover   Missing
+2026-03-23T10:48:55.8220624Z -------------------------------------------------------------
+2026-03-23T10:48:55.8221142Z src/__init__.py                     1      0   100%
+2026-03-23T10:48:55.8221680Z src/config.py                     258      0   100%
+2026-03-23T10:48:55.8222278Z src/engine.py                     183     20    89%   67, 69, 71, 73, 75, 79, 390-421
+2026-03-23T10:48:55.8222970Z src/logging_config.py              65     65     0%   11-167
+2026-03-23T10:48:55.8223554Z src/markets/__init__.py             6      0   100%
+2026-03-23T10:48:55.8224096Z src/markets/asian_handicap.py      16      0   100%
+2026-03-23T10:48:55.8224659Z src/markets/btts.py                10      1    90%   43
+2026-03-23T10:48:55.8225290Z src/markets/clean_sheet.py         23     20    13%   38-60, 88-107
+2026-03-23T10:48:55.8225895Z src/markets/over_under.py          21      0   100%
+2026-03-23T10:48:55.8226421Z src/markets/result.py              27      0   100%
+2026-03-23T10:48:55.8226927Z src/models/__init__.py              0      0   100%
+2026-03-23T10:48:55.8227623Z src/models/cache.py                68     17    75%   58, 97, 108, 119-123, 127-129, 133-136, 174, 203, 233
+2026-03-23T10:48:55.8228480Z src/models/calibration.py         162     20    88%   58, 61, 234, 236, 266, 278-295
+2026-03-23T10:48:55.8229171Z src/models/cmp.py                  23      1    96%   52
+2026-03-23T10:48:55.8230014Z src/models/consensus.py           108     15    86%   81-85, 175, 282, 309-317
+2026-03-23T10:48:55.8230745Z src/models/copula.py               49      5    90%   36, 42, 46, 96, 101
+2026-03-23T10:48:55.8231458Z src/models/kelly.py                57      9    84%   97-100, 144, 148, 172, 210, 238
+2026-03-23T10:48:55.8232100Z src/models/markov.py               49      0   100%
+2026-03-23T10:48:55.8232692Z src/models/poisson.py              88      4    95%   71, 286, 289, 304
+2026-03-23T10:48:55.8233354Z src/models/time_decay.py           67      2    97%   174-175
+2026-03-23T10:48:55.8234083Z src/signals.py                    182    150    18%   87-106, 158-201, 235-307, 348-458, 468-475, 517-560
+2026-03-23T10:48:55.8234836Z src/utils/__init__.py               4      4     0%   3-12
+2026-03-23T10:48:55.8235432Z src/utils/analytics.py            128    128     0%   12-277
+2026-03-23T10:48:55.8236043Z src/utils/anomaly.py               96     96     0%   11-241
+2026-03-23T10:48:55.8236639Z src/utils/memo.py                  73     73     0%   11-148
+2026-03-23T10:48:55.8237562Z -------------------------------------------------------------
+2026-03-23T10:48:55.8238124Z TOTAL                            1764    630    64%
+2026-03-23T10:48:55.8238596Z Coverage XML written to file coverage.xml
+2026-03-23T10:48:55.8239208Z FAIL Required test coverage of 70% not reached. Total coverage: 64.29%
+2026-03-23T10:48:55.8240043Z ============================= 170 passed in 2.95s ==============================
+2026-03-23T10:48:55.8655516Z ##[error]Process completed with exit code 1.
+2026-03-23T10:48:55.9906545Z Post job cleanup.
+2026-03-23T10:48:56.0945842Z [command]/usr/bin/git version
+2026-03-23T10:48:56.0991144Z git version 2.53.0
+2026-03-23T10:48:56.1044329Z Temporarily overriding HOME='/home/runner/work/_temp/4fd4abf5-ca7e-437f-886e-4f5d231ef852' before making global git config changes
+2026-03-23T10:48:56.1045787Z Adding repository directory to the temporary git global config as a safe directory
+2026-03-23T10:48:56.1050862Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:48:56.1091494Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-03-23T10:48:56.1129734Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-03-23T10:48:56.1403751Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-03-23T10:48:56.1427136Z http.https://github.com/.extraheader
+2026-03-23T10:48:56.1440411Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-03-23T10:48:56.1472777Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-03-23T10:48:56.1708236Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-03-23T10:48:56.1741104Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-03-23T10:48:56.2104124Z Cleaning up orphan processes
+2026-03-23T10:48:56.2394633Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4, actions/setup-python@v5. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

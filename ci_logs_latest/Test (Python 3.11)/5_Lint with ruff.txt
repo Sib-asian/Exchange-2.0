@@ -1,0 +1,36 @@
+﻿2026-03-23T12:31:02.9086968Z ##[group]Run ruff check src/ tests/ --output-format=github
+2026-03-23T12:31:02.9087411Z [36;1mruff check src/ tests/ --output-format=github[0m
+2026-03-23T12:31:02.9137144Z shell: /usr/bin/bash -e {0}
+2026-03-23T12:31:02.9137375Z env:
+2026-03-23T12:31:02.9137615Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T12:31:02.9138059Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-03-23T12:31:02.9138486Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T12:31:02.9138841Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T12:31:02.9139194Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T12:31:02.9139555Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-03-23T12:31:02.9139870Z ##[endgroup]
+2026-03-23T12:31:02.9376766Z ##[error]tests/test_logging_config.py:8:8: F401 `pytest` imported but unused
+  help: Remove unused import: `pytest`
+2026-03-23T12:31:02.9386768Z ##[error]tests/test_logging_config.py:154:9: SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+  help: Combine `with` statements
+2026-03-23T12:31:02.9389254Z ##[error]tests/test_logging_config.py:165:9: SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+  help: Combine `with` statements
+2026-03-23T12:31:02.9391585Z ##[error]tests/test_logging_config.py:175:9: SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+  help: Combine `with` statements
+2026-03-23T12:31:02.9393450Z ##[error]tests/test_signals.py:7:1: I001 Import block is un-sorted or un-formatted
+  help: Organize imports
+2026-03-23T12:31:02.9395041Z ##[error]tests/test_signals.py:7:8: F401 `math` imported but unused
+  help: Remove unused import: `math`
+2026-03-23T12:31:02.9396966Z ##[error]tests/test_signals.py:9:8: F401 `pytest` imported but unused
+  help: Remove unused import: `pytest`
+2026-03-23T12:31:02.9398937Z ##[error]tests/test_signals.py:126:9: F841 Local variable `lay_signals` is assigned to but never used
+  help: Remove assignment to unused variable `lay_signals`
+2026-03-23T12:31:02.9401035Z ##[error]tests/test_signals.py:435:9: F841 Local variable `lay_signals` is assigned to but never used
+  help: Remove assignment to unused variable `lay_signals`
+2026-03-23T12:31:02.9403078Z ##[error]tests/test_signals.py:479:9: F841 Local variable `lay_over` is assigned to but never used
+  help: Remove assignment to unused variable `lay_over`
+2026-03-23T12:31:02.9404859Z ##[error]tests/test_utils_anomaly.py:5:8: F401 `pytest` imported but unused
+  help: Remove unused import: `pytest`
+2026-03-23T12:31:02.9407332Z ##[error]tests/test_utils_anomaly.py:173:9: F841 Local variable `consistency_anomalies` is assigned to but never used
+  help: Remove assignment to unused variable `consistency_anomalies`
+2026-03-23T12:31:02.9410268Z ##[error]Process completed with exit code 1.

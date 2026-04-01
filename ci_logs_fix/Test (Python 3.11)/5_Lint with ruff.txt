@@ -1,0 +1,24 @@
+﻿2026-03-23T22:07:53.2475917Z ##[group]Run ruff check src/ tests/ --output-format=github
+2026-03-23T22:07:53.2476393Z [36;1mruff check src/ tests/ --output-format=github[0m
+2026-03-23T22:07:53.2525955Z shell: /usr/bin/bash -e {0}
+2026-03-23T22:07:53.2526222Z env:
+2026-03-23T22:07:53.2526505Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T22:07:53.2526995Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-03-23T22:07:53.2527470Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T22:07:53.2527891Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T22:07:53.2528333Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T22:07:53.2528786Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-03-23T22:07:53.2529156Z ##[endgroup]
+2026-03-23T22:07:53.2761477Z ##[error]src/engine.py:151:1: W293 Blank line contains whitespace
+  help: Remove whitespace from blank line
+2026-03-23T22:07:53.2769975Z ##[error]src/engine.py:333:1: W293 Blank line contains whitespace
+  help: Remove whitespace from blank line
+2026-03-23T22:07:53.2772168Z ##[error]src/engine.py:339:1: W293 Blank line contains whitespace
+  help: Remove whitespace from blank line
+2026-03-23T22:07:53.2773946Z ##[error]src/engine.py:342:1: W293 Blank line contains whitespace
+  help: Remove whitespace from blank line
+2026-03-23T22:07:53.2775610Z ##[error]src/ui/outputs.py:617:41: UP037 Remove quotes from type annotation
+  help: Remove quotes
+2026-03-23T22:07:53.2777351Z ##[error]src/ui/outputs.py:622:13: F541 f-string without any placeholders
+  help: Remove extraneous `f` prefix
+2026-03-23T22:07:53.2780055Z ##[error]Process completed with exit code 1.

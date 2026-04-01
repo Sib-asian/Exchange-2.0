@@ -1,0 +1,432 @@
+﻿2026-03-23T12:30:39.5603183Z Current runner version: '2.332.0'
+2026-03-23T12:30:39.5626773Z ##[group]Runner Image Provisioner
+2026-03-23T12:30:39.5627736Z Hosted Compute Agent
+2026-03-23T12:30:39.5628310Z Version: 20260213.493
+2026-03-23T12:30:39.5628942Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+2026-03-23T12:30:39.5629746Z Build Date: 2026-02-13T00:28:41Z
+2026-03-23T12:30:39.5630628Z Worker ID: {ecc20098-3b79-4b58-92e2-6c065374d591}
+2026-03-23T12:30:39.5631310Z Azure Region: eastus
+2026-03-23T12:30:39.5631967Z ##[endgroup]
+2026-03-23T12:30:39.5633503Z ##[group]Operating System
+2026-03-23T12:30:39.5634129Z Ubuntu
+2026-03-23T12:30:39.5634726Z 24.04.3
+2026-03-23T12:30:39.5635273Z LTS
+2026-03-23T12:30:39.5636384Z ##[endgroup]
+2026-03-23T12:30:39.5637376Z ##[group]Runner Image
+2026-03-23T12:30:39.5638303Z Image: ubuntu-24.04
+2026-03-23T12:30:39.5639117Z Version: 20260309.50.1
+2026-03-23T12:30:39.5641150Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260309.50/images/ubuntu/Ubuntu2404-Readme.md
+2026-03-23T12:30:39.5642744Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260309.50
+2026-03-23T12:30:39.5643776Z ##[endgroup]
+2026-03-23T12:30:39.5644866Z ##[group]GITHUB_TOKEN Permissions
+2026-03-23T12:30:39.5646998Z Contents: read
+2026-03-23T12:30:39.5647736Z Metadata: read
+2026-03-23T12:30:39.5648263Z Packages: read
+2026-03-23T12:30:39.5648767Z ##[endgroup]
+2026-03-23T12:30:39.5651182Z Secret source: Actions
+2026-03-23T12:30:39.5652159Z Prepare workflow directory
+2026-03-23T12:30:39.5970110Z Prepare all required actions
+2026-03-23T12:30:39.6007946Z Getting action download info
+2026-03-23T12:30:39.9304402Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-03-23T12:30:40.0718967Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-03-23T12:30:40.1958091Z Download action repository 'codecov/codecov-action@v4' (SHA:b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238)
+2026-03-23T12:30:40.6177302Z Complete job name: Test (Python 3.12)
+2026-03-23T12:30:40.6857342Z ##[group]Run actions/checkout@v4
+2026-03-23T12:30:40.6858248Z with:
+2026-03-23T12:30:40.6858689Z   repository: Sib-asian/Exchange-2.0
+2026-03-23T12:30:40.6859413Z   token: ***
+2026-03-23T12:30:40.6859874Z   ssh-strict: true
+2026-03-23T12:30:40.6860492Z   ssh-user: git
+2026-03-23T12:30:40.6860944Z   persist-credentials: true
+2026-03-23T12:30:40.6861453Z   clean: true
+2026-03-23T12:30:40.6861900Z   sparse-checkout-cone-mode: true
+2026-03-23T12:30:40.6862423Z   fetch-depth: 1
+2026-03-23T12:30:40.6862846Z   fetch-tags: false
+2026-03-23T12:30:40.6863300Z   show-progress: true
+2026-03-23T12:30:40.6863751Z   lfs: false
+2026-03-23T12:30:40.6864182Z   submodules: false
+2026-03-23T12:30:40.6864675Z   set-safe-directory: true
+2026-03-23T12:30:40.6865430Z ##[endgroup]
+2026-03-23T12:30:40.7948553Z Syncing repository: Sib-asian/Exchange-2.0
+2026-03-23T12:30:40.7950726Z ##[group]Getting Git version info
+2026-03-23T12:30:40.7951639Z Working directory is '/home/runner/work/Exchange-2.0/Exchange-2.0'
+2026-03-23T12:30:40.7952758Z [command]/usr/bin/git version
+2026-03-23T12:30:40.8013629Z git version 2.53.0
+2026-03-23T12:30:40.8039141Z ##[endgroup]
+2026-03-23T12:30:40.8052940Z Temporarily overriding HOME='/home/runner/work/_temp/d26a5d74-1266-4ec2-9138-8a803353b6f5' before making global git config changes
+2026-03-23T12:30:40.8054474Z Adding repository directory to the temporary git global config as a safe directory
+2026-03-23T12:30:40.8057973Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T12:30:40.8095252Z Deleting the contents of '/home/runner/work/Exchange-2.0/Exchange-2.0'
+2026-03-23T12:30:40.8098901Z ##[group]Initializing the repository
+2026-03-23T12:30:40.8103142Z [command]/usr/bin/git init /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T12:30:40.8205154Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-03-23T12:30:40.8206675Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-03-23T12:30:40.8208341Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-03-23T12:30:40.8209944Z hint: call:
+2026-03-23T12:30:40.8210600Z hint:
+2026-03-23T12:30:40.8211214Z hint: 	git config --global init.defaultBranch <name>
+2026-03-23T12:30:40.8211977Z hint:
+2026-03-23T12:30:40.8212687Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-03-23T12:30:40.8214013Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-03-23T12:30:40.8215077Z hint:
+2026-03-23T12:30:40.8215547Z hint: 	git branch -m <name>
+2026-03-23T12:30:40.8216108Z hint:
+2026-03-23T12:30:40.8216871Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-03-23T12:30:40.8218410Z Initialized empty Git repository in /home/runner/work/Exchange-2.0/Exchange-2.0/.git/
+2026-03-23T12:30:40.8221659Z [command]/usr/bin/git remote add origin https://github.com/Sib-asian/Exchange-2.0
+2026-03-23T12:30:40.8255600Z ##[endgroup]
+2026-03-23T12:30:40.8256977Z ##[group]Disabling automatic garbage collection
+2026-03-23T12:30:40.8260632Z [command]/usr/bin/git config --local gc.auto 0
+2026-03-23T12:30:40.8290985Z ##[endgroup]
+2026-03-23T12:30:40.8292418Z ##[group]Setting up auth
+2026-03-23T12:30:40.8298663Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-03-23T12:30:40.8331336Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-03-23T12:30:40.8663207Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-03-23T12:30:40.8695634Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-03-23T12:30:40.8930800Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-03-23T12:30:40.8971813Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-03-23T12:30:40.9205192Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-03-23T12:30:40.9240325Z ##[endgroup]
+2026-03-23T12:30:40.9241703Z ##[group]Fetching the repository
+2026-03-23T12:30:40.9248570Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +006ee418cf0690dc534bb8a2cce8c04f2ecf5d44:refs/remotes/pull/47/merge
+2026-03-23T12:30:41.1300806Z From https://github.com/Sib-asian/Exchange-2.0
+2026-03-23T12:30:41.1301923Z  * [new ref]         006ee418cf0690dc534bb8a2cce8c04f2ecf5d44 -> pull/47/merge
+2026-03-23T12:30:41.1334816Z ##[endgroup]
+2026-03-23T12:30:41.1336061Z ##[group]Determining the checkout info
+2026-03-23T12:30:41.1337529Z ##[endgroup]
+2026-03-23T12:30:41.1342196Z [command]/usr/bin/git sparse-checkout disable
+2026-03-23T12:30:41.1383809Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-03-23T12:30:41.1409902Z ##[group]Checking out the ref
+2026-03-23T12:30:41.1413419Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/47/merge
+2026-03-23T12:30:41.1484892Z Note: switching to 'refs/remotes/pull/47/merge'.
+2026-03-23T12:30:41.1485887Z 
+2026-03-23T12:30:41.1486670Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-03-23T12:30:41.1488563Z changes and commit them, and you can discard any commits you make in this
+2026-03-23T12:30:41.1490421Z state without impacting any branches by switching back to a branch.
+2026-03-23T12:30:41.1491176Z 
+2026-03-23T12:30:41.1491647Z If you want to create a new branch to retain commits you create, you may
+2026-03-23T12:30:41.1492863Z do so (now or later) by using -c with the switch command. Example:
+2026-03-23T12:30:41.1493982Z 
+2026-03-23T12:30:41.1494573Z   git switch -c <new-branch-name>
+2026-03-23T12:30:41.1495190Z 
+2026-03-23T12:30:41.1495544Z Or undo this operation with:
+2026-03-23T12:30:41.1496056Z 
+2026-03-23T12:30:41.1496304Z   git switch -
+2026-03-23T12:30:41.1496703Z 
+2026-03-23T12:30:41.1497408Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-03-23T12:30:41.1498318Z 
+2026-03-23T12:30:41.1499201Z HEAD is now at 006ee41 Merge fa58d932a24f90c76ed1c6ce595b05fc79711967 into 8ef464c9ae0bc6fcca02a96c8fe9c21f78e34b84
+2026-03-23T12:30:41.1502332Z ##[endgroup]
+2026-03-23T12:30:41.1531995Z [command]/usr/bin/git log -1 --format=%H
+2026-03-23T12:30:41.1554496Z 006ee418cf0690dc534bb8a2cce8c04f2ecf5d44
+2026-03-23T12:30:41.1825168Z ##[group]Run actions/setup-python@v5
+2026-03-23T12:30:41.1825885Z with:
+2026-03-23T12:30:41.1826355Z   python-version: 3.12
+2026-03-23T12:30:41.1826899Z   cache: pip
+2026-03-23T12:30:41.1827555Z   cache-dependency-path: pyproject.toml
+requirements.txt
+
+2026-03-23T12:30:41.1828392Z   check-latest: false
+2026-03-23T12:30:41.1829123Z   token: ***
+2026-03-23T12:30:41.1829609Z   update-environment: true
+2026-03-23T12:30:41.1830348Z   allow-prereleases: false
+2026-03-23T12:30:41.1830940Z   freethreaded: false
+2026-03-23T12:30:41.1831440Z ##[endgroup]
+2026-03-23T12:30:41.3498998Z ##[group]Installed versions
+2026-03-23T12:30:41.3963410Z Successfully set up CPython (3.12.13)
+2026-03-23T12:30:41.3965666Z ##[endgroup]
+2026-03-23T12:30:41.4392914Z [command]/opt/hostedtoolcache/Python/3.12.13/x64/bin/pip cache dir
+2026-03-23T12:30:42.8546673Z /home/runner/.cache/pip
+2026-03-23T12:30:42.9577136Z Cache hit for: setup-python-Linux-x64-24.04-Ubuntu-python-3.12.13-pip-890c007481a14720f027ab1f22c823bdc97e783a6554513cf09c7945b2002809
+2026-03-23T12:30:43.5996764Z Received 121743828 of 121743828 (100.0%), 190.3 MBs/sec
+2026-03-23T12:30:43.5999297Z Cache Size: ~116 MB (121743828 B)
+2026-03-23T12:30:43.6040784Z [command]/usr/bin/tar -xf /home/runner/work/_temp/06d9134b-773a-41ba-83c6-b1c10e750f81/cache.tzst -P -C /home/runner/work/Exchange-2.0/Exchange-2.0 --use-compress-program unzstd
+2026-03-23T12:30:43.7882786Z Cache restored successfully
+2026-03-23T12:30:43.8142549Z Cache restored from key: setup-python-Linux-x64-24.04-Ubuntu-python-3.12.13-pip-9d64264a9e946c5065c22f71a3767f74f39a910681208a1fc9bbb830c508c656
+2026-03-23T12:30:43.8328543Z ##[group]Run python -m pip install --upgrade pip wheel
+2026-03-23T12:30:43.8329046Z [36;1mpython -m pip install --upgrade pip wheel[0m
+2026-03-23T12:30:43.8329380Z [36;1mpip install -e ".[dev]"[0m
+2026-03-23T12:30:43.8329633Z [36;1mpip list --format=freeze[0m
+2026-03-23T12:30:43.8387662Z shell: /usr/bin/bash -e {0}
+2026-03-23T12:30:43.8387927Z env:
+2026-03-23T12:30:43.8388186Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:30:43.8388646Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+2026-03-23T12:30:43.8389092Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:30:43.8389460Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:30:43.8389866Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:30:43.8390471Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+2026-03-23T12:30:43.8390797Z ##[endgroup]
+2026-03-23T12:30:45.1171350Z Requirement already satisfied: pip in /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages (26.0.1)
+2026-03-23T12:30:45.2414649Z Collecting wheel
+2026-03-23T12:30:45.2426660Z   Using cached wheel-0.46.3-py3-none-any.whl.metadata (2.4 kB)
+2026-03-23T12:30:45.2649846Z Collecting packaging>=24.0 (from wheel)
+2026-03-23T12:30:45.2662293Z   Using cached packaging-26.0-py3-none-any.whl.metadata (3.3 kB)
+2026-03-23T12:30:45.2692599Z Using cached wheel-0.46.3-py3-none-any.whl (30 kB)
+2026-03-23T12:30:45.2704385Z Using cached packaging-26.0-py3-none-any.whl (74 kB)
+2026-03-23T12:30:45.2888293Z Installing collected packages: packaging, wheel
+2026-03-23T12:30:45.3711001Z 
+2026-03-23T12:30:45.3721700Z Successfully installed packaging-26.0 wheel-0.46.3
+2026-03-23T12:30:46.2145157Z Obtaining file:///home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T12:30:46.2163112Z   Installing build dependencies: started
+2026-03-23T12:30:47.1142926Z   Installing build dependencies: finished with status 'done'
+2026-03-23T12:30:47.1149719Z   Checking if build backend supports build_editable: started
+2026-03-23T12:30:47.4669727Z   Checking if build backend supports build_editable: finished with status 'done'
+2026-03-23T12:30:47.4678748Z   Getting requirements to build editable: started
+2026-03-23T12:30:47.8099418Z   Getting requirements to build editable: finished with status 'done'
+2026-03-23T12:30:47.8108711Z   Preparing editable metadata (pyproject.toml): started
+2026-03-23T12:30:48.0048934Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+2026-03-23T12:30:48.0937303Z Collecting streamlit>=1.35.0 (from radar-pro-live==2.0.0)
+2026-03-23T12:30:48.0951203Z   Using cached streamlit-1.55.0-py3-none-any.whl.metadata (9.8 kB)
+2026-03-23T12:30:48.1243382Z Collecting pytest>=8.0 (from radar-pro-live==2.0.0)
+2026-03-23T12:30:48.1255612Z   Using cached pytest-9.0.2-py3-none-any.whl.metadata (7.6 kB)
+2026-03-23T12:30:48.1379738Z Collecting pytest-cov>=5.0 (from radar-pro-live==2.0.0)
+2026-03-23T12:30:48.1392031Z   Using cached pytest_cov-7.1.0-py3-none-any.whl.metadata (32 kB)
+2026-03-23T12:30:48.4620427Z Collecting ruff>=0.4 (from radar-pro-live==2.0.0)
+2026-03-23T12:30:48.4634060Z   Using cached ruff-0.15.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (26 kB)
+2026-03-23T12:30:48.5736225Z Collecting mypy>=1.10 (from radar-pro-live==2.0.0)
+2026-03-23T12:30:48.6334054Z   Downloading mypy-1.19.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.2 kB)
+2026-03-23T12:30:48.6495047Z Collecting typing_extensions>=4.6.0 (from mypy>=1.10->radar-pro-live==2.0.0)
+2026-03-23T12:30:48.6506687Z   Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+2026-03-23T12:30:48.6583658Z Collecting mypy_extensions>=1.0.0 (from mypy>=1.10->radar-pro-live==2.0.0)
+2026-03-23T12:30:48.6628869Z   Downloading mypy_extensions-1.1.0-py3-none-any.whl.metadata (1.1 kB)
+2026-03-23T12:30:48.6754039Z Collecting pathspec>=0.9.0 (from mypy>=1.10->radar-pro-live==2.0.0)
+2026-03-23T12:30:48.6809724Z   Downloading pathspec-1.0.4-py3-none-any.whl.metadata (13 kB)
+2026-03-23T12:30:48.7740779Z Collecting librt>=0.6.2 (from mypy>=1.10->radar-pro-live==2.0.0)
+2026-03-23T12:30:48.7793916Z   Downloading librt-0.8.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (1.3 kB)
+2026-03-23T12:30:48.7904885Z Collecting iniconfig>=1.0.1 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:48.7916236Z   Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T12:30:48.7934404Z Requirement already satisfied: packaging>=22 in /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages (from pytest>=8.0->radar-pro-live==2.0.0) (26.0)
+2026-03-23T12:30:48.8009685Z Collecting pluggy<2,>=1.5 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:48.8021252Z   Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+2026-03-23T12:30:48.8165782Z Collecting pygments>=2.7.2 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:48.8183131Z   Using cached pygments-2.19.2-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T12:30:49.1735133Z Collecting coverage>=7.10.6 (from coverage[toml]>=7.10.6->pytest-cov>=5.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.1748333Z   Using cached coverage-7.13.5-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (8.5 kB)
+2026-03-23T12:30:49.1934389Z Collecting altair!=5.4.0,!=5.4.1,<7,>=4.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.1945588Z   Using cached altair-6.0.0-py3-none-any.whl.metadata (11 kB)
+2026-03-23T12:30:49.2083541Z Collecting blinker<2,>=1.5.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.2094807Z   Using cached blinker-1.9.0-py3-none-any.whl.metadata (1.6 kB)
+2026-03-23T12:30:49.2223205Z Collecting cachetools<8,>=5.5 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.2234363Z   Using cached cachetools-7.0.5-py3-none-any.whl.metadata (5.6 kB)
+2026-03-23T12:30:49.2365404Z Collecting click<9,>=7.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.2376391Z   Using cached click-8.3.1-py3-none-any.whl.metadata (2.6 kB)
+2026-03-23T12:30:49.2544476Z Collecting gitpython!=3.1.19,<4,>=3.0.7 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.2555579Z   Using cached gitpython-3.1.46-py3-none-any.whl.metadata (13 kB)
+2026-03-23T12:30:49.4236167Z Collecting numpy<3,>=1.23 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.4249602Z   Using cached numpy-2.4.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+2026-03-23T12:30:49.5219328Z Collecting pandas<3,>=1.4.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.5232307Z   Using cached pandas-2.3.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (91 kB)
+2026-03-23T12:30:49.7396574Z Collecting pillow<13,>=7.1.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.7410675Z   Using cached pillow-12.1.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (8.8 kB)
+2026-03-23T12:30:49.7558539Z Collecting pydeck<1,>=0.8.0b4 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.7570038Z   Using cached pydeck-0.9.1-py2.py3-none-any.whl.metadata (4.1 kB)
+2026-03-23T12:30:49.8968491Z Collecting protobuf<7,>=3.20 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.8981272Z   Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+2026-03-23T12:30:49.9692015Z Collecting pyarrow>=7.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.9705084Z   Using cached pyarrow-23.0.1-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (3.1 kB)
+2026-03-23T12:30:49.9883814Z Collecting requests<3,>=2.27 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:49.9894788Z   Using cached requests-2.32.5-py3-none-any.whl.metadata (4.9 kB)
+2026-03-23T12:30:50.0022452Z Collecting tenacity<10,>=8.1.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.0033849Z   Using cached tenacity-9.1.4-py3-none-any.whl.metadata (1.2 kB)
+2026-03-23T12:30:50.0113748Z Collecting toml<2,>=0.10.1 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.0125125Z   Using cached toml-0.10.2-py2.py3-none-any.whl.metadata (7.1 kB)
+2026-03-23T12:30:50.0425389Z Collecting tornado!=6.5.0,<7,>=6.0.3 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.0438330Z   Using cached tornado-6.5.5-cp39-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (2.8 kB)
+2026-03-23T12:30:50.0848138Z Collecting watchdog<7,>=2.1.5 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.0861067Z   Using cached watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl.metadata (44 kB)
+2026-03-23T12:30:50.1028494Z Collecting jinja2 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.1040518Z   Using cached jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+2026-03-23T12:30:50.1239491Z Collecting jsonschema>=3.0 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.1250623Z   Using cached jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)
+2026-03-23T12:30:50.1568242Z Collecting narwhals>=1.27.1 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.1580892Z   Using cached narwhals-2.18.0-py3-none-any.whl.metadata (14 kB)
+2026-03-23T12:30:50.1742429Z Collecting gitdb<5,>=4.0.1 (from gitpython!=3.1.19,<4,>=3.0.7->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.1754439Z   Using cached gitdb-4.0.12-py3-none-any.whl.metadata (1.2 kB)
+2026-03-23T12:30:50.1850758Z Collecting smmap<6,>=3.0.1 (from gitdb<5,>=4.0.1->gitpython!=3.1.19,<4,>=3.0.7->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.1862586Z   Using cached smmap-5.0.3-py3-none-any.whl.metadata (4.6 kB)
+2026-03-23T12:30:50.2003850Z Collecting python-dateutil>=2.8.2 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.2015906Z   Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+2026-03-23T12:30:50.2348056Z Collecting pytz>=2020.1 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.2366515Z   Using cached pytz-2026.1.post1-py2.py3-none-any.whl.metadata (22 kB)
+2026-03-23T12:30:50.2485447Z Collecting tzdata>=2022.7 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.2500585Z   Using cached tzdata-2025.3-py2.py3-none-any.whl.metadata (1.4 kB)
+2026-03-23T12:30:50.3991876Z Collecting charset_normalizer<4,>=2 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.4006017Z   Using cached charset_normalizer-3.4.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+2026-03-23T12:30:50.4147118Z Collecting idna<4,>=2.5 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.4158496Z   Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)
+2026-03-23T12:30:50.4362657Z Collecting urllib3<3,>=1.21.1 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.4374549Z   Using cached urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)
+2026-03-23T12:30:50.4542138Z Collecting certifi>=2017.4.17 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.4553539Z   Using cached certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T12:30:50.5071158Z Collecting MarkupSafe>=2.0 (from jinja2->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.5084195Z   Using cached markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+2026-03-23T12:30:50.5198929Z Collecting attrs>=22.2.0 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.5210067Z   Using cached attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+2026-03-23T12:30:50.5320147Z Collecting jsonschema-specifications>=2023.03.6 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.5332669Z   Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+2026-03-23T12:30:50.5537291Z Collecting referencing>=0.28.4 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.5549314Z   Using cached referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+2026-03-23T12:30:50.7931284Z Collecting rpds-py>=0.25.0 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.7945197Z   Using cached rpds_py-0.30.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+2026-03-23T12:30:50.8098036Z Collecting six>=1.5 (from python-dateutil>=2.8.2->pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T12:30:50.8109613Z   Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+2026-03-23T12:30:50.8221791Z Downloading mypy-1.19.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (13.6 MB)
+2026-03-23T12:30:50.9101675Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 13.6/13.6 MB 191.9 MB/s  0:00:00
+2026-03-23T12:30:50.9144282Z Downloading librt-0.8.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (224 kB)
+2026-03-23T12:30:50.9235012Z Downloading mypy_extensions-1.1.0-py3-none-any.whl (5.0 kB)
+2026-03-23T12:30:50.9294768Z Downloading pathspec-1.0.4-py3-none-any.whl (55 kB)
+2026-03-23T12:30:50.9326709Z Using cached pytest-9.0.2-py3-none-any.whl (374 kB)
+2026-03-23T12:30:50.9340140Z Using cached pluggy-1.6.0-py3-none-any.whl (20 kB)
+2026-03-23T12:30:50.9351500Z Using cached iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+2026-03-23T12:30:50.9362223Z Using cached pygments-2.19.2-py3-none-any.whl (1.2 MB)
+2026-03-23T12:30:50.9383160Z Using cached pytest_cov-7.1.0-py3-none-any.whl (22 kB)
+2026-03-23T12:30:50.9394606Z Using cached coverage-7.13.5-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (254 kB)
+2026-03-23T12:30:50.9406894Z Using cached ruff-0.15.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (11.2 MB)
+2026-03-23T12:30:50.9499865Z Using cached streamlit-1.55.0-py3-none-any.whl (9.1 MB)
+2026-03-23T12:30:50.9573846Z Using cached altair-6.0.0-py3-none-any.whl (795 kB)
+2026-03-23T12:30:50.9590528Z Using cached blinker-1.9.0-py3-none-any.whl (8.5 kB)
+2026-03-23T12:30:50.9601617Z Using cached cachetools-7.0.5-py3-none-any.whl (13 kB)
+2026-03-23T12:30:50.9612234Z Using cached click-8.3.1-py3-none-any.whl (108 kB)
+2026-03-23T12:30:50.9623613Z Using cached gitpython-3.1.46-py3-none-any.whl (208 kB)
+2026-03-23T12:30:50.9635300Z Using cached gitdb-4.0.12-py3-none-any.whl (62 kB)
+2026-03-23T12:30:50.9646577Z Using cached numpy-2.4.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.6 MB)
+2026-03-23T12:30:50.9775872Z Using cached pandas-2.3.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (12.4 MB)
+2026-03-23T12:30:50.9877168Z Using cached pillow-12.1.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (7.0 MB)
+2026-03-23T12:30:50.9937734Z Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
+2026-03-23T12:30:50.9950671Z Using cached pydeck-0.9.1-py2.py3-none-any.whl (6.9 MB)
+2026-03-23T12:30:51.0009728Z Using cached requests-2.32.5-py3-none-any.whl (64 kB)
+2026-03-23T12:30:51.0022135Z Using cached charset_normalizer-3.4.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (207 kB)
+2026-03-23T12:30:51.0033248Z Using cached idna-3.11-py3-none-any.whl (71 kB)
+2026-03-23T12:30:51.0044408Z Using cached smmap-5.0.3-py3-none-any.whl (24 kB)
+2026-03-23T12:30:51.0055152Z Using cached tenacity-9.1.4-py3-none-any.whl (28 kB)
+2026-03-23T12:30:51.0065895Z Using cached toml-0.10.2-py2.py3-none-any.whl (16 kB)
+2026-03-23T12:30:51.0077343Z Using cached tornado-6.5.5-cp39-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (447 kB)
+2026-03-23T12:30:51.0090636Z Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+2026-03-23T12:30:51.0101626Z Using cached urllib3-2.6.3-py3-none-any.whl (131 kB)
+2026-03-23T12:30:51.0113624Z Using cached watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl (79 kB)
+2026-03-23T12:30:51.0124815Z Using cached certifi-2026.2.25-py3-none-any.whl (153 kB)
+2026-03-23T12:30:51.0136332Z Using cached jinja2-3.1.6-py3-none-any.whl (134 kB)
+2026-03-23T12:30:51.0147737Z Using cached jsonschema-4.26.0-py3-none-any.whl (90 kB)
+2026-03-23T12:30:51.0158837Z Using cached attrs-26.1.0-py3-none-any.whl (67 kB)
+2026-03-23T12:30:51.0170037Z Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+2026-03-23T12:30:51.0181300Z Using cached markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB)
+2026-03-23T12:30:51.0191743Z Using cached narwhals-2.18.0-py3-none-any.whl (444 kB)
+2026-03-23T12:30:51.0206130Z Using cached pyarrow-23.0.1-cp312-cp312-manylinux_2_28_x86_64.whl (47.6 MB)
+2026-03-23T12:30:51.0563649Z Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+2026-03-23T12:30:51.0581786Z Using cached pytz-2026.1.post1-py2.py3-none-any.whl (510 kB)
+2026-03-23T12:30:51.0602779Z Using cached referencing-0.37.0-py3-none-any.whl (26 kB)
+2026-03-23T12:30:51.0614480Z Using cached rpds_py-0.30.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (394 kB)
+2026-03-23T12:30:51.0628015Z Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+2026-03-23T12:30:51.0639235Z Using cached tzdata-2025.3-py2.py3-none-any.whl (348 kB)
+2026-03-23T12:30:51.2260748Z Building wheels for collected packages: radar-pro-live
+2026-03-23T12:30:51.2268571Z   Building editable for radar-pro-live (pyproject.toml): started
+2026-03-23T12:30:51.4424577Z   Building editable for radar-pro-live (pyproject.toml): finished with status 'done'
+2026-03-23T12:30:51.4432279Z   Created wheel for radar-pro-live: filename=radar_pro_live-2.0.0-0.editable-py3-none-any.whl size=1467 sha256=e8c14a966231b7379407cccbb34ce781718803f33538a286fe3ff0efdbb24da4
+2026-03-23T12:30:51.4434569Z   Stored in directory: /tmp/pip-ephem-wheel-cache-ro7oxsjv/wheels/21/d5/22/c5b00cf4c48c16dde15601fb3a58f87a26d288ce80246cf81c
+2026-03-23T12:30:51.4449382Z Successfully built radar-pro-live
+2026-03-23T12:30:51.5580402Z Installing collected packages: pytz, watchdog, urllib3, tzdata, typing_extensions, tornado, toml, tenacity, smmap, six, ruff, rpds-py, pygments, pyarrow, protobuf, pluggy, pillow, pathspec, numpy, narwhals, mypy_extensions, MarkupSafe, librt, iniconfig, idna, coverage, click, charset_normalizer, certifi, cachetools, blinker, attrs, requests, referencing, python-dateutil, pytest, mypy, jinja2, gitdb, pytest-cov, pydeck, pandas, jsonschema-specifications, gitpython, jsonschema, altair, streamlit, radar-pro-live
+2026-03-23T12:31:05.6316777Z 
+2026-03-23T12:31:05.6363495Z Successfully installed MarkupSafe-3.0.3 altair-6.0.0 attrs-26.1.0 blinker-1.9.0 cachetools-7.0.5 certifi-2026.2.25 charset_normalizer-3.4.6 click-8.3.1 coverage-7.13.5 gitdb-4.0.12 gitpython-3.1.46 idna-3.11 iniconfig-2.3.0 jinja2-3.1.6 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 librt-0.8.1 mypy-1.19.1 mypy_extensions-1.1.0 narwhals-2.18.0 numpy-2.4.3 pandas-2.3.3 pathspec-1.0.4 pillow-12.1.1 pluggy-1.6.0 protobuf-6.33.6 pyarrow-23.0.1 pydeck-0.9.1 pygments-2.19.2 pytest-9.0.2 pytest-cov-7.1.0 python-dateutil-2.9.0.post0 pytz-2026.1.post1 radar-pro-live-2.0.0 referencing-0.37.0 requests-2.32.5 rpds-py-0.30.0 ruff-0.15.7 six-1.17.0 smmap-5.0.3 streamlit-1.55.0 tenacity-9.1.4 toml-0.10.2 tornado-6.5.5 typing_extensions-4.15.0 tzdata-2025.3 urllib3-2.6.3 watchdog-6.0.0
+2026-03-23T12:31:06.2894179Z altair==6.0.0
+2026-03-23T12:31:06.2900598Z attrs==26.1.0
+2026-03-23T12:31:06.2905396Z blinker==1.9.0
+2026-03-23T12:31:06.2911020Z cachetools==7.0.5
+2026-03-23T12:31:06.2916591Z certifi==2026.2.25
+2026-03-23T12:31:06.2929698Z charset-normalizer==3.4.6
+2026-03-23T12:31:06.2934828Z click==8.3.1
+2026-03-23T12:31:06.2941629Z coverage==7.13.5
+2026-03-23T12:31:06.2946318Z gitdb==4.0.12
+2026-03-23T12:31:06.2953563Z GitPython==3.1.46
+2026-03-23T12:31:06.2959238Z idna==3.11
+2026-03-23T12:31:06.2964767Z iniconfig==2.3.0
+2026-03-23T12:31:06.2969386Z Jinja2==3.1.6
+2026-03-23T12:31:06.2975455Z jsonschema==4.26.0
+2026-03-23T12:31:06.2980638Z jsonschema-specifications==2025.9.1
+2026-03-23T12:31:06.2985836Z librt==0.8.1
+2026-03-23T12:31:06.2991182Z MarkupSafe==3.0.3
+2026-03-23T12:31:06.2996035Z mypy==1.19.1
+2026-03-23T12:31:06.3001336Z mypy_extensions==1.1.0
+2026-03-23T12:31:06.3010709Z narwhals==2.18.0
+2026-03-23T12:31:06.3016936Z numpy==2.4.3
+2026-03-23T12:31:06.3022663Z packaging==26.0
+2026-03-23T12:31:06.3067305Z pandas==2.3.3
+2026-03-23T12:31:06.3073735Z pathspec==1.0.4
+2026-03-23T12:31:06.3079822Z pillow==12.1.1
+2026-03-23T12:31:06.3085931Z pip==26.0.1
+2026-03-23T12:31:06.3091222Z pluggy==1.6.0
+2026-03-23T12:31:06.3095936Z protobuf==6.33.6
+2026-03-23T12:31:06.3101305Z pyarrow==23.0.1
+2026-03-23T12:31:06.3106161Z pydeck==0.9.1
+2026-03-23T12:31:06.3111056Z Pygments==2.19.2
+2026-03-23T12:31:06.3116831Z pytest==9.0.2
+2026-03-23T12:31:06.3128187Z pytest-cov==7.1.0
+2026-03-23T12:31:06.3137219Z python-dateutil==2.9.0.post0
+2026-03-23T12:31:06.3150377Z pytz==2026.1.post1
+2026-03-23T12:31:06.3155413Z radar-pro-live==2.0.0
+2026-03-23T12:31:06.3162800Z referencing==0.37.0
+2026-03-23T12:31:06.3171762Z requests==2.32.5
+2026-03-23T12:31:06.3179079Z rpds-py==0.30.0
+2026-03-23T12:31:06.3194732Z ruff==0.15.7
+2026-03-23T12:31:06.3201062Z six==1.17.0
+2026-03-23T12:31:06.3208828Z smmap==5.0.3
+2026-03-23T12:31:06.3219584Z streamlit==1.55.0
+2026-03-23T12:31:06.3226155Z tenacity==9.1.4
+2026-03-23T12:31:06.3234870Z toml==0.10.2
+2026-03-23T12:31:06.3242124Z tornado==6.5.5
+2026-03-23T12:31:06.3249679Z typing_extensions==4.15.0
+2026-03-23T12:31:06.3256552Z tzdata==2025.3
+2026-03-23T12:31:06.3264765Z urllib3==2.6.3
+2026-03-23T12:31:06.3278892Z watchdog==6.0.0
+2026-03-23T12:31:06.3283977Z wheel==0.46.3
+2026-03-23T12:31:06.3571491Z ##[group]Run ruff check src/ tests/ --output-format=github
+2026-03-23T12:31:06.3571960Z [36;1mruff check src/ tests/ --output-format=github[0m
+2026-03-23T12:31:06.3621088Z shell: /usr/bin/bash -e {0}
+2026-03-23T12:31:06.3621319Z env:
+2026-03-23T12:31:06.3621567Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:31:06.3622005Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+2026-03-23T12:31:06.3622404Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:31:06.3622772Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:31:06.3623163Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:31:06.3623537Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+2026-03-23T12:31:06.3623852Z ##[endgroup]
+2026-03-23T12:31:06.3863970Z ##[error]tests/test_logging_config.py:8:8: F401 `pytest` imported but unused
+  help: Remove unused import: `pytest`
+2026-03-23T12:31:06.3873694Z ##[error]tests/test_logging_config.py:154:9: SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+  help: Combine `with` statements
+2026-03-23T12:31:06.3876112Z ##[error]tests/test_logging_config.py:165:9: SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+  help: Combine `with` statements
+2026-03-23T12:31:06.3878401Z ##[error]tests/test_logging_config.py:175:9: SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+  help: Combine `with` statements
+2026-03-23T12:31:06.3880616Z ##[error]tests/test_signals.py:7:1: I001 Import block is un-sorted or un-formatted
+  help: Organize imports
+2026-03-23T12:31:06.3882411Z ##[error]tests/test_signals.py:7:8: F401 `math` imported but unused
+  help: Remove unused import: `math`
+2026-03-23T12:31:06.3884069Z ##[error]tests/test_signals.py:9:8: F401 `pytest` imported but unused
+  help: Remove unused import: `pytest`
+2026-03-23T12:31:06.3886018Z ##[error]tests/test_signals.py:126:9: F841 Local variable `lay_signals` is assigned to but never used
+  help: Remove assignment to unused variable `lay_signals`
+2026-03-23T12:31:06.3888120Z ##[error]tests/test_signals.py:435:9: F841 Local variable `lay_signals` is assigned to but never used
+  help: Remove assignment to unused variable `lay_signals`
+2026-03-23T12:31:06.3890447Z ##[error]tests/test_signals.py:479:9: F841 Local variable `lay_over` is assigned to but never used
+  help: Remove assignment to unused variable `lay_over`
+2026-03-23T12:31:06.3892346Z ##[error]tests/test_utils_anomaly.py:5:8: F401 `pytest` imported but unused
+  help: Remove unused import: `pytest`
+2026-03-23T12:31:06.3894521Z ##[error]tests/test_utils_anomaly.py:173:9: F841 Local variable `consistency_anomalies` is assigned to but never used
+  help: Remove assignment to unused variable `consistency_anomalies`
+2026-03-23T12:31:06.3897454Z ##[error]Process completed with exit code 1.
+2026-03-23T12:31:06.4014881Z Post job cleanup.
+2026-03-23T12:31:06.4979747Z [command]/usr/bin/git version
+2026-03-23T12:31:06.5017184Z git version 2.53.0
+2026-03-23T12:31:06.5068103Z Temporarily overriding HOME='/home/runner/work/_temp/5a32a067-b050-4339-b1eb-7958b2cec5f7' before making global git config changes
+2026-03-23T12:31:06.5069458Z Adding repository directory to the temporary git global config as a safe directory
+2026-03-23T12:31:06.5074585Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T12:31:06.5109948Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-03-23T12:31:06.5143582Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-03-23T12:31:06.5389022Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-03-23T12:31:06.5412575Z http.https://github.com/.extraheader
+2026-03-23T12:31:06.5425131Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-03-23T12:31:06.5456896Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-03-23T12:31:06.5711437Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-03-23T12:31:06.5751979Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-03-23T12:31:06.6147887Z Cleaning up orphan processes
+2026-03-23T12:31:06.6450692Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4, actions/setup-python@v5. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

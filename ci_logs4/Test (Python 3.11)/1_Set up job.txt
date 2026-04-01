@@ -1,0 +1,33 @@
+﻿2026-03-23T10:48:26.4005874Z Current runner version: '2.332.0'
+2026-03-23T10:48:26.4041179Z ##[group]Runner Image Provisioner
+2026-03-23T10:48:26.4042920Z Hosted Compute Agent
+2026-03-23T10:48:26.4043626Z Version: 20260213.493
+2026-03-23T10:48:26.4044469Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+2026-03-23T10:48:26.4045664Z Build Date: 2026-02-13T00:28:41Z
+2026-03-23T10:48:26.4046745Z Worker ID: {7c73c75d-8792-447b-9a07-8c5c021f54fa}
+2026-03-23T10:48:26.4047852Z Azure Region: centralus
+2026-03-23T10:48:26.4048751Z ##[endgroup]
+2026-03-23T10:48:26.4050940Z ##[group]Operating System
+2026-03-23T10:48:26.4051951Z Ubuntu
+2026-03-23T10:48:26.4052742Z 24.04.3
+2026-03-23T10:48:26.4053521Z LTS
+2026-03-23T10:48:26.4054073Z ##[endgroup]
+2026-03-23T10:48:26.4055060Z ##[group]Runner Image
+2026-03-23T10:48:26.4056038Z Image: ubuntu-24.04
+2026-03-23T10:48:26.4056824Z Version: 20260309.50.1
+2026-03-23T10:48:26.4058553Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260309.50/images/ubuntu/Ubuntu2404-Readme.md
+2026-03-23T10:48:26.4061422Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260309.50
+2026-03-23T10:48:26.4063148Z ##[endgroup]
+2026-03-23T10:48:26.4064614Z ##[group]GITHUB_TOKEN Permissions
+2026-03-23T10:48:26.4067325Z Contents: read
+2026-03-23T10:48:26.4068383Z Metadata: read
+2026-03-23T10:48:26.4069191Z Packages: read
+2026-03-23T10:48:26.4070049Z ##[endgroup]
+2026-03-23T10:48:26.4073040Z Secret source: Actions
+2026-03-23T10:48:26.4074156Z Prepare workflow directory
+2026-03-23T10:48:26.5472829Z Prepare all required actions
+2026-03-23T10:48:26.5511889Z Getting action download info
+2026-03-23T10:48:26.8830967Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-03-23T10:48:27.0186328Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-03-23T10:48:27.1291546Z Download action repository 'codecov/codecov-action@v4' (SHA:b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238)
+2026-03-23T10:48:27.9312446Z Complete job name: Test (Python 3.11)

@@ -1,0 +1,218 @@
+﻿2026-03-23T10:44:24.1629507Z ##[group]Run python -m pip install --upgrade pip wheel
+2026-03-23T10:44:24.1630009Z [36;1mpython -m pip install --upgrade pip wheel[0m
+2026-03-23T10:44:24.1630349Z [36;1mpip install -e ".[dev]"[0m
+2026-03-23T10:44:24.1630626Z [36;1mpip list --format=freeze[0m
+2026-03-23T10:44:24.1688505Z shell: /usr/bin/bash -e {0}
+2026-03-23T10:44:24.1688798Z env:
+2026-03-23T10:44:24.1689067Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T10:44:24.1689552Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+2026-03-23T10:44:24.1689995Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T10:44:24.1690396Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T10:44:24.1690764Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T10:44:24.1691145Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+2026-03-23T10:44:24.1691462Z ##[endgroup]
+2026-03-23T10:44:24.7325582Z Requirement already satisfied: pip in /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages (26.0.1)
+2026-03-23T10:44:24.9002080Z Collecting wheel
+2026-03-23T10:44:24.9014952Z   Using cached wheel-0.46.3-py3-none-any.whl.metadata (2.4 kB)
+2026-03-23T10:44:24.9313961Z Collecting packaging>=24.0 (from wheel)
+2026-03-23T10:44:24.9326662Z   Using cached packaging-26.0-py3-none-any.whl.metadata (3.3 kB)
+2026-03-23T10:44:24.9356906Z Using cached wheel-0.46.3-py3-none-any.whl (30 kB)
+2026-03-23T10:44:24.9369114Z Using cached packaging-26.0-py3-none-any.whl (74 kB)
+2026-03-23T10:44:24.9471634Z Installing collected packages: packaging, wheel
+2026-03-23T10:44:25.0277868Z 
+2026-03-23T10:44:25.0287419Z Successfully installed packaging-26.0 wheel-0.46.3
+2026-03-23T10:44:25.4086777Z Obtaining file:///home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:44:25.4108535Z   Installing build dependencies: started
+2026-03-23T10:44:26.1632645Z   Installing build dependencies: finished with status 'done'
+2026-03-23T10:44:26.1639729Z   Checking if build backend supports build_editable: started
+2026-03-23T10:44:26.4706795Z   Checking if build backend supports build_editable: finished with status 'done'
+2026-03-23T10:44:26.4714631Z   Getting requirements to build editable: started
+2026-03-23T10:44:26.8010993Z   Getting requirements to build editable: finished with status 'done'
+2026-03-23T10:44:26.8019554Z   Preparing editable metadata (pyproject.toml): started
+2026-03-23T10:44:26.9939294Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+2026-03-23T10:44:27.1298905Z Collecting streamlit>=1.35.0 (from radar-pro-live==2.0.0)
+2026-03-23T10:44:27.1312217Z   Using cached streamlit-1.55.0-py3-none-any.whl.metadata (9.8 kB)
+2026-03-23T10:44:27.1745809Z Collecting pytest>=8.0 (from radar-pro-live==2.0.0)
+2026-03-23T10:44:27.1758340Z   Using cached pytest-9.0.2-py3-none-any.whl.metadata (7.6 kB)
+2026-03-23T10:44:27.2042576Z Collecting pytest-cov>=5.0 (from radar-pro-live==2.0.0)
+2026-03-23T10:44:27.2054744Z   Using cached pytest_cov-7.1.0-py3-none-any.whl.metadata (32 kB)
+2026-03-23T10:44:27.5382994Z Collecting ruff>=0.4 (from radar-pro-live==2.0.0)
+2026-03-23T10:44:27.5397086Z   Using cached ruff-0.15.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (26 kB)
+2026-03-23T10:44:27.5656231Z Collecting iniconfig>=1.0.1 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:27.5668562Z   Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T10:44:27.5687730Z Requirement already satisfied: packaging>=22 in /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages (from pytest>=8.0->radar-pro-live==2.0.0) (26.0)
+2026-03-23T10:44:27.5923004Z Collecting pluggy<2,>=1.5 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:27.5934922Z   Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+2026-03-23T10:44:27.6244409Z Collecting pygments>=2.7.2 (from pytest>=8.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:27.6256150Z   Using cached pygments-2.19.2-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T10:44:27.9979030Z Collecting coverage>=7.10.6 (from coverage[toml]>=7.10.6->pytest-cov>=5.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:27.9993388Z   Using cached coverage-7.13.5-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (8.5 kB)
+2026-03-23T10:44:28.0347180Z Collecting altair!=5.4.0,!=5.4.1,<7,>=4.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.0360413Z   Using cached altair-6.0.0-py3-none-any.whl.metadata (11 kB)
+2026-03-23T10:44:28.0638888Z Collecting blinker<2,>=1.5.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.0651062Z   Using cached blinker-1.9.0-py3-none-any.whl.metadata (1.6 kB)
+2026-03-23T10:44:28.0940686Z Collecting cachetools<8,>=5.5 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.0952571Z   Using cached cachetools-7.0.5-py3-none-any.whl.metadata (5.6 kB)
+2026-03-23T10:44:28.1243097Z Collecting click<9,>=7.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.1254876Z   Using cached click-8.3.1-py3-none-any.whl.metadata (2.6 kB)
+2026-03-23T10:44:28.1578858Z Collecting gitpython!=3.1.19,<4,>=3.0.7 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.1590941Z   Using cached gitpython-3.1.46-py3-none-any.whl.metadata (13 kB)
+2026-03-23T10:44:28.3401738Z Collecting numpy<3,>=1.23 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.3415522Z   Using cached numpy-2.4.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+2026-03-23T10:44:28.4543418Z Collecting pandas<3,>=1.4.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.4556959Z   Using cached pandas-2.3.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (91 kB)
+2026-03-23T10:44:28.6440462Z Collecting pillow<13,>=7.1.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.6454701Z   Using cached pillow-12.1.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (8.8 kB)
+2026-03-23T10:44:28.6783691Z Collecting pydeck<1,>=0.8.0b4 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.6794931Z   Using cached pydeck-0.9.1-py2.py3-none-any.whl.metadata (4.1 kB)
+2026-03-23T10:44:28.8732143Z Collecting protobuf<7,>=3.20 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.8745925Z   Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+2026-03-23T10:44:28.9879498Z Collecting pyarrow>=7.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:28.9892428Z   Using cached pyarrow-23.0.1-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (3.1 kB)
+2026-03-23T10:44:29.0227573Z Collecting requests<3,>=2.27 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.0239568Z   Using cached requests-2.32.5-py3-none-any.whl.metadata (4.9 kB)
+2026-03-23T10:44:29.0522250Z Collecting tenacity<10,>=8.1.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.0533462Z   Using cached tenacity-9.1.4-py3-none-any.whl.metadata (1.2 kB)
+2026-03-23T10:44:29.0766571Z Collecting toml<2,>=0.10.1 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.0777598Z   Using cached toml-0.10.2-py2.py3-none-any.whl.metadata (7.1 kB)
+2026-03-23T10:44:29.1226868Z Collecting tornado!=6.5.0,<7,>=6.0.3 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.1238614Z   Using cached tornado-6.5.5-cp39-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (2.8 kB)
+2026-03-23T10:44:29.1522609Z Collecting typing-extensions<5,>=4.10.0 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.1533892Z   Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+2026-03-23T10:44:29.2071274Z Collecting watchdog<7,>=2.1.5 (from streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.2082712Z   Using cached watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl.metadata (44 kB)
+2026-03-23T10:44:29.2390369Z Collecting jinja2 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.2401162Z   Using cached jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+2026-03-23T10:44:29.2751380Z Collecting jsonschema>=3.0 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.2762530Z   Using cached jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)
+2026-03-23T10:44:29.3231096Z Collecting narwhals>=1.27.1 (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.3242408Z   Using cached narwhals-2.18.0-py3-none-any.whl.metadata (14 kB)
+2026-03-23T10:44:29.3547673Z Collecting gitdb<5,>=4.0.1 (from gitpython!=3.1.19,<4,>=3.0.7->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.3559269Z   Using cached gitdb-4.0.12-py3-none-any.whl.metadata (1.2 kB)
+2026-03-23T10:44:29.3804522Z Collecting smmap<6,>=3.0.1 (from gitdb<5,>=4.0.1->gitpython!=3.1.19,<4,>=3.0.7->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.3816119Z   Using cached smmap-5.0.3-py3-none-any.whl.metadata (4.6 kB)
+2026-03-23T10:44:29.4105594Z Collecting python-dateutil>=2.8.2 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.4117454Z   Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+2026-03-23T10:44:29.4579925Z Collecting pytz>=2020.1 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.4591241Z   Using cached pytz-2026.1.post1-py2.py3-none-any.whl.metadata (22 kB)
+2026-03-23T10:44:29.4857691Z Collecting tzdata>=2022.7 (from pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.4869778Z   Using cached tzdata-2025.3-py2.py3-none-any.whl.metadata (1.4 kB)
+2026-03-23T10:44:29.5888565Z Collecting charset_normalizer<4,>=2 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.5902076Z   Using cached charset_normalizer-3.4.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+2026-03-23T10:44:29.6236449Z Collecting idna<4,>=2.5 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.6248965Z   Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)
+2026-03-23T10:44:29.6602763Z Collecting urllib3<3,>=1.21.1 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.6614640Z   Using cached urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)
+2026-03-23T10:44:29.6937052Z Collecting certifi>=2017.4.17 (from requests<3,>=2.27->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.6949108Z   Using cached certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)
+2026-03-23T10:44:29.7615317Z Collecting MarkupSafe>=2.0 (from jinja2->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.7627661Z   Using cached markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+2026-03-23T10:44:29.7894524Z Collecting attrs>=22.2.0 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.7905638Z   Using cached attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+2026-03-23T10:44:29.8160834Z Collecting jsonschema-specifications>=2023.03.6 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.8172683Z   Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+2026-03-23T10:44:29.8497473Z Collecting referencing>=0.28.4 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:29.8508567Z   Using cached referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+2026-03-23T10:44:30.1655466Z Collecting rpds-py>=0.25.0 (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:30.1669294Z   Using cached rpds_py-0.30.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+2026-03-23T10:44:30.1983938Z Collecting six>=1.5 (from python-dateutil>=2.8.2->pandas<3,>=1.4.0->streamlit>=1.35.0->radar-pro-live==2.0.0)
+2026-03-23T10:44:30.1999195Z   Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+2026-03-23T10:44:30.2089144Z Using cached pytest-9.0.2-py3-none-any.whl (374 kB)
+2026-03-23T10:44:30.2103972Z Using cached pluggy-1.6.0-py3-none-any.whl (20 kB)
+2026-03-23T10:44:30.2115821Z Using cached iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+2026-03-23T10:44:30.2127268Z Using cached pygments-2.19.2-py3-none-any.whl (1.2 MB)
+2026-03-23T10:44:30.2148449Z Using cached pytest_cov-7.1.0-py3-none-any.whl (22 kB)
+2026-03-23T10:44:30.2161032Z Using cached coverage-7.13.5-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (254 kB)
+2026-03-23T10:44:30.2174350Z Using cached ruff-0.15.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (11.2 MB)
+2026-03-23T10:44:30.2269325Z Using cached streamlit-1.55.0-py3-none-any.whl (9.1 MB)
+2026-03-23T10:44:30.2349071Z Using cached altair-6.0.0-py3-none-any.whl (795 kB)
+2026-03-23T10:44:30.2366707Z Using cached blinker-1.9.0-py3-none-any.whl (8.5 kB)
+2026-03-23T10:44:30.2378660Z Using cached cachetools-7.0.5-py3-none-any.whl (13 kB)
+2026-03-23T10:44:30.2390379Z Using cached click-8.3.1-py3-none-any.whl (108 kB)
+2026-03-23T10:44:30.2402701Z Using cached gitpython-3.1.46-py3-none-any.whl (208 kB)
+2026-03-23T10:44:30.2415262Z Using cached gitdb-4.0.12-py3-none-any.whl (62 kB)
+2026-03-23T10:44:30.2427411Z Using cached numpy-2.4.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.6 MB)
+2026-03-23T10:44:30.2559513Z Using cached pandas-2.3.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (12.4 MB)
+2026-03-23T10:44:30.2658670Z Using cached pillow-12.1.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (7.0 MB)
+2026-03-23T10:44:30.2719945Z Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
+2026-03-23T10:44:30.2733717Z Using cached pydeck-0.9.1-py2.py3-none-any.whl (6.9 MB)
+2026-03-23T10:44:30.2793289Z Using cached requests-2.32.5-py3-none-any.whl (64 kB)
+2026-03-23T10:44:30.2806201Z Using cached charset_normalizer-3.4.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (207 kB)
+2026-03-23T10:44:30.2818689Z Using cached idna-3.11-py3-none-any.whl (71 kB)
+2026-03-23T10:44:30.2830834Z Using cached smmap-5.0.3-py3-none-any.whl (24 kB)
+2026-03-23T10:44:30.2842450Z Using cached tenacity-9.1.4-py3-none-any.whl (28 kB)
+2026-03-23T10:44:30.2854101Z Using cached toml-0.10.2-py2.py3-none-any.whl (16 kB)
+2026-03-23T10:44:30.2866202Z Using cached tornado-6.5.5-cp39-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (447 kB)
+2026-03-23T10:44:30.2880809Z Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+2026-03-23T10:44:30.2892528Z Using cached urllib3-2.6.3-py3-none-any.whl (131 kB)
+2026-03-23T10:44:30.2904792Z Using cached watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl (79 kB)
+2026-03-23T10:44:30.2916573Z Using cached certifi-2026.2.25-py3-none-any.whl (153 kB)
+2026-03-23T10:44:30.2929203Z Using cached jinja2-3.1.6-py3-none-any.whl (134 kB)
+2026-03-23T10:44:30.2941484Z Using cached jsonschema-4.26.0-py3-none-any.whl (90 kB)
+2026-03-23T10:44:30.2953448Z Using cached attrs-26.1.0-py3-none-any.whl (67 kB)
+2026-03-23T10:44:30.2965491Z Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+2026-03-23T10:44:30.2977554Z Using cached markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB)
+2026-03-23T10:44:30.2988959Z Using cached narwhals-2.18.0-py3-none-any.whl (444 kB)
+2026-03-23T10:44:30.3003814Z Using cached pyarrow-23.0.1-cp312-cp312-manylinux_2_28_x86_64.whl (47.6 MB)
+2026-03-23T10:44:30.3344421Z Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+2026-03-23T10:44:30.3357575Z Using cached pytz-2026.1.post1-py2.py3-none-any.whl (510 kB)
+2026-03-23T10:44:30.3372998Z Using cached referencing-0.37.0-py3-none-any.whl (26 kB)
+2026-03-23T10:44:30.3385197Z Using cached rpds_py-0.30.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (394 kB)
+2026-03-23T10:44:30.3399159Z Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+2026-03-23T10:44:30.3410818Z Using cached tzdata-2025.3-py2.py3-none-any.whl (348 kB)
+2026-03-23T10:44:30.4850130Z Building wheels for collected packages: radar-pro-live
+2026-03-23T10:44:30.4858997Z   Building editable for radar-pro-live (pyproject.toml): started
+2026-03-23T10:44:30.6992315Z   Building editable for radar-pro-live (pyproject.toml): finished with status 'done'
+2026-03-23T10:44:30.6997596Z   Created wheel for radar-pro-live: filename=radar_pro_live-2.0.0-0.editable-py3-none-any.whl size=1459 sha256=1a1407810fe98dd4017d9ed6c25027dfc0624811235e760c4fab555b15746daf
+2026-03-23T10:44:30.6999647Z   Stored in directory: /tmp/pip-ephem-wheel-cache-2k5cbfx7/wheels/21/d5/22/c5b00cf4c48c16dde15601fb3a58f87a26d288ce80246cf81c
+2026-03-23T10:44:30.7014178Z Successfully built radar-pro-live
+2026-03-23T10:44:30.8039800Z Installing collected packages: pytz, watchdog, urllib3, tzdata, typing-extensions, tornado, toml, tenacity, smmap, six, ruff, rpds-py, pygments, pyarrow, protobuf, pluggy, pillow, numpy, narwhals, MarkupSafe, iniconfig, idna, coverage, click, charset_normalizer, certifi, cachetools, blinker, attrs, requests, referencing, python-dateutil, pytest, jinja2, gitdb, pytest-cov, pydeck, pandas, jsonschema-specifications, gitpython, jsonschema, altair, streamlit, radar-pro-live
+2026-03-23T10:44:43.4241195Z 
+2026-03-23T10:44:43.4287796Z Successfully installed MarkupSafe-3.0.3 altair-6.0.0 attrs-26.1.0 blinker-1.9.0 cachetools-7.0.5 certifi-2026.2.25 charset_normalizer-3.4.6 click-8.3.1 coverage-7.13.5 gitdb-4.0.12 gitpython-3.1.46 idna-3.11 iniconfig-2.3.0 jinja2-3.1.6 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 narwhals-2.18.0 numpy-2.4.3 pandas-2.3.3 pillow-12.1.1 pluggy-1.6.0 protobuf-6.33.6 pyarrow-23.0.1 pydeck-0.9.1 pygments-2.19.2 pytest-9.0.2 pytest-cov-7.1.0 python-dateutil-2.9.0.post0 pytz-2026.1.post1 radar-pro-live-2.0.0 referencing-0.37.0 requests-2.32.5 rpds-py-0.30.0 ruff-0.15.7 six-1.17.0 smmap-5.0.3 streamlit-1.55.0 tenacity-9.1.4 toml-0.10.2 tornado-6.5.5 typing-extensions-4.15.0 tzdata-2025.3 urllib3-2.6.3 watchdog-6.0.0
+2026-03-23T10:44:44.0067374Z altair==6.0.0
+2026-03-23T10:44:44.0073911Z attrs==26.1.0
+2026-03-23T10:44:44.0078727Z blinker==1.9.0
+2026-03-23T10:44:44.0083883Z cachetools==7.0.5
+2026-03-23T10:44:44.0089214Z certifi==2026.2.25
+2026-03-23T10:44:44.0102010Z charset-normalizer==3.4.6
+2026-03-23T10:44:44.0106368Z click==8.3.1
+2026-03-23T10:44:44.0114303Z coverage==7.13.5
+2026-03-23T10:44:44.0120293Z gitdb==4.0.12
+2026-03-23T10:44:44.0127290Z GitPython==3.1.46
+2026-03-23T10:44:44.0133221Z idna==3.11
+2026-03-23T10:44:44.0138746Z iniconfig==2.3.0
+2026-03-23T10:44:44.0143621Z Jinja2==3.1.6
+2026-03-23T10:44:44.0149909Z jsonschema==4.26.0
+2026-03-23T10:44:44.0155164Z jsonschema-specifications==2025.9.1
+2026-03-23T10:44:44.0160736Z MarkupSafe==3.0.3
+2026-03-23T10:44:44.0168378Z narwhals==2.18.0
+2026-03-23T10:44:44.0174848Z numpy==2.4.3
+2026-03-23T10:44:44.0180556Z packaging==26.0
+2026-03-23T10:44:44.0225150Z pandas==2.3.3
+2026-03-23T10:44:44.0231390Z pillow==12.1.1
+2026-03-23T10:44:44.0237243Z pip==26.0.1
+2026-03-23T10:44:44.0242606Z pluggy==1.6.0
+2026-03-23T10:44:44.0247311Z protobuf==6.33.6
+2026-03-23T10:44:44.0252745Z pyarrow==23.0.1
+2026-03-23T10:44:44.0257597Z pydeck==0.9.1
+2026-03-23T10:44:44.0262654Z Pygments==2.19.2
+2026-03-23T10:44:44.0268496Z pytest==9.0.2
+2026-03-23T10:44:44.0277099Z pytest-cov==7.1.0
+2026-03-23T10:44:44.0283349Z python-dateutil==2.9.0.post0
+2026-03-23T10:44:44.0291989Z pytz==2026.1.post1
+2026-03-23T10:44:44.0295833Z radar-pro-live==2.0.0
+2026-03-23T10:44:44.0301194Z referencing==0.37.0
+2026-03-23T10:44:44.0306740Z requests==2.32.5
+2026-03-23T10:44:44.0312422Z rpds-py==0.30.0
+2026-03-23T10:44:44.0322243Z ruff==0.15.7
+2026-03-23T10:44:44.0327093Z six==1.17.0
+2026-03-23T10:44:44.0333957Z smmap==5.0.3
+2026-03-23T10:44:44.0340411Z streamlit==1.55.0
+2026-03-23T10:44:44.0344277Z tenacity==9.1.4
+2026-03-23T10:44:44.0350086Z toml==0.10.2
+2026-03-23T10:44:44.0354825Z tornado==6.5.5
+2026-03-23T10:44:44.0359853Z typing_extensions==4.15.0
+2026-03-23T10:44:44.0363925Z tzdata==2025.3
+2026-03-23T10:44:44.0368908Z urllib3==2.6.3
+2026-03-23T10:44:44.0378341Z watchdog==6.0.0
+2026-03-23T10:44:44.0382352Z wheel==0.46.3

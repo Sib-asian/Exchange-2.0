@@ -1,0 +1,26 @@
+﻿2026-03-23T12:54:21.4379433Z ##[group]Run actions/setup-python@v5
+2026-03-23T12:54:21.4380022Z with:
+2026-03-23T12:54:21.4380406Z   python-version: 3.11
+2026-03-23T12:54:21.4380834Z   cache: pip
+2026-03-23T12:54:21.4381338Z   cache-dependency-path: pyproject.toml
+requirements.txt
+
+2026-03-23T12:54:21.4381966Z   check-latest: false
+2026-03-23T12:54:21.4382609Z   token: ***
+2026-03-23T12:54:21.4383014Z   update-environment: true
+2026-03-23T12:54:21.4383473Z   allow-prereleases: false
+2026-03-23T12:54:21.4384183Z   freethreaded: false
+2026-03-23T12:54:21.4384599Z ##[endgroup]
+2026-03-23T12:54:21.6155255Z ##[group]Installed versions
+2026-03-23T12:54:21.6265245Z Successfully set up CPython (3.11.15)
+2026-03-23T12:54:21.6266704Z ##[endgroup]
+2026-03-23T12:54:21.6574794Z [command]/opt/hostedtoolcache/Python/3.11.15/x64/bin/pip cache dir
+2026-03-23T12:54:21.9329225Z /home/runner/.cache/pip
+2026-03-23T12:54:22.2925771Z Cache hit for: setup-python-Linux-x64-24.04-Ubuntu-python-3.11.15-pip-890c007481a14720f027ab1f22c823bdc97e783a6554513cf09c7945b2002809
+2026-03-23T12:54:23.5941088Z Received 4194304 of 122261546 (3.4%), 4.0 MBs/sec
+2026-03-23T12:54:24.5954358Z Received 113872938 of 122261546 (93.1%), 54.3 MBs/sec
+2026-03-23T12:54:24.8589576Z Received 122261546 of 122261546 (100.0%), 51.5 MBs/sec
+2026-03-23T12:54:24.8601825Z Cache Size: ~117 MB (122261546 B)
+2026-03-23T12:54:24.8711388Z [command]/usr/bin/tar -xf /home/runner/work/_temp/1c5e3076-58de-495a-ac7a-59b7e609761b/cache.tzst -P -C /home/runner/work/Exchange-2.0/Exchange-2.0 --use-compress-program unzstd
+2026-03-23T12:54:25.0766901Z Cache restored successfully
+2026-03-23T12:54:25.1040081Z Cache restored from key: setup-python-Linux-x64-24.04-Ubuntu-python-3.11.15-pip-9d64264a9e946c5065c22f71a3767f74f39a910681208a1fc9bbb830c508c656

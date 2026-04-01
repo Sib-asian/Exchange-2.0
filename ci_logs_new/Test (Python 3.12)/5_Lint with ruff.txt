@@ -1,0 +1,14 @@
+﻿2026-03-23T12:54:43.6844493Z ##[group]Run ruff check src/ tests/ --output-format=github
+2026-03-23T12:54:43.6844942Z [36;1mruff check src/ tests/ --output-format=github[0m
+2026-03-23T12:54:43.6894275Z shell: /usr/bin/bash -e {0}
+2026-03-23T12:54:43.6894526Z env:
+2026-03-23T12:54:43.6894778Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:54:43.6895218Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+2026-03-23T12:54:43.6895649Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:54:43.6896017Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:54:43.6896397Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+2026-03-23T12:54:43.6896775Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+2026-03-23T12:54:43.6897101Z ##[endgroup]
+2026-03-23T12:54:43.7126840Z ##[error]tests/test_signals.py:7:1: I001 Import block is un-sorted or un-formatted
+  help: Organize imports
+2026-03-23T12:54:43.7136447Z ##[error]Process completed with exit code 1.

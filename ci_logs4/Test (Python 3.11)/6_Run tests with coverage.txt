@@ -1,0 +1,234 @@
+﻿2026-03-23T10:48:52.0001402Z ##[group]Run pytest tests/ \
+2026-03-23T10:48:52.0001879Z [36;1mpytest tests/ \[0m
+2026-03-23T10:48:52.0002258Z [36;1m  --cov=src \[0m
+2026-03-23T10:48:52.0002640Z [36;1m  --cov-report=term-missing \[0m
+2026-03-23T10:48:52.0003079Z [36;1m  --cov-report=xml \[0m
+2026-03-23T10:48:52.0003481Z [36;1m  --cov-fail-under=70 \[0m
+2026-03-23T10:48:52.0003865Z [36;1m  -v \[0m
+2026-03-23T10:48:52.0004161Z [36;1m  --tb=short[0m
+2026-03-23T10:48:52.0070211Z shell: /usr/bin/bash -e {0}
+2026-03-23T10:48:52.0070825Z env:
+2026-03-23T10:48:52.0071230Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:52.0071941Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-03-23T10:48:52.0072693Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:52.0073322Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:52.0073945Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-03-23T10:48:52.0074577Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-03-23T10:48:52.0075165Z ##[endgroup]
+2026-03-23T10:48:52.8327866Z ============================= test session starts ==============================
+2026-03-23T10:48:52.8329002Z platform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /opt/hostedtoolcache/Python/3.11.15/x64/bin/python
+2026-03-23T10:48:52.8330327Z cachedir: .pytest_cache
+2026-03-23T10:48:52.8330873Z rootdir: /home/runner/work/Exchange-2.0/Exchange-2.0
+2026-03-23T10:48:52.8331437Z configfile: pyproject.toml
+2026-03-23T10:48:52.8331827Z plugins: cov-7.1.0
+2026-03-23T10:48:53.1820583Z collecting ... collected 170 items
+2026-03-23T10:48:53.1821073Z 
+2026-03-23T10:48:53.2007935Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_output_positive PASSED [  0%]
+2026-03-23T10:48:53.2025994Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_total_xg_close_to_tot_bayes PASSED [  1%]
+2026-03-23T10:48:53.2084334Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_negative_ah_implies_home_favorite PASSED [  1%]
+2026-03-23T10:48:53.2140650Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_positive_ah_implies_away_favorite PASSED [  2%]
+2026-03-23T10:48:53.2190208Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_flat_lines_returns_direct_values PASSED [  2%]
+2026-03-23T10:48:53.2361543Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_xg_positive_at_minute_0 PASSED [  3%]
+2026-03-23T10:48:53.2375975Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_xg_near_zero_at_minute_90 PASSED [  4%]
+2026-03-23T10:48:53.2719910Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_bigger_movement_increases_home_xg PASSED [  4%]
+2026-03-23T10:48:53.2882029Z tests/test_calibration.py::TestCalcolaXGBayesiani::test_xg_sum_bounded PASSED [  5%]
+2026-03-23T10:48:53.2894050Z tests/test_calibration.py::TestBlendXGShots::test_output_positive PASSED [  5%]
+2026-03-23T10:48:53.2905953Z tests/test_calibration.py::TestBlendXGShots::test_no_shots_returns_line_estimates PASSED [  6%]
+2026-03-23T10:48:53.2918013Z tests/test_calibration.py::TestBlendXGShots::test_dominant_home_shots_increases_home_xg PASSED [  7%]
+2026-03-23T10:48:53.2930109Z tests/test_calibration.py::TestBlendXGShots::test_shot_dom_range PASSED  [  7%]
+2026-03-23T10:48:53.2941878Z tests/test_calibration.py::TestBlendXGShots::test_alpha_t_alpha_d_bounded PASSED [  8%]
+2026-03-23T10:48:53.2953956Z tests/test_calibration.py::TestBlendXGShots::test_game_state_leading_home_reduces_away_quality PASSED [  8%]
+2026-03-23T10:48:53.2966260Z tests/test_calibration.py::TestBlendXGShots::test_mu_max_cap_applied PASSED [  9%]
+2026-03-23T10:48:53.2980791Z tests/test_engine.py::TestMatchStateValidation::test_valid_state_no_exception PASSED [ 10%]
+2026-03-23T10:48:53.2995299Z tests/test_engine.py::TestMatchStateValidation::test_invalid_minuto_raises PASSED [ 10%]
+2026-03-23T10:48:53.3007903Z tests/test_engine.py::TestMatchStateValidation::test_negative_goals_raises PASSED [ 11%]
+2026-03-23T10:48:53.3019922Z tests/test_engine.py::TestMatchStateValidation::test_invalid_bankroll_raises PASSED [ 11%]
+2026-03-23T10:48:53.3554951Z tests/test_engine.py::TestEngineOutput::test_1x2_sum_to_one PASSED       [ 12%]
+2026-03-23T10:48:53.3775159Z tests/test_engine.py::TestEngineOutput::test_over_under_sum_to_one PASSED [ 12%]
+2026-03-23T10:48:53.3990864Z tests/test_engine.py::TestEngineOutput::test_btts_in_range PASSED        [ 13%]
+2026-03-23T10:48:53.4192771Z tests/test_engine.py::TestEngineOutput::test_xg_positive PASSED          [ 14%]
+2026-03-23T10:48:53.4400793Z tests/test_engine.py::TestEngineOutput::test_rho_in_range PASSED         [ 14%]
+2026-03-23T10:48:53.4719236Z tests/test_engine.py::TestEngineOutput::test_live_45_with_shots PASSED   [ 15%]
+2026-03-23T10:48:53.4794159Z tests/test_engine.py::TestEngineOutput::test_late_game_with_red_card PASSED [ 15%]
+2026-03-23T10:48:53.5184388Z tests/test_engine.py::TestEngineOutput::test_home_favorite_state PASSED  [ 16%]
+2026-03-23T10:48:53.5521488Z tests/test_engine.py::TestEngineOutput::test_away_favorite_state PASSED  [ 17%]
+2026-03-23T10:48:53.5718293Z tests/test_engine.py::TestEngineOutput::test_btts_settled_both_scored PASSED [ 17%]
+2026-03-23T10:48:53.5847530Z tests/test_engine.py::TestEngineOutput::test_over_already_won PASSED     [ 18%]
+2026-03-23T10:48:53.6053976Z tests/test_engine.py::TestEngineOutput::test_top_cs_not_empty PASSED     [ 18%]
+2026-03-23T10:48:53.6270707Z tests/test_engine.py::TestEngineOutput::test_top_cs_ordered_by_probability PASSED [ 19%]
+2026-03-23T10:48:53.6489111Z tests/test_engine.py::TestEngineOutput::test_gol_tot_dist_sums_to_one PASSED [ 20%]
+2026-03-23T10:48:53.6700521Z tests/test_engine.py::TestEngineOutput::test_momentum_zero_flat_lines PASSED [ 20%]
+2026-03-23T10:48:53.6712926Z tests/test_engine.py::TestExchangeQuotes::test_any_active_false_when_all_zero PASSED [ 21%]
+2026-03-23T10:48:53.6724823Z tests/test_engine.py::TestExchangeQuotes::test_any_active_true_when_one_set PASSED [ 21%]
+2026-03-23T10:48:53.6783514Z tests/test_engine.py::TestExchangeQuotes::test_prob_implicita PASSED     [ 22%]
+2026-03-23T10:48:53.6795340Z tests/test_kelly.py::TestQuotaNetta::test_zero_commission PASSED         [ 22%]
+2026-03-23T10:48:53.6807030Z tests/test_kelly.py::TestQuotaNetta::test_commission_reduces_odds PASSED [ 23%]
+2026-03-23T10:48:53.6818668Z tests/test_kelly.py::TestQuotaNetta::test_commission_formula PASSED      [ 24%]
+2026-03-23T10:48:53.6830565Z tests/test_kelly.py::TestEdgeBack::test_positive_edge_when_prob_above_implied PASSED [ 24%]
+2026-03-23T10:48:53.6842126Z tests/test_kelly.py::TestEdgeBack::test_zero_edge_at_fair_price PASSED   [ 25%]
+2026-03-23T10:48:53.6853731Z tests/test_kelly.py::TestEdgeBack::test_negative_edge_when_below_implied PASSED [ 25%]
+2026-03-23T10:48:53.6865418Z tests/test_kelly.py::TestEdgeLay::test_positive_edge_when_market_overpriced PASSED [ 26%]
+2026-03-23T10:48:53.6877419Z tests/test_kelly.py::TestEdgeLay::test_zero_edge_at_break_even PASSED    [ 27%]
+2026-03-23T10:48:53.6889054Z tests/test_kelly.py::TestEdgeLay::test_commission_reduces_lay_edge PASSED [ 27%]
+2026-03-23T10:48:53.6900852Z tests/test_kelly.py::TestKellyBack::test_zero_stake_at_zero_ev PASSED    [ 28%]
+2026-03-23T10:48:53.6912823Z tests/test_kelly.py::TestKellyBack::test_positive_stake_with_positive_edge PASSED [ 28%]
+2026-03-23T10:48:53.6924457Z tests/test_kelly.py::TestKellyBack::test_stake_capped_at_max_pct PASSED  [ 29%]
+2026-03-23T10:48:53.6936950Z tests/test_kelly.py::TestKellyBack::test_stake_proportional_to_bankroll PASSED [ 30%]
+2026-03-23T10:48:53.6948557Z tests/test_kelly.py::TestKellyBack::test_fraction_reduces_stake PASSED   [ 30%]
+2026-03-23T10:48:53.6960524Z tests/test_kelly.py::TestKellyLay::test_none_when_no_edge PASSED         [ 31%]
+2026-03-23T10:48:53.6971996Z tests/test_kelly.py::TestKellyLay::test_returns_tuple_with_edge PASSED   [ 31%]
+2026-03-23T10:48:53.6983576Z tests/test_kelly.py::TestKellyLay::test_liability_equals_stake_times_q_minus_1 PASSED [ 32%]
+2026-03-23T10:48:53.6995035Z tests/test_kelly.py::TestKellyLay::test_none_for_very_low_odds PASSED    [ 32%]
+2026-03-23T10:48:53.7006613Z tests/test_kelly.py::TestKellyLay::test_commission_adjusted_break_even PASSED [ 33%]
+2026-03-23T10:48:53.7018235Z tests/test_kelly.py::TestKellyFraction::test_base_fraction_early_game PASSED [ 34%]
+2026-03-23T10:48:53.7029923Z tests/test_kelly.py::TestKellyFraction::test_reduced_late_game PASSED    [ 34%]
+2026-03-23T10:48:53.7041649Z tests/test_kelly.py::TestKellyFraction::test_reduced_without_shots PASSED [ 35%]
+2026-03-23T10:48:53.7053538Z tests/test_kelly.py::TestKellyFraction::test_floor_not_breached PASSED   [ 35%]
+2026-03-23T10:48:53.7065604Z tests/test_kelly.py::TestEV::test_ev_back_positive_with_edge PASSED      [ 36%]
+2026-03-23T10:48:53.7077636Z tests/test_kelly.py::TestEV::test_ev_back_zero_at_fair PASSED            [ 37%]
+2026-03-23T10:48:53.7090398Z tests/test_kelly.py::TestEV::test_ev_lay_sign PASSED                     [ 37%]
+2026-03-23T10:48:53.7129064Z tests/test_markets.py::TestOverUnder::test_sum_to_one PASSED             [ 38%]
+2026-03-23T10:48:53.7167301Z tests/test_markets.py::TestOverUnder::test_over_when_goal_already_scored PASSED [ 38%]
+2026-03-23T10:48:53.7211992Z tests/test_markets.py::TestOverUnder::test_quarter_line_between_half_lines PASSED [ 39%]
+2026-03-23T10:48:53.7256695Z tests/test_markets.py::TestOverUnder::test_quarter_line_is_average_of_eff_probs PASSED [ 40%]
+2026-03-23T10:48:53.7292798Z tests/test_markets.py::TestOverUnder::test_high_expected_goals_high_over PASSED [ 40%]
+2026-03-23T10:48:53.7335318Z tests/test_markets.py::TestOverUnder::test_monotone_increasing_over_with_line PASSED [ 41%]
+2026-03-23T10:48:53.7392081Z tests/test_markets.py::TestAsianHandicap::test_results_count PASSED      [ 41%]
+2026-03-23T10:48:53.7449846Z tests/test_markets.py::TestAsianHandicap::test_probabilities_sum_to_one PASSED [ 42%]
+2026-03-23T10:48:53.7508205Z tests/test_markets.py::TestAsianHandicap::test_p_eff_in_range PASSED     [ 42%]
+2026-03-23T10:48:53.7550150Z tests/test_markets.py::TestAsianHandicap::test_ah0_symmetric PASSED      [ 43%]
+2026-03-23T10:48:53.7586899Z tests/test_markets.py::TestAsianHandicap::test_strong_home_ah_negative_high_coverage PASSED [ 44%]
+2026-03-23T10:48:53.7623584Z tests/test_markets.py::TestBTTS::test_btts_both_scored_is_one PASSED     [ 44%]
+2026-03-23T10:48:53.7664178Z tests/test_markets.py::TestBTTS::test_btts_home_only_scored PASSED       [ 45%]
+2026-03-23T10:48:53.7705227Z tests/test_markets.py::TestBTTS::test_btts_none_scored PASSED            [ 45%]
+2026-03-23T10:48:53.7744667Z tests/test_markets.py::TestBTTS::test_btts_in_range PASSED               [ 46%]
+2026-03-23T10:48:53.7813675Z tests/test_markets.py::TestBTTS::test_btts_increases_with_xg PASSED      [ 47%]
+2026-03-23T10:48:53.7827037Z tests/test_poisson.py::TestPoissonPMF::test_pmf_sums_to_one PASSED       [ 47%]
+2026-03-23T10:48:53.7839080Z tests/test_poisson.py::TestPoissonPMF::test_pmf_zero_mu PASSED           [ 48%]
+2026-03-23T10:48:53.7851324Z tests/test_poisson.py::TestPoissonPMF::test_pmf_negative_mu PASSED       [ 48%]
+2026-03-23T10:48:53.7863528Z tests/test_poisson.py::TestPoissonPMF::test_pmf_mode_is_floor_mu PASSED  [ 49%]
+2026-03-23T10:48:53.7876387Z tests/test_poisson.py::TestPoissonPMF::test_pmf_mean_close_to_mu PASSED  [ 50%]
+2026-03-23T10:48:53.7888580Z tests/test_poisson.py::TestPoissonPMF::test_pmf_monotone_tail PASSED     [ 50%]
+2026-03-23T10:48:53.7901542Z tests/test_poisson.py::TestPoissonPMF::test_pmf_large_mu PASSED          [ 51%]
+2026-03-23T10:48:53.7913719Z tests/test_poisson.py::TestDixonColes::test_tau_identity_for_high_scores PASSED [ 51%]
+2026-03-23T10:48:53.7925726Z tests/test_poisson.py::TestDixonColes::test_tau_00_with_negative_rho PASSED [ 52%]
+2026-03-23T10:48:53.7937994Z tests/test_poisson.py::TestDixonColes::test_tau_11_with_negative_rho PASSED [ 52%]
+2026-03-23T10:48:53.7950244Z tests/test_poisson.py::TestDixonColes::test_tau_10_with_negative_rho PASSED [ 53%]
+2026-03-23T10:48:53.7962218Z tests/test_poisson.py::TestDixonColes::test_tau_01_with_negative_rho PASSED [ 54%]
+2026-03-23T10:48:53.7974314Z tests/test_poisson.py::TestDixonColes::test_tau_clamp PASSED             [ 54%]
+2026-03-23T10:48:53.7986668Z tests/test_poisson.py::TestDixonColes::test_tau_zero_rho PASSED          [ 55%]
+2026-03-23T10:48:53.7998952Z tests/test_poisson.py::TestRhoDinamico::test_rho_decreases_with_time PASSED [ 55%]
+2026-03-23T10:48:53.8011235Z tests/test_poisson.py::TestRhoDinamico::test_rho_decreases_with_high_total PASSED [ 56%]
+2026-03-23T10:48:53.8023329Z tests/test_poisson.py::TestRhoDinamico::test_rho_decreases_with_shot_dominance PASSED [ 57%]
+2026-03-23T10:48:53.8035715Z tests/test_poisson.py::TestRhoDinamico::test_rho_floor PASSED            [ 57%]
+2026-03-23T10:48:53.8047707Z tests/test_poisson.py::TestRhoDinamico::test_rho_ceiling PASSED          [ 58%]
+2026-03-23T10:48:53.8060192Z tests/test_poisson.py::TestRhoDinamico::test_rho_decreases_with_goals PASSED [ 58%]
+2026-03-23T10:48:53.8092408Z tests/test_poisson.py::TestBivariateMatrix::test_joint_ind_sums_to_one PASSED [ 59%]
+2026-03-23T10:48:53.8124116Z tests/test_poisson.py::TestBivariateMatrix::test_full_matrix_sums_to_one PASSED [ 60%]
+2026-03-23T10:48:53.8159693Z tests/test_poisson.py::TestBivariateMatrix::test_1x2_probabilities_sum_to_one PASSED [ 60%]
+2026-03-23T10:48:53.8193989Z tests/test_poisson.py::TestBivariateMatrix::test_over_under_sum_to_one PASSED [ 61%]
+2026-03-23T10:48:53.8229791Z tests/test_poisson.py::TestBivariateMatrix::test_btts_prob_in_range PASSED [ 61%]
+2026-03-23T10:48:53.8262903Z tests/test_poisson.py::TestBivariateMatrix::test_btts_settled_both_scored PASSED [ 62%]
+2026-03-23T10:48:53.8294376Z tests/test_poisson.py::TestBivariateMatrix::test_rho_returned PASSED     [ 62%]
+2026-03-23T10:48:53.8328213Z tests/test_poisson.py::TestBivariateMatrix::test_strong_home_team_has_high_p1 PASSED [ 63%]
+2026-03-23T10:48:53.8362376Z tests/test_poisson.py::TestBivariateMatrix::test_symmetric_game_balanced_probs PASSED [ 64%]
+2026-03-23T10:48:53.8401610Z tests/test_poisson.py::TestCorrectScore::test_top_cs_probabilities_sum_leq_one PASSED [ 64%]
+2026-03-23T10:48:53.8440247Z tests/test_poisson.py::TestCorrectScore::test_gol_tot_dist_sums_to_one PASSED [ 65%]
+2026-03-23T10:48:53.8482169Z tests/test_poisson.py::TestCorrectScore::test_correct_score_accounts_for_current_goals PASSED [ 65%]
+2026-03-23T10:48:53.8551137Z tests/test_simulation.py::TestAHEVInterpolation::test_half_lines_exact PASSED [ 66%]
+2026-03-23T10:48:53.8652875Z tests/test_simulation.py::TestAHEVInterpolation::test_quarter_lines_split PASSED [ 67%]
+2026-03-23T10:48:53.8696415Z tests/test_simulation.py::TestAHEVInterpolation::test_non_standard_values_differ PASSED [ 67%]
+2026-03-23T10:48:53.9342879Z tests/test_simulation.py::TestAHEVInterpolation::test_continuity PASSED  [ 68%]
+2026-03-23T10:48:54.0531001Z tests/test_simulation.py::TestAHEVInterpolation::test_monotonicity_with_handicap PASSED [ 68%]
+2026-03-23T10:48:54.2580700Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[-0.75-2.5] PASSED [ 69%]
+2026-03-23T10:48:54.4428337Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[-0.25-2.3] PASSED [ 70%]
+2026-03-23T10:48:54.6470004Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[0.5-2.8] PASSED [ 70%]
+2026-03-23T10:48:54.8567033Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[-1.5-3.0] PASSED [ 71%]
+2026-03-23T10:48:54.8660907Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_never_exceeds_cap[0.0-2.0] PASSED [ 71%]
+2026-03-23T10:48:54.8763347Z tests/test_simulation.py::TestXGBayesianiSimulation::test_ratio_cap_pathological_flat_ah PASSED [ 72%]
+2026-03-23T10:48:54.8800272Z tests/test_simulation.py::TestXGBayesianiSimulation::test_xg_sum_equals_tot_bayes_flat PASSED [ 72%]
+2026-03-23T10:48:55.0743882Z tests/test_simulation.py::TestXGBayesianiSimulation::test_xg_decrease_with_time PASSED [ 73%]
+2026-03-23T10:48:55.1002622Z tests/test_simulation.py::TestXGBayesianiSimulation::test_gol_diff_shifts_xg PASSED [ 74%]
+2026-03-23T10:48:55.1044229Z tests/test_simulation.py::TestMarketConsistency::test_1x2_sums_to_one[1.5-1.0] PASSED [ 74%]
+2026-03-23T10:48:55.1077041Z tests/test_simulation.py::TestMarketConsistency::test_1x2_sums_to_one[0.8-0.8] PASSED [ 75%]
+2026-03-23T10:48:55.1113365Z tests/test_simulation.py::TestMarketConsistency::test_1x2_sums_to_one[2.0-0.5] PASSED [ 75%]
+2026-03-23T10:48:55.1138500Z tests/test_simulation.py::TestMarketConsistency::test_1x2_sums_to_one[0.3-0.3] PASSED [ 76%]
+2026-03-23T10:48:55.1178313Z tests/test_simulation.py::TestMarketConsistency::test_over_under_complement[1.5-1.0] PASSED [ 77%]
+2026-03-23T10:48:55.1208741Z tests/test_simulation.py::TestMarketConsistency::test_over_under_complement[0.5-0.5] PASSED [ 77%]
+2026-03-23T10:48:55.1247457Z tests/test_simulation.py::TestMarketConsistency::test_btts_complement[1.5-1.0] PASSED [ 78%]
+2026-03-23T10:48:55.1272479Z tests/test_simulation.py::TestMarketConsistency::test_btts_complement[0.3-0.3] PASSED [ 78%]
+2026-03-23T10:48:55.1306189Z tests/test_simulation.py::TestMarketConsistency::test_1x2_home_favorite PASSED [ 79%]
+2026-03-23T10:48:55.1365429Z tests/test_simulation.py::TestMarketConsistency::test_over_high_mu_means_high_over PASSED [ 80%]
+2026-03-23T10:48:55.1387465Z tests/test_simulation.py::TestMarketConsistency::test_btts_low_mu_means_low_btts PASSED [ 80%]
+2026-03-23T10:48:55.1400646Z tests/test_simulation.py::TestBlendXGShotsSimulation::test_progressive_shot_weight PASSED [ 81%]
+2026-03-23T10:48:55.1413295Z tests/test_simulation.py::TestBlendXGShotsSimulation::test_game_state_symmetric PASSED [ 81%]
+2026-03-23T10:48:55.1425747Z tests/test_simulation.py::TestBlendXGShotsSimulation::test_mu_max_cap_high_scoring PASSED [ 82%]
+2026-03-23T10:48:55.1470268Z tests/test_simulation.py::TestEndToEndScenarios::test_balanced_match PASSED [ 82%]
+2026-03-23T10:48:55.1564531Z tests/test_simulation.py::TestEndToEndScenarios::test_strong_favorite PASSED [ 83%]
+2026-03-23T10:48:55.1602923Z tests/test_simulation.py::TestEndToEndScenarios::test_low_scoring_match PASSED [ 84%]
+2026-03-23T10:48:55.1680386Z tests/test_simulation.py::TestEndToEndScenarios::test_late_game_probabilities PASSED [ 84%]
+2026-03-23T10:48:55.1801990Z tests/test_simulation.py::TestEndToEndScenarios::test_after_goal_scored PASSED [ 85%]
+2026-03-23T10:48:55.1961021Z tests/test_simulation.py::TestEndToEndScenarios::test_red_card_scenario PASSED [ 85%]
+2026-03-23T10:48:55.1976261Z tests/test_simulation.py::TestNumericalStability::test_very_small_total PASSED [ 86%]
+2026-03-23T10:48:55.2057851Z tests/test_simulation.py::TestNumericalStability::test_extreme_ah PASSED [ 87%]
+2026-03-23T10:48:55.2118687Z tests/test_simulation.py::TestNumericalStability::test_zero_minute PASSED [ 87%]
+2026-03-23T10:48:55.2133913Z tests/test_simulation.py::TestNumericalStability::test_minute_90 PASSED  [ 88%]
+2026-03-23T10:48:55.2146856Z tests/test_simulation.py::TestNumericalStability::test_ah_ev_very_low_lambdas PASSED [ 88%]
+2026-03-23T10:48:55.2159228Z tests/test_simulation.py::TestNumericalStability::test_blend_shots_minute_1 PASSED [ 89%]
+2026-03-23T10:48:55.2227457Z tests/test_simulation.py::TestNumericalStability::test_build_bivariate_matrix_consistency PASSED [ 90%]
+2026-03-23T10:48:55.2241375Z tests/test_time_decay.py::TestTimeDecay::test_output_positive PASSED     [ 90%]
+2026-03-23T10:48:55.2254033Z tests/test_time_decay.py::TestTimeDecay::test_no_adjustment_with_0_0_no_cards PASSED [ 91%]
+2026-03-23T10:48:55.2266376Z tests/test_time_decay.py::TestTimeDecay::test_home_trailing_increases_home_xg PASSED [ 91%]
+2026-03-23T10:48:55.2278532Z tests/test_time_decay.py::TestTimeDecay::test_home_leading_decreases_home_xg PASSED [ 92%]
+2026-03-23T10:48:55.2290927Z tests/test_time_decay.py::TestTimeDecay::test_score_effect_capped PASSED [ 92%]
+2026-03-23T10:48:55.2303056Z tests/test_time_decay.py::TestTimeDecay::test_red_card_home_reduces_home_xg PASSED [ 93%]
+2026-03-23T10:48:55.2315313Z tests/test_time_decay.py::TestTimeDecay::test_red_card_away_reduces_away_xg PASSED [ 94%]
+2026-03-23T10:48:55.2327646Z tests/test_time_decay.py::TestTimeDecay::test_two_reds_less_than_double_effect PASSED [ 94%]
+2026-03-23T10:48:55.2340145Z tests/test_time_decay.py::TestTimeDecay::test_minute_90_returns_floor PASSED [ 95%]
+2026-03-23T10:48:55.2352394Z tests/test_time_decay.py::TestTimeDecay::test_xg_floor_applied PASSED    [ 95%]
+2026-03-23T10:48:55.2364725Z tests/test_time_decay.py::TestTimeDecay::test_away_red_asymmetry PASSED  [ 96%]
+2026-03-23T10:48:55.2376748Z tests/test_time_decay.py::TestMomentum::test_zero_at_minute_zero PASSED  [ 97%]
+2026-03-23T10:48:55.2388791Z tests/test_time_decay.py::TestMomentum::test_positive_with_movement PASSED [ 97%]
+2026-03-23T10:48:55.2402334Z tests/test_time_decay.py::TestMomentum::test_capped_at_max PASSED        [ 98%]
+2026-03-23T10:48:55.2415327Z tests/test_time_decay.py::TestMomentum::test_same_delta_higher_minute_lower_momentum PASSED [ 98%]
+2026-03-23T10:48:55.2427524Z tests/test_time_decay.py::TestMomentum::test_zero_delta_zero_momentum PASSED [ 99%]
+2026-03-23T10:48:55.8216854Z tests/test_time_decay.py::TestMomentum::test_ah_delta_more_impactful_than_tot_delta PASSED [100%]
+2026-03-23T10:48:55.8217836Z ERROR: Coverage failure: total of 64 is less than fail-under=70
+2026-03-23T10:48:55.8218242Z 
+2026-03-23T10:48:55.8218252Z 
+2026-03-23T10:48:55.8218470Z ================================ tests coverage ================================
+2026-03-23T10:48:55.8219123Z _______________ coverage: platform linux, python 3.11.15-final-0 _______________
+2026-03-23T10:48:55.8219817Z 
+2026-03-23T10:48:55.8220010Z Name                            Stmts   Miss  Cover   Missing
+2026-03-23T10:48:55.8220619Z -------------------------------------------------------------
+2026-03-23T10:48:55.8221139Z src/__init__.py                     1      0   100%
+2026-03-23T10:48:55.8221677Z src/config.py                     258      0   100%
+2026-03-23T10:48:55.8222272Z src/engine.py                     183     20    89%   67, 69, 71, 73, 75, 79, 390-421
+2026-03-23T10:48:55.8222965Z src/logging_config.py              65     65     0%   11-167
+2026-03-23T10:48:55.8223540Z src/markets/__init__.py             6      0   100%
+2026-03-23T10:48:55.8224091Z src/markets/asian_handicap.py      16      0   100%
+2026-03-23T10:48:55.8224655Z src/markets/btts.py                10      1    90%   43
+2026-03-23T10:48:55.8225285Z src/markets/clean_sheet.py         23     20    13%   38-60, 88-107
+2026-03-23T10:48:55.8225890Z src/markets/over_under.py          21      0   100%
+2026-03-23T10:48:55.8226418Z src/markets/result.py              27      0   100%
+2026-03-23T10:48:55.8226923Z src/models/__init__.py              0      0   100%
+2026-03-23T10:48:55.8227618Z src/models/cache.py                68     17    75%   58, 97, 108, 119-123, 127-129, 133-136, 174, 203, 233
+2026-03-23T10:48:55.8228475Z src/models/calibration.py         162     20    88%   58, 61, 234, 236, 266, 278-295
+2026-03-23T10:48:55.8229166Z src/models/cmp.py                  23      1    96%   52
+2026-03-23T10:48:55.8230009Z src/models/consensus.py           108     15    86%   81-85, 175, 282, 309-317
+2026-03-23T10:48:55.8230732Z src/models/copula.py               49      5    90%   36, 42, 46, 96, 101
+2026-03-23T10:48:55.8231454Z src/models/kelly.py                57      9    84%   97-100, 144, 148, 172, 210, 238
+2026-03-23T10:48:55.8232097Z src/models/markov.py               49      0   100%
+2026-03-23T10:48:55.8232687Z src/models/poisson.py              88      4    95%   71, 286, 289, 304
+2026-03-23T10:48:55.8233350Z src/models/time_decay.py           67      2    97%   174-175
+2026-03-23T10:48:55.8234078Z src/signals.py                    182    150    18%   87-106, 158-201, 235-307, 348-458, 468-475, 517-560
+2026-03-23T10:48:55.8234832Z src/utils/__init__.py               4      4     0%   3-12
+2026-03-23T10:48:55.8235427Z src/utils/analytics.py            128    128     0%   12-277
+2026-03-23T10:48:55.8236039Z src/utils/anomaly.py               96     96     0%   11-241
+2026-03-23T10:48:55.8236636Z src/utils/memo.py                  73     73     0%   11-148
+2026-03-23T10:48:55.8237196Z -------------------------------------------------------------
+2026-03-23T10:48:55.8238119Z TOTAL                            1764    630    64%
+2026-03-23T10:48:55.8238592Z Coverage XML written to file coverage.xml
+2026-03-23T10:48:55.8239204Z FAIL Required test coverage of 70% not reached. Total coverage: 64.29%
+2026-03-23T10:48:55.8240038Z ============================= 170 passed in 2.95s ==============================
+2026-03-23T10:48:55.8655491Z ##[error]Process completed with exit code 1.
