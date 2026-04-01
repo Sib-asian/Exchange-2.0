@@ -166,6 +166,34 @@ if _btn_prematch or _btn_live:
     _ts_sc_a = float(getattr(_pa, "team_stats_away_goals", 0.0)) if _pa else 0.0
     _ts_co_a = float(getattr(_pa, "team_stats_away_conceded", 0.0)) if _pa else 0.0
     
+    # Form Analysis (da standings Nowgoal) — prima non venivano passati al motore!
+    _st_rank_h = int(getattr(_pa, "home_rank", 0)) if _pa else 0
+    _st_rank_a = int(getattr(_pa, "away_rank", 0)) if _pa else 0
+    _st_pts_h = int(getattr(_pa, "home_points", 0)) if _pa else 0
+    _st_pts_a = int(getattr(_pa, "away_points", 0)) if _pa else 0
+    _st_played_h = int(getattr(_pa, "home_matches", 0)) if _pa else 0
+    _st_played_a = int(getattr(_pa, "away_matches", 0)) if _pa else 0
+    # Last 6: calcola punti (W=3, D=1, L=0)
+    _l6w_h = int(getattr(_pa, "home_last6_win", 0)) if _pa else 0
+    _l6d_h = int(getattr(_pa, "home_last6_draw", 0)) if _pa else 0
+    _l6w_a = int(getattr(_pa, "away_last6_win", 0)) if _pa else 0
+    _l6d_a = int(getattr(_pa, "away_last6_draw", 0)) if _pa else 0
+    _l6_pts_h = _l6w_h * 3 + _l6d_h
+    _l6_pts_a = _l6w_a * 3 + _l6d_a
+    # Home/Away PPG e gol medi
+    _h_home_w = int(getattr(_pa, "home_home_win", 0)) if _pa else 0
+    _h_home_d = int(getattr(_pa, "home_home_draw", 0)) if _pa else 0
+    _h_home_m = int(getattr(_pa, "home_home_win", 0)) + int(getattr(_pa, "home_home_draw", 0)) + int(getattr(_pa, "home_home_lose", 0)) if _pa else 0
+    _a_away_w = int(getattr(_pa, "away_away_win", 0)) if _pa else 0
+    _a_away_d = int(getattr(_pa, "away_away_draw", 0)) if _pa else 0
+    _a_away_m = int(getattr(_pa, "away_away_win", 0)) + int(getattr(_pa, "away_away_draw", 0)) + int(getattr(_pa, "away_away_lose", 0)) if _pa else 0
+    _h_ppg = (_h_home_w * 3 + _h_home_d) / max(1, _h_home_m) if _h_home_m > 0 else 0.0
+    _a_ppg = (_a_away_w * 3 + _a_away_d) / max(1, _a_away_m) if _a_away_m > 0 else 0.0
+    _h_gf = float(getattr(_pa, "home_home_scored", 0)) / max(1, _h_home_m) if _pa and _h_home_m > 0 else 0.0
+    _h_ga = float(getattr(_pa, "home_home_conceded", 0)) / max(1, _h_home_m) if _pa and _h_home_m > 0 else 0.0
+    _a_gf = float(getattr(_pa, "away_away_scored", 0)) / max(1, _a_away_m) if _pa and _a_away_m > 0 else 0.0
+    _a_ga = float(getattr(_pa, "away_away_conceded", 0)) / max(1, _a_away_m) if _pa and _a_away_m > 0 else 0.0
+    
     # FUSIONE: media di Previous Scores e Team Statistics quando entrambi disponibili
     # Questo riduce errori di estrazione e rende i dati più affidabili
     def _fuse(prev_val: float, ts_val: float) -> float:
@@ -201,6 +229,21 @@ if _btn_prematch or _btn_live:
             prev_avg_conceded_h=_final_co_h,
             prev_avg_scored_a=_final_sc_a,
             prev_avg_conceded_a=_final_co_a,
+            # Form Analysis
+            standings_rank_h=_st_rank_h,
+            standings_rank_a=_st_rank_a,
+            standings_points_h=_st_pts_h,
+            standings_points_a=_st_pts_a,
+            standings_played_h=_st_played_h,
+            standings_played_a=_st_played_a,
+            last6_points_h=_l6_pts_h,
+            last6_points_a=_l6_pts_a,
+            home_ppg_h=_h_ppg,
+            away_ppg_a=_a_ppg,
+            home_gf_h=_h_gf,
+            home_ga_h=_h_ga,
+            away_gf_a=_a_gf,
+            away_ga_a=_a_ga,
         )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
