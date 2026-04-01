@@ -82,26 +82,76 @@ def _calcola_ht_probs(
     xg_a_fallback: float = 0.0,
 ) -> tuple[float, float, float, float, bool] | None:
     """
-    Stima le probabilità del risultato al 1° tempo usando Poisson + blend H2H.
+    Stima le probabilità del risultato al 1° tempo usando:
+    1. Gol medi 1T (se disponibili) → Poisson
+    2. Standings HT (home_ht_win/draw/lose) → blend diretto
+    3. H2H HT (se disponibili) → blend aggiuntivo
+    4. Fallback: scaling 46% da xG FT
 
     Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate) o None se nessun dato.
     is_estimate=True quando usa solo lo scaling 46% da xG FT (nessun dato HT diretto).
     """
+    # ── 1. Gol medi 1T (se disponibili) ──────────────────────────────────────────
     lam_h_tot  = getattr(prematch, "home_goals_1h", 0.0) or 0.0
     lam_a_tot  = getattr(prematch, "away_goals_1h", 0.0) or 0.0
     hm         = max(1, getattr(prematch, "home_matches", 1) or 1)
     am         = max(1, getattr(prematch, "away_matches", 1) or 1)
+    
+    lam_h = lam_h_tot / hm  # media gol 1T per partita - casa
+    lam_a = lam_a_tot / am  # media gol 1T per partita - trasf.
+    has_xg = lam_h > 0.01 or lam_a > 0.01
+
+    # ── 2. Standings HT (dati estratti da Nowgoal) ─────────────────────────────
+    # home_ht_win/draw/lose = risultati al HT della squadra di casa
+    # away_ht_win/draw/lose = risultati al HT della squadra di trasferta
+    home_ht_w = getattr(prematch, "home_ht_win", 0) or 0
+    home_ht_d = getattr(prematch, "home_ht_draw", 0) or 0
+    home_ht_l = getattr(prematch, "home_ht_lose", 0) or 0
+    away_ht_w = getattr(prematch, "away_ht_win", 0) or 0
+    away_ht_d = getattr(prematch, "away_ht_draw", 0) or 0
+    away_ht_l = getattr(prematch, "away_ht_lose", 0) or 0
+    
+    # Calcola percentuali dai risultati HT
+    home_ht_total = home_ht_w + home_ht_d + home_ht_l
+    away_ht_total = away_ht_w + away_ht_d + away_ht_l
+    
+    has_standings_ht = home_ht_total > 0 and away_ht_total > 0
+    
+    if has_standings_ht:
+        # % risultati al HT per ogni squadra
+        home_w_pct = home_ht_w / home_ht_total  # Casa vince al HT
+        home_d_pct = home_ht_d / home_ht_total  # Casa pareggia al HT
+        home_l_pct = home_ht_l / home_ht_total  # Casa perde al HT
+        
+        away_w_pct = away_ht_w / away_ht_total  # Trasferta vince al HT (nel suo stadio)
+        away_d_pct = away_ht_d / away_ht_total  # Trasferta pareggia al HT
+        away_l_pct = away_ht_l / away_ht_total  # Trasferta perde al HT
+        
+        # Deriva probabilità HT per QUESTA partita:
+        # - p_ht1 = prob che casa vince al HT = casa forte in casa + trasferta debole fuori
+        # - p_ht2 = prob che trasferta vince al HT = trasferta forte fuori + casa debole in casa
+        # Formula: media tra % vittorie casa in casa e % sconfitte trasferta fuori
+        standings_p1 = (home_w_pct + away_l_pct) / 2
+        standings_px = (home_d_pct + away_d_pct) / 2
+        standings_p2 = (home_l_pct + away_w_pct) / 2
+        
+        # Normalizza
+        _tot = standings_p1 + standings_px + standings_p2
+        if _tot > 0:
+            standings_p1 /= _tot
+            standings_px /= _tot
+            standings_p2 /= _tot
+    
+    # ── 3. H2H HT (se disponibili) ─────────────────────────────────────────────
     h2h_h_pct  = getattr(prematch, "h2h_ht_home_win_pct", 0.0) or 0.0
     h2h_d_pct  = getattr(prematch, "h2h_ht_draw_pct", 0.0) or 0.0
     h2h_a_pct  = getattr(prematch, "h2h_ht_away_win_pct", 0.0) or 0.0
-
-    lam_h = lam_h_tot / hm  # media gol 1T per partita - casa
-    lam_a = lam_a_tot / am  # media gol 1T per partita - trasf.
-
-    has_xg  = lam_h > 0.01 or lam_a > 0.01
     has_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct > 0.5  # in scala 0-100
 
-    if not has_xg and not has_h2h:
+    # ── 4. Determina se abbiamo dati HT diretti ─────────────────────────────────
+    has_ht_direct = has_xg or has_standings_ht or has_h2h
+    
+    if not has_ht_direct:
         # Fallback: scala xG FT al 46% (proporzione tipica gol 1° tempo)
         if xg_h_fallback > 0.01 or xg_a_fallback > 0.01:
             lam_h = xg_h_fallback * 0.46
@@ -113,7 +163,7 @@ def _calcola_ht_probs(
     else:
         is_estimate = False
 
-    # ── Poisson indipendente ──────────────────────────────────────────────────
+    # ── 5. Poisson indipendente (se abbiamo xG HT) ──────────────────────────────
     if has_xg:
         def _pp(k: int, lam: float) -> float:
             if lam <= 0:
@@ -134,22 +184,30 @@ def _calcola_ht_probs(
     else:
         p_ht1 = p_htx = p_ht2 = p_ht_over05 = 0.0
 
-    # ── Blend con H2H ────────────────────────────────────────────────────────
+    # ── 6. Blend con Standings HT ────────────────────────────────────────────────
+    if has_standings_ht and has_xg:
+        # Blend 40% standings HT, 60% Poisson
+        alpha = 0.40
+        p_ht1 = (1 - alpha) * p_ht1 + alpha * standings_p1
+        p_htx = (1 - alpha) * p_htx + alpha * standings_px
+        p_ht2 = (1 - alpha) * p_ht2 + alpha * standings_p2
+    elif has_standings_ht and not has_xg:
+        # Usa solo standings HT
+        p_ht1, p_htx, p_ht2 = standings_p1, standings_px, standings_p2
+        # Stima over 0.5 basata su probabilità di 0-0
+        p_ht_over05 = 1.0 - (p_htx * 0.7)  # Approssimazione: 0-0 è circa 70% dei pareggi
+
+    # ── 7. Blend con H2H HT ──────────────────────────────────────────────────────
     if has_h2h:
         _tot_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct
         h2h_p1 = h2h_h_pct / _tot_h2h
         h2h_px = h2h_d_pct / _tot_h2h
         h2h_p2 = h2h_a_pct / _tot_h2h
-        if has_xg:
-            alpha = 0.30  # 30% peso H2H storico
+        if has_xg or has_standings_ht:
+            alpha = 0.20  # 20% peso H2H HT
             p_ht1 = (1 - alpha) * p_ht1 + alpha * h2h_p1
             p_htx = (1 - alpha) * p_htx + alpha * h2h_px
             p_ht2 = (1 - alpha) * p_ht2 + alpha * h2h_p2
-            _nt = p_ht1 + p_htx + p_ht2
-            if _nt > 0:
-                p_ht1 /= _nt
-                p_htx /= _nt
-                p_ht2 /= _nt
         else:
             p_ht1, p_htx, p_ht2 = h2h_p1, h2h_px, h2h_p2
 
