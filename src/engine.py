@@ -125,6 +125,46 @@ class MatchState:
     prev_avg_scored_a: float = 0.0    # media gol segnati trasferta
     prev_avg_conceded_a: float = 0.0  # media gol subiti trasferta
 
+    # === FORM ANALYSIS - Dati estratti da Nowgoal ===
+
+    # Standings (Classifica) - per calcolo motivazione
+    standings_rank_h: int = 0          # posizione in classifica casa (1 = prima)
+    standings_rank_a: int = 0          # posizione in classifica trasferta
+    standings_points_h: int = 0        # punti in classifica casa
+    standings_points_a: int = 0        # punti in classifica trasferta
+    standings_played_h: int = 0        # partite giocate casa
+    standings_played_a: int = 0        # partite giocate trasferta
+    standings_total_teams: int = 20    # numero totale squadre in lega
+
+    # Last 6 games (Forma recente specifica)
+    last6_points_h: float = 0.0        # punti conquistati nelle ultime 6 casa
+    last6_points_a: float = 0.0        # punti conquistati nelle ultime 6 trasferta
+    last6_gf_h: float = 0.0            # gol fatti nelle ultime 6 casa
+    last6_ga_h: float = 0.0            # gol subiti nelle ultime 6 casa
+    last6_gf_a: float = 0.0            # gol fatti nelle ultime 6 trasferta
+    last6_ga_a: float = 0.0            # gol subiti nelle ultime 6 trasferta
+
+    # Home/Away Performance (Rendimento specifico)
+    home_ppg_h: float = 0.0            # punti per partita in casa della squadra di casa
+    away_ppg_a: float = 0.0            # punti per partita in trasferta della squadra trasferta
+    home_gf_h: float = 0.0             # gol fatti medi in casa
+    home_ga_h: float = 0.0             # gol subiti medi in casa
+    away_gf_a: float = 0.0             # gol fatti medi in trasferta
+    away_ga_a: float = 0.0             # gol subiti medi in trasferta
+
+    # Goal Timing (Quando segnano - opzionale)
+    late_goals_pct_h: float = 0.0      # % gol segnati nei minuti 75-90 casa
+    late_goals_pct_a: float = 0.0      # % gol segnati nei minuti 75-90 trasferta
+    early_conceded_pct_h: float = 0.0  # % gol subiti nei minuti 0-30 casa
+    early_conceded_pct_a: float = 0.0  # % gol subiti nei minuti 0-30 trasferta
+
+    # Weather impact on xxG (da OpenWeather API o da Gemini Vision)
+    weather_xg_impact: float = 0.0       # impatto meteo su xG (-0.15 = -10%, max +2% xG
+
+    # Contradiction Detection: warning quando live stats contraddicon pre-match expectations
+    contradiction_warning: str = ""      # messaggio di warning per l'utente
+    has_contradiction: bool = False    # True se rilevata contraddizione significativa
+
     # Bankroll e commissione
     bankroll: float = 1000.0
     comm_rate: float = 0.025   # 2.5%
@@ -461,6 +501,135 @@ def analizza(
         xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
         xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
 
+    # 2d. Form Analysis - Standings, Last6, Home/Away Performance (solo prematch).
+    # RIDUCE la dipendenza dalle linee manuali utilizzando dati estratti da Nowgoal.
+    # Questi aggiustamenti sono applicati DOPO previous scores per non interferire.
+    if state.minuto == 0:
+        from src.config import FORM_ANALYSIS
+
+        # === 2d.1 STANDINGS - Fattore motivazione ===
+        # Squadre in zona critica (retrocessione/titolo/europa) sono più motivate.
+        # Squadre senza obiettivi (posizione centrale) possono essere meno motivate.
+        _motivation_mult_h = 1.0
+        _motivation_mult_a = 1.0
+
+        if state.standings_total_teams > 0 and state.standings_rank_h > 0 and state.standings_rank_a > 0:
+            # Calcola posizione relativa (0 = prima, 1 = ultima)
+            _rel_pos_h = (state.standings_rank_h - 1) / max(1, state.standings_total_teams - 1)
+            _rel_pos_a = (state.standings_rank_a - 1) / max(1, state.standings_total_teams - 1)
+
+            # Zona retrocessione (ultime N posizioni)
+            if state.standings_rank_h > state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE:
+                _motivation_mult_h += FORM_ANALYSIS.RELEGATION_MOTIVATION_BONUS
+            if state.standings_rank_a > state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE:
+                _motivation_mult_a += FORM_ANALYSIS.RELEGATION_MOTIVATION_BONUS
+
+            # Zona titolo (prime N posizioni)
+            if state.standings_rank_h <= FORM_ANALYSIS.TITLE_ZONE:
+                _motivation_mult_h += FORM_ANALYSIS.TITLE_MOTIVATION_BONUS
+            if state.standings_rank_a <= FORM_ANALYSIS.TITLE_ZONE:
+                _motivation_mult_a += FORM_ANALYSIS.TITLE_MOTIVATION_BONUS
+
+            # Zona europa (prime N posizioni per qualificazione europea)
+            elif state.standings_rank_h <= FORM_ANALYSIS.EUROPE_ZONE:
+                _motivation_mult_h += FORM_ANALYSIS.EUROPE_MOTIVATION_BONUS
+            elif state.standings_rank_a <= FORM_ANALYSIS.EUROPE_ZONE:
+                _motivation_mult_a += FORM_ANALYSIS.EUROPE_MOTIVATION_BONUS
+
+            # Nessun obiettivo (posizione centrale) - penalità solo se le posizioni sono veramente centrali
+            # (non in zona critica né vicino)
+            _mid_start = FORM_ANALYSIS.EUROPE_ZONE + 1
+            _mid_end = state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE - 1
+            if _mid_start < _mid_end:
+                if _mid_start <= state.standings_rank_h <= _mid_end:
+                    _motivation_mult_h += FORM_ANALYSIS.NO_STAKES_PENALTY
+                if _mid_start <= state.standings_rank_a <= _mid_end:
+                    _motivation_mult_a += FORM_ANALYSIS.NO_STAKES_PENALTY
+
+        # === 2d.2 LAST 6 GAMES - Forma recente specifica ===
+        # Calcola punti per partita (PPG) nelle ultime 6 e applica boost/penalità.
+        _last6_mult_h = 1.0
+        _last6_mult_a = 1.0
+
+        if state.last6_points_h > 0 or state.last6_points_a > 0:
+            # PPG = punti / 6 partite (max 18 punti)
+            _ppg_h = state.last6_points_h / 6.0 if state.last6_points_h > 0 else 1.5  # default neutro
+            _ppg_a = state.last6_points_a / 6.0 if state.last6_points_a > 0 else 1.5
+
+            # Forma eccellente (PPG alto)
+            if _ppg_h >= FORM_ANALYSIS.LAST6_POINTS_EXCELLENT:
+                _last6_mult_h += FORM_ANALYSIS.LAST6_MAX_BOOST
+            elif _ppg_h <= FORM_ANALYSIS.LAST6_POINTS_POOR:
+                _last6_mult_h += FORM_ANALYSIS.LAST6_MAX_PENALTY
+            else:
+                # Interpolazione lineare tra povero e eccellente
+                _range = FORM_ANALYSIS.LAST6_POINTS_EXCELLENT - FORM_ANALYSIS.LAST6_POINTS_POOR
+                _pos = (_ppg_h - FORM_ANALYSIS.LAST6_POINTS_POOR) / max(_range, 0.1)
+                _effect = FORM_ANALYSIS.LAST6_MAX_PENALTY + _pos * (FORM_ANALYSIS.LAST6_MAX_BOOST - FORM_ANALYSIS.LAST6_MAX_PENALTY)
+                _last6_mult_h += _effect * FORM_ANALYSIS.LAST6_WEIGHT
+
+            if _ppg_a >= FORM_ANALYSIS.LAST6_POINTS_EXCELLENT:
+                _last6_mult_a += FORM_ANALYSIS.LAST6_MAX_BOOST
+            elif _ppg_a <= FORM_ANALYSIS.LAST6_POINTS_POOR:
+                _last6_mult_a += FORM_ANALYSIS.LAST6_MAX_PENALTY
+            else:
+                _range = FORM_ANALYSIS.LAST6_POINTS_EXCELLENT - FORM_ANALYSIS.LAST6_POINTS_POOR
+                _pos = (_ppg_a - FORM_ANALYSIS.LAST6_POINTS_POOR) / max(_range, 0.1)
+                _effect = FORM_ANALYSIS.LAST6_MAX_PENALTY + _pos * (FORM_ANALYSIS.LAST6_MAX_BOOST - FORM_ANALYSIS.LAST6_MAX_PENALTY)
+                _last6_mult_a += _effect * FORM_ANALYSIS.LAST6_WEIGHT
+
+        # === 2d.3 HOME/AWAY PERFORMANCE ===
+        # Rendimento specifico casa/trasferta per le due squadre.
+        _home_away_mult_h = 1.0
+        _home_away_mult_a = 1.0
+
+        if state.home_ppg_h > 0 or state.away_ppg_a > 0:
+            # Squadra di casa: bonus se forte in casa
+            if state.home_ppg_h >= FORM_ANALYSIS.HOME_STRONG_THRESHOLD:
+                _home_away_mult_h += FORM_ANALYSIS.HOME_STRONG_BONUS
+
+            # Squadra trasferta: penalità se debole fuori casa
+            if state.away_ppg_a > 0 and state.away_ppg_a <= FORM_ANALYSIS.AWAY_WEAK_THRESHOLD:
+                _home_away_mult_a += FORM_ANALYSIS.AWAY_WEAK_PENALTY
+
+            # Effetto gol fatti/subiti casa/trasferta
+            # Se la casa fa molti gol in casa, aumenta xG casa
+            if state.home_gf_h > 1.5:
+                _home_away_mult_h += 0.02
+            # Se la trasferta subisce molti gol fuori, aumenta xG casa
+            if state.away_ga_a > 1.3:
+                _home_away_mult_h += 0.015
+            # Se la trasferta fa molti gol fuori, aumenta xG trasferta
+            if state.away_gf_a > 1.3:
+                _home_away_mult_a += 0.02
+            # Se la casa subisce molti gol in casa, aumenta xG trasferta
+            if state.home_ga_h > 1.3:
+                _home_away_mult_a += 0.015
+
+        # === 2d.4 GOAL TIMING (opzionale) ===
+        # Squadre che segnano a fine partita possono essere più pericolose.
+        _timing_mult_h = 1.0
+        _timing_mult_a = 1.0
+
+        if state.late_goals_pct_h > 35:
+            _timing_mult_h += FORM_ANALYSIS.LATE_SCORER_BONUS
+        if state.late_goals_pct_a > 35:
+            _timing_mult_a += FORM_ANALYSIS.LATE_SCORER_BONUS
+        if state.early_conceded_pct_h > 40:
+            _timing_mult_h += FORM_ANALYSIS.EARLY_CONCEDER_PENALTY
+        if state.early_conceded_pct_a > 40:
+            _timing_mult_a += FORM_ANALYSIS.EARLY_CONCEDER_PENALTY
+
+        # === APPLICA TUTTI GLI AGGIUSTAMENTI FORM ANALYSIS ===
+        # Peso complessivo ridotto per evitare double-counting con previous scores e assenze
+        _form_weight = 0.40  # Gli aggiustamenti form analysis pesano al 40% del totale
+        _combined_mult_h = 1.0 + _form_weight * (_motivation_mult_h + _last6_mult_h + _home_away_mult_h + _timing_mult_h - 4.0)
+        _combined_mult_a = 1.0 + _form_weight * (_motivation_mult_a + _last6_mult_a + _home_away_mult_a + _timing_mult_a - 4.0)
+
+        # Applica con floor di sicurezza
+        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * _combined_mult_h)
+        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * _combined_mult_a)
+
     # 3. Momentum mercato (calcolato PRIMA del time-decay per alimentare lo smorzamento xG)
     # ah_cur è in "gol rimanenti" (conversione full-game già applicata in inputs.py):
     #   ah_cur = ah_cur_full + (gol_casa - gol_trasf)
@@ -637,6 +806,31 @@ def analizza(
         consensus_probs["p_over"], consensus_probs["p_under"], consensus_probs["p_btts"],
         draw_shrinkage=_draw_shrinkage_dyn,
     )
+
+    # 9a. BTTS Calibration contestuale (solo prematch).
+    # Corregge il bias del modello Poisson basandosi su:
+    # - Total atteso (partite difensive vs aperte)
+    # - Forza offensiva/defensiva (mismatch)
+    # - H2H storico BTTS
+    # - Forma recente (streak gol/clean sheet)
+    if state.minuto == 0:
+        from src.markets.btts import calibra_btts
+        p_btts = calibra_btts(
+            p_btts_raw=p_btts,
+            tot_cur=tot_cur_eff,
+            xg_h=xg_h_final,
+            xg_a=xg_a_final,
+            h2h_btts_pct=state.h2h_btts_pct,
+            last6_gf_h=state.last6_gf_h,
+            last6_ga_h=state.last6_ga_h,
+            last6_gf_a=state.last6_gf_a,
+            last6_ga_a=state.last6_ga_a,
+            scoring_streak_h=state.scoring_streak_h,
+            scoring_streak_a=state.scoring_streak_a,
+            clean_sheet_streak_h=state.clean_sheet_streak_h,
+            clean_sheet_streak_a=state.clean_sheet_streak_a,
+            minuto=state.minuto,
+        )
 
     # 9b. Prior BTTS da quote OCR (solo prematch): nudge conservativo.
     # Le quote GG/NG contengono informazione su formazioni e stile di gioco

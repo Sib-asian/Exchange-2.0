@@ -14,7 +14,7 @@ import json
 import logging
 import sys
 from dataclasses import asdict, is_dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -23,7 +23,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_data = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -125,7 +125,7 @@ class AnalysisLogger:
         self.logger = engine_logger
 
     def __enter__(self) -> AnalysisLogger:
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
         self.logger.info(
             f"Analysis started: match={self.match_id}, minute={self.minute}",
             extra={"extra_data": {"match_id": self.match_id, "minute": self.minute}},
@@ -133,7 +133,7 @@ class AnalysisLogger:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        duration_ms = (datetime.utcnow() - self.start_time).total_seconds() * 1000
+        duration_ms = (datetime.now(timezone.utc) - self.start_time).total_seconds() * 1000
         if exc_type:
             self.logger.error(
                 f"Analysis failed: {exc_val}",
@@ -155,7 +155,7 @@ class AnalysisLogger:
 
     def data(self, name: str, value: dict) -> None:
         """Logga un punto dati dell'analisi."""
-        entry = {"name": name, "value": value, "timestamp": datetime.utcnow().isoformat()}
+        entry = {"name": name, "value": value, "timestamp": datetime.now(timezone.utc).isoformat()}
         self.data_points.append(entry)
         self.logger.debug(
             f"Data: {name}",

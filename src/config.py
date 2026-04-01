@@ -912,6 +912,127 @@ class AIAdjConfig:
     AFFIDABILITA_BASSA: float = 0.35
 
 
+@dataclass(frozen=True)
+class FormAnalysisConfig:
+    """
+    Parametri per l'analisi della forma squadre (standings, last6, home/away performance).
+
+    RIDUCE la dipendenza dalle linee manuali dal 70-75% al 50-60% utilizzando
+    dati estratti da Nowgoal che erano precedentemente ignorati.
+    """
+
+    # === STANDINGS (Classifica) ===
+    # Fattore motivazione basato sulla posizione in classifica.
+    # Squadre in zona retrocessione (ultime 3) o titolo (prime 3) sono più motivate.
+    STANDINGS_MOTIVATION_WEIGHT: float = 0.06  # max ±6% su xG per motivazione
+
+    # Zone di classifica che aumentano motivazione
+    RELEGATION_ZONE: int = 3      # ultime N posizioni = zona retrocessione
+    TITLE_ZONE: int = 3           # prime N posizioni = zona titolo
+    EUROPE_ZONE: int = 6          # prime N posizioni per qualificazione europea
+
+    # Bonus motivazione per posizione in zona critica
+    RELEGATION_MOTIVATION_BONUS: float = 0.04   # +4% xG per squadra in zona retrocessione
+    TITLE_MOTIVATION_BONUS: float = 0.02        # +2% xG per squadra in zona titolo
+    EUROPE_MOTIVATION_BONUS: float = 0.015      # +1.5% xG per squadra in zona europea
+
+    # Penalità per squadra "senza obiettivi" (posizione centrale in classifica)
+    NO_STAKES_PENALTY: float = -0.02            # -2% xG per squadra senza motivazione
+
+    # === LAST 6 GAMES (Forma recente specifica) ===
+    # Dalle ultime 6 partite, calcoliamo punti, gol fatti, gol subiti.
+    # Questo è più granulare del simple W/D/L string.
+
+    LAST6_WEIGHT: float = 0.12    # peso della forma last6 nel blend xG
+
+    # Punti attesi per partita: 3.0 = perfetto, 0.0 = disastroso
+    LAST6_POINTS_EXCELLENT: float = 2.3   # > 2.3 PPG = forma eccellente
+    LAST6_POINTS_POOR: float = 0.8        # < 0.8 PPG = forma pessima
+
+    # Effetto forma last6 su xG
+    LAST6_MAX_BOOST: float = 0.08         # max +8% xG per forma eccellente
+    LAST6_MAX_PENALTY: float = -0.08      # max -8% xG per forma pessima
+
+    # === HOME/AWAY PERFORMANCE ===
+    # Rendimento separato casa vs trasferta.
+    # Alcune squadre sono molto più forti in casa (fattore casa).
+
+    HOME_AWAY_WEIGHT: float = 0.10        # peso del rendimento casa/trasferta
+
+    # Fattore casa medio per top-5 leagues: circa +10% xG per la casa
+    HOME_ADVANTAGE_BASE: float = 0.10
+
+    # Squadre con forte rendimento casa (es. >2.0 PPG in casa) ottengono bonus
+    HOME_STRONG_THRESHOLD: float = 2.0    # PPG in casa > questo = forte in casa
+    HOME_STRONG_BONUS: float = 0.03       # +3% xG per forte rendimento casa
+
+    # Squadre con debole rendimento trasferta (es. <0.8 PPG fuori) ottengono penalità
+    AWAY_WEAK_THRESHOLD: float = 0.8      # PPG trasferta < questo = debole fuori
+    AWAY_WEAK_PENALTY: float = -0.03      # -3% xG per debole rendimento trasferta
+
+    # === GOAL TIMING (Quando segnano) ===
+    # Squadre che segnano a fine partita (ultimi 15') possono essere più pericolose
+    # in partite aperte, mentre squadre che subiscono a fine partita sono vulnerabili.
+
+    GOAL_TIMING_WEIGHT: float = 0.03      # peso del timing dei gol (basso, informativo)
+
+    # Bonus per squadra che segna spesso nell'ultimo quarto d'ora
+    LATE_SCORER_BONUS: float = 0.02       # +2% se >35% gol nei minuti 75-90
+    EARLY_CONCEDER_PENALTY: float = -0.02 # -2% se >40% gol subiti nei minuti 0-30
+
+
+@dataclass(frozen=True)
+class BTTSCalibrationConfig:
+    """
+    Parametri per la calibrazione BTTS (Both Teams To Score).
+
+    Il modello Poisson tende a sovrastimare BTTS Sì in partite difensive
+    e sottostimarlo in partite aperte. Questi parametri correggono il bias.
+    """
+
+    # === Calibrazione basata su Total atteso ===
+    # Total basso (< 2.0) → partita difensiva → BTTS meno probabile
+    # Total alto (> 3.0) → partita aperta → BTTS più probabile
+
+    # Soglie di total per calibrazione
+    TOTAL_LOW_THRESHOLD: float = 2.0      # sotto questo: partita difensiva
+    TOTAL_HIGH_THRESHOLD: float = 3.0     # sopra questo: partita aperta
+
+    # Correzioni BTTS per total
+    BTTS_LOW_TOTAL_ADJUST: float = -0.04  # -4% BTTS per total < 2.0
+    BTTS_HIGH_TOTAL_ADJUST: float = 0.03  # +3% BTTS per total > 3.0
+
+    # === Calibrazione basata su forza offensiva/defensiva ===
+    # Se una squadra ha attacco molto forte E difesa debole → BTTS più probabile
+    # Se entrambe le squadre hanno difesa forte → BTTS meno probabile
+
+    # Soglia per "attacco forte" (gol/segni per partita)
+    STRONG_ATTACK_THRESHOLD: float = 1.5
+    # Soglia per "difesa debole" (gol/subiti per partita)
+    WEAK_DEFENSE_THRESHOLD: float = 1.3
+
+    # Bonus BTTS per mismatch attacco-difesa
+    ATTACK_DEFENSE_MISMATCH_BONUS: float = 0.03  # +3% se attacco forte vs difesa debole
+
+    # Penalità per doppia difesa forte
+    BOTH_STRONG_DEFENSE_PENALTY: float = -0.04    # -4% se entrambe difese forti
+
+    # === Calibrazione basata su H2H ===
+    # Se storico H2H mostra molti gol, aumentiamo BTTS
+    H2H_BTTS_WEIGHT: float = 0.08         # peso dell'H2H su BTTS
+    H2H_BTTS_HIGH_THRESHOLD: float = 0.60 # % partite H2H con BTTS sopra questa
+    H2H_BTTS_BONUS: float = 0.04          # +4% se H2H storico alto
+
+    # === Calibrazione forma recente ===
+    # Squadre che hanno segnato nelle ultime 3 partite → più probabile che segnino
+    RECENT_SCORING_STREAK_BONUS: float = 0.02  # +2% se segnato in 3+ partite consecutive
+    RECENT_CLEAN_SHEET_PENALTY: float = -0.02  # -2% se 2+ clean sheet consecutivi
+
+    # === Clamp finali ===
+    BTTS_MIN: float = 0.15   # BTTS non può scendere sotto 15%
+    BTTS_MAX: float = 0.85   # BTTS non può salire sopra 85%
+
+
 # Istanze globali immutabili — importare da qui
 POISSON   = PoissonConfig()
 DC        = DixonColesConfig()
@@ -935,3 +1056,5 @@ ENGINE = EngineConfig()
 INPUT_VALIDATION = InputValidationConfig()
 OCR_QUOTES = OcrQuotesConfig()
 AI_ADJ = AIAdjConfig()
+FORM_ANALYSIS = FormAnalysisConfig()
+BTTS_CALIBRATION = BTTSCalibrationConfig()
