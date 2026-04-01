@@ -22,8 +22,11 @@ from pathlib import Path
 from typing import Any
 
 
-# Percorso fisso del file dati
-DATA_DIR = Path("/home/z/my-project/data")
+# Percorso del file dati (relativo alla directory dell'app)
+# Usa la directory corrente o una sottodirectory 'data'
+import os
+_APP_DIR = Path(__file__).parent.parent.parent  # sale da src/tracking -> src -> root
+DATA_DIR = _APP_DIR / "data"
 PREDICTIONS_FILE = DATA_DIR / "predictions.json"
 
 
