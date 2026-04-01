@@ -102,6 +102,20 @@ with st.expander("📺 Dati Live", expanded=_live_exp_open):
     _match_live = render_live_semplice()
     _btn_live   = st.button("ANALIZZA", use_container_width=True, type="primary", key="btn_live")
 
+# ── Prediction Tracker (sempre visibile) ───────────────────────────────────────
+st.divider()
+st.markdown("---")
+st.markdown("## 🔔 QUI DOVREBBE ESSERE IL PREDICTION TRACKER 🔔")
+st.markdown("---")
+st.markdown("### 📋 Prediction Tracker")
+try:
+    from src.tracking.ui import render_tracking_tab
+    render_tracking_tab()
+except Exception as _e:
+    import traceback
+    st.error(f"Errore Prediction Tracker: {_e}")
+    st.code(traceback.format_exc())
+
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 if _btn_prematch or _btn_live:
 
@@ -196,6 +210,53 @@ if _btn_prematch or _btn_live:
         prematch_analysis=collect_prematch_analysis(st.session_state),
     ))
     st.session_state["active_match_id"] = _pid
+
+    # ── Prediction Logging (salvataggio automatico) ───────────────────────────────
+    from src.tracking.prediction_log import get_prediction_log, create_record_from_analysis
+
+    _squadra_casa = getattr(_pa, "squadra_casa", "") if _pa else ""
+    _squadra_trasf = getattr(_pa, "squadra_trasf", "") if _pa else ""
+    _lega = getattr(_pa, "lega", "") if _pa else ""
+
+    # Se non ci sono i nomi, usa placeholder
+    if not _squadra_casa:
+        _squadra_casa = "Casa"
+    if not _squadra_trasf:
+        _squadra_trasf = "Trasferta"
+
+    _input_data = {
+        "ah_op": lines["ah_op"],
+        "tot_op": lines["tot_op"],
+        "xg_h": risultati.xg_h_final,
+        "xg_a": risultati.xg_a_final,
+    }
+    _predictions = {
+        "p1": risultati.p1,
+        "px": risultati.px,
+        "p2": risultati.p2,
+        "p_over": risultati.p_over,
+        "p_under": risultati.p_under,
+        "p_btts": risultati.p_btts,
+        "model_confidence": risultati.model_confidence,
+    }
+    _market_quotes = {
+        "quota_1": _mkt1,
+        "quota_x": _mktx,
+        "quota_2": _mkt2,
+    }
+
+    _tracking_record = create_record_from_analysis(
+        squadra_casa=_squadra_casa,
+        squadra_trasf=_squadra_trasf,
+        lega=_lega,
+        input_data=_input_data,
+        predictions=_predictions,
+        market_quotes=_market_quotes,
+    )
+
+    _pred_log = get_prediction_log()
+    _pred_log.add(_tracking_record)
+    st.session_state["last_prediction_id"] = _tracking_record.id
 
     # ── Output ────────────────────────────────────────────────────────────────
     from src.signals import calcola_soglie, genera_segnali_rapidi
