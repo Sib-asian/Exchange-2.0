@@ -3339,7 +3339,8 @@ def _extract_live_page_data(text: str) -> dict:
     
     # === 3. TEAM STATISTICS ===
     # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
-    # Formato: | Home | Recent 3 Matches | Away | Home | Recent 10 Matches | Away |
+    # Formato 1 (con |): | Home | Recent 3 Matches | Away | Home | Recent 10 Matches | Away |
+    # Formato 2 (con TAB): Home Recent 3 Matches        Away    Home    Recent 10 Matches       Away
     #          | 1.7  | Goal             | 2.7  | 1.6  | Goal              | 2    |
     # DEVO estrarre dall'ULTIMO gruppo (Recent 10 Matches) non dal primo!
     
@@ -3351,47 +3352,49 @@ def _extract_live_page_data(text: str) -> dict:
         stats_text = team_stats_section.group(0)
         
         # Estrai valori dalla tabella usando findall per trovare TUTTI i match
-        # e prendere l'ULTIMO (Recent 10 Matches)
+        # Supporta sia formato "|" che formato TAB/spazi
         
-        # Riga Goal: | 2.2 | Goal | 2.6 | (appare 2 volte, prendi l'ultima)
-        goals_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Goal\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        # Riga Goal: Due pattern possibili
+        # Formato 1: | 2.2 | Goal | 2.6 |
+        # Formato 2: 2.2 Goal 2.6 1.6 Goal 2.0 (con TAB o spazi)
+        goals_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Goal\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if goals_matches:
             # Prendi l'ULTIMO match (Recent 10 Matches)
             result["team_stats_home_goals"] = float(goals_matches[-1][0])
             result["team_stats_away_goals"] = float(goals_matches[-1][1])
         
-        # Riga Loss (gol subiti): | 0.9 | Loss | 1.1 |
-        loss_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Loss\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        # Riga Loss (gol subiti)
+        loss_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Loss\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if loss_matches:
             result["team_stats_home_conceded"] = float(loss_matches[-1][0])
             result["team_stats_away_conceded"] = float(loss_matches[-1][1])
         
-        # Riga Shots: | 7 | Opponent Shots | 7.8 |
-        shots_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Opponent Shots\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        # Riga Shots (Opponent Shots)
+        shots_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Opponent Shots\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if shots_matches:
             result["team_stats_home_shots"] = float(shots_matches[-1][0])
             result["team_stats_away_shots"] = float(shots_matches[-1][1])
         
-        # Riga Corners: | 5 | Corners | 6.7 |
-        corners_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Corners\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        # Riga Corners
+        corners_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Corners\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if corners_matches:
             result["team_stats_home_corners"] = float(corners_matches[-1][0])
             result["team_stats_away_corners"] = float(corners_matches[-1][1])
         
-        # Riga Yellow Cards: | 2.2 | Yellow Cards | 1.4 |
-        yellows_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Yellow Cards\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        # Riga Yellow Cards
+        yellows_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Yellow Cards\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if yellows_matches:
             result["team_stats_home_yellows"] = float(yellows_matches[-1][0])
             result["team_stats_away_yellows"] = float(yellows_matches[-1][1])
         
-        # Riga Fouls: | 16.7 | Fouls | 13 |
-        fouls_matches = re.findall(r'\|\s*([\d.]+)\s*\|\s*\*?\*?Fouls\*?\*?\s*\|\s*([\d.]+)\s*\|', stats_text, re.IGNORECASE)
+        # Riga Fouls
+        fouls_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Fouls\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if fouls_matches:
             result["team_stats_home_fouls"] = float(fouls_matches[-1][0])
             result["team_stats_away_fouls"] = float(fouls_matches[-1][1])
         
-        # Riga Possession: | 51.5% | Possession | 57.5% |
-        poss_matches = re.findall(r'\|\s*([\d.]+)%?\s*\|\s*\*?\*?Possession\*?\*?\s*\|\s*([\d.]+)%?\s*\|', stats_text, re.IGNORECASE)
+        # Riga Possession
+        poss_matches = re.findall(r'([\d.]+)%?\s*[\|]?\s*Possession\s*[\|]?\s*([\d.]+)%?', stats_text, re.IGNORECASE)
         if poss_matches:
             result["team_stats_home_possession"] = float(poss_matches[-1][0])
             result["team_stats_away_possession"] = float(poss_matches[-1][1])
