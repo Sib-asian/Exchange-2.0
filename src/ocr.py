@@ -2163,6 +2163,10 @@ def _extract_all_with_regex(text: str) -> dict:
         "home_last6_win": 0,
         "home_last6_draw": 0,
         "home_last6_lose": 0,
+        # HT standings casa
+        "home_ht_win": 0,
+        "home_ht_draw": 0,
+        "home_ht_lose": 0,
         # Standings trasferta
         "away_rank": 0,
         "away_matches": 0,
@@ -2180,6 +2184,10 @@ def _extract_all_with_regex(text: str) -> dict:
         "away_last6_win": 0,
         "away_last6_draw": 0,
         "away_last6_lose": 0,
+        # HT standings trasferta
+        "away_ht_win": 0,
+        "away_ht_draw": 0,
+        "away_ht_lose": 0,
         # Previous scores
         "prev_home_win_pct": 0.0,
         "prev_home_avg_scored": 0.0,
@@ -2322,29 +2330,81 @@ def _extract_all_with_regex(text: str) -> dict:
     
     # === STANDINGS ===
     # Cerca tabelle con righe Total/Home/Away/Last 6
+    # Nowgoal ha struttura: [Rank] NomeSquadra → FT section → HT section per ogni squadra
     
+    # Trova le posizioni delle sezioni squadra (es. "[JPN D1-1] Vissel Kobe")
+    team_markers = list(re.finditer(r'\[[^\]]+\]\s*([A-Za-z][A-Za-z\s\-\'\.]+)', text))
+    
+    # Estrai le sezioni FT e HT per ogni squadra
+    ft_home_section = ""
+    ht_home_section = ""
+    ft_away_section = ""
+    ht_away_section = ""
+    
+    if len(team_markers) >= 2:
+        # Prima squadra (casa): dal match 0 al match 1 (o fine testo)
+        home_start = team_markers[0].start()
+        home_end = team_markers[1].start() if len(team_markers) > 1 else len(text)
+        home_team_text = text[home_start:home_end]
+        
+        # Seconda squadra (trasferta): dal match 1 alla fine (o prossima squadra)
+        away_start = team_markers[1].start()
+        away_end = team_markers[2].start() if len(team_markers) > 2 else len(text)
+        away_team_text = text[away_start:away_end]
+        
+        # Separa FT e HT per casa (HT inizia con "HT Matches" o "HT " seguito da tabella)
+        ht_split_home = re.split(r'\n\s*HT\s+Matches', home_team_text, flags=re.IGNORECASE)
+        ft_home_section = ht_split_home[0] if len(ht_split_home) >= 1 else ""
+        ht_home_section = "HT Matches" + ht_split_home[1] if len(ht_split_home) >= 2 else ""
+        
+        # Separa FT e HT per trasferta
+        ht_split_away = re.split(r'\n\s*HT\s+Matches', away_team_text, flags=re.IGNORECASE)
+        ft_away_section = ht_split_away[0] if len(ht_split_away) >= 1 else ""
+        ht_away_section = "HT Matches" + ht_split_away[1] if len(ht_split_away) >= 2 else ""
+    
+    # === FT DATA ===
     # Riga Total FT: Matches, Win, Draw, Lose, Scored, Conceded
-    # Es: "Total  31  16  7  8  59  43"
     total_pattern = r"Total\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
-    total_matches = re.findall(total_pattern, text, re.IGNORECASE)
-    if total_matches:
-        # Prima riga = casa, seconda = trasferta (solitamente)
-        if len(total_matches) >= 1:
-            t = total_matches[0]
-            result["home_matches"] = int(t[0])
-            result["home_win"] = int(t[1])
-            result["home_draw"] = int(t[2])
-            result["home_lose"] = int(t[3])
-            result["home_scored"] = int(t[4])
-            result["home_conceded"] = int(t[5])
-        if len(total_matches) >= 2:
-            t = total_matches[1]
-            result["away_matches"] = int(t[0])
-            result["away_win"] = int(t[1])
-            result["away_draw"] = int(t[2])
-            result["away_lose"] = int(t[3])
-            result["away_scored"] = int(t[4])
-            result["away_conceded"] = int(t[5])
+    
+    # FT Casa
+    ft_home_total = re.search(total_pattern, ft_home_section, re.IGNORECASE)
+    if ft_home_total:
+        t = ft_home_total.groups()
+        result["home_matches"] = int(t[0])
+        result["home_win"] = int(t[1])
+        result["home_draw"] = int(t[2])
+        result["home_lose"] = int(t[3])
+        result["home_scored"] = int(t[4])
+        result["home_conceded"] = int(t[5])
+    
+    # FT Trasferta
+    ft_away_total = re.search(total_pattern, ft_away_section, re.IGNORECASE)
+    if ft_away_total:
+        t = ft_away_total.groups()
+        result["away_matches"] = int(t[0])
+        result["away_win"] = int(t[1])
+        result["away_draw"] = int(t[2])
+        result["away_lose"] = int(t[3])
+        result["away_scored"] = int(t[4])
+        result["away_conceded"] = int(t[5])
+    
+    # === HT DATA ===
+    # Riga Total HT: Matches, Win, Draw, Lose, Scored, Conceded
+    # HT Casa
+    ht_home_total = re.search(total_pattern, ht_home_section, re.IGNORECASE)
+    if ht_home_total:
+        t = ht_home_total.groups()
+        result["home_ht_win"] = int(t[1])
+        result["home_ht_draw"] = int(t[2])
+        result["home_ht_lose"] = int(t[3])
+    
+    # HT Trasferta
+    ht_away_total = re.search(total_pattern, ht_away_section, re.IGNORECASE)
+    if ht_away_total:
+        t = ht_away_total.groups()
+        result["away_ht_win"] = int(t[1])
+        result["away_ht_draw"] = int(t[2])
+        result["away_ht_lose"] = int(t[3])
     
     # Riga Home FT (performance in casa)
     # Es: "Home  5  1  2  2  7  7" (matches, win, draw, lose, scored, conceded)
@@ -2819,6 +2879,10 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         home_last6_win=regex_data["home_last6_win"],
         home_last6_draw=regex_data["home_last6_draw"],
         home_last6_lose=regex_data["home_last6_lose"],
+        # HT standings casa
+        home_ht_win=regex_data["home_ht_win"],
+        home_ht_draw=regex_data["home_ht_draw"],
+        home_ht_lose=regex_data["home_ht_lose"],
         # Standings trasferta
         away_rank=regex_data["away_rank"],
         away_matches=regex_data["away_matches"],
@@ -2835,6 +2899,10 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         away_last6_win=regex_data["away_last6_win"],
         away_last6_draw=regex_data["away_last6_draw"],
         away_last6_lose=regex_data["away_last6_lose"],
+        # HT standings trasferta
+        away_ht_win=regex_data["away_ht_win"],
+        away_ht_draw=regex_data["away_ht_draw"],
+        away_ht_lose=regex_data["away_ht_lose"],
         # Previous scores
         home_prev_win_pct=regex_data["prev_home_win_pct"],
         home_prev_avg_scored=regex_data["prev_home_avg_scored"],
