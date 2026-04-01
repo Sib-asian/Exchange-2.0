@@ -3368,13 +3368,21 @@ def _extract_live_page_data(text: str) -> dict:
     
     # === 1. METEO ===
     # Pattern: "Partly cloudy, 10°C" o "Rain, 15°C" o "Sunny, 25°C"
+    # FIX: Gestisce sia °C (U+00B0+C) che ℃ (U+2103) e range "10℃～11℃"
     weather_match = re.search(
-        r'(Sunny|Clear|Partly cloudy|Cloudy|Overcast|Rain|Light rain|Heavy rain|Drizzle|Thunderstorm|Snow|Fog|Mist|Windy),?\s*(\d{1,2})°C?',
+        r'(Sunny|Clear|Partly cloudy|Cloudy|Overcast|Rain|Light rain|Heavy rain|Drizzle|Thunderstorm|Snow|Fog|Mist|Windy),?\s*(\d{1,2})[°℃]\s*[～~]?\s*(\d{1,2})?[°℃]?',
         text, re.IGNORECASE
     )
     if weather_match:
         result["weather_condition"] = weather_match.group(1).strip()
-        result["weather_temp"] = int(weather_match.group(2))
+        # Se è un range (es. 10～11), prendi la media; altrimenti il singolo valore
+        temp_low = int(weather_match.group(2))
+        temp_high_str = weather_match.group(3)
+        if temp_high_str:
+            temp_high = int(temp_high_str)
+            result["weather_temp"] = (temp_low + temp_high) // 2
+        else:
+            result["weather_temp"] = temp_low
         
         # Calcola impatto meteo sui gol
         condition_lower = result["weather_condition"].lower()
@@ -3421,10 +3429,10 @@ def _extract_live_page_data(text: str) -> dict:
     
     # === 3. TEAM STATISTICS ===
     # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
-    # Formato 1 (con |): | Home | Recent 3 Matches | Away | Home | Recent 10 Matches | Away |
-    # Formato 2 (con TAB): Home Recent 3 Matches        Away    Home    Recent 10 Matches       Away
-    #          | 1.7  | Goal             | 2.7  | 1.6  | Goal              | 2    |
-    # DEVO estrarre dall'ULTIMO gruppo (Recent 10 Matches) non dal primo!
+    # Jina Reader converte HTML in markdown con **bold** attorno ai nomi delle stat:
+    #   | 1.3 | **Goal** | 1.3 | 1.3 | **Goal** | 1.3 |
+    # FIX: Aggiunto \*\*? prima del nome per gestire il markdown bold di Jina Reader.
+    # Prendi sempre l'ULTIMO match (Recent 10 Matches).
     
     team_stats_section = re.search(
         r'Team Statistics.*?(?=\*\*Last Updated|HT/FT|$)',
@@ -3435,71 +3443,82 @@ def _extract_live_page_data(text: str) -> dict:
         
         # Estrai valori dalla tabella usando findall per trovare TUTTI i match
         # Supporta sia formato "|" che formato TAB/spazi
+        # FIX: \*\*? gestisce il markdown bold di Jina Reader
         
-        # Riga Goal: Due pattern possibili
-        # Formato 1: | 2.2 | Goal | 2.6 |
-        # Formato 2: 2.2 Goal 2.6 1.6 Goal 2.0 (con TAB o spazi)
-        goals_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Goal\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        # Riga Goal
+        goals_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Goal\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if goals_matches:
             # Prendi l'ULTIMO match (Recent 10 Matches)
             result["team_stats_home_goals"] = float(goals_matches[-1][0])
             result["team_stats_away_goals"] = float(goals_matches[-1][1])
         
         # Riga Loss (gol subiti)
-        loss_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Loss\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        loss_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Loss\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if loss_matches:
             result["team_stats_home_conceded"] = float(loss_matches[-1][0])
             result["team_stats_away_conceded"] = float(loss_matches[-1][1])
         
         # Riga Shots (Opponent Shots)
-        shots_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Opponent Shots\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        shots_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Opponent Shots\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if shots_matches:
             result["team_stats_home_shots"] = float(shots_matches[-1][0])
             result["team_stats_away_shots"] = float(shots_matches[-1][1])
         
         # Riga Corners
-        corners_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Corners\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        corners_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Corners\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if corners_matches:
             result["team_stats_home_corners"] = float(corners_matches[-1][0])
             result["team_stats_away_corners"] = float(corners_matches[-1][1])
         
         # Riga Yellow Cards
-        yellows_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Yellow Cards\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        yellows_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Yellow Cards\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if yellows_matches:
             result["team_stats_home_yellows"] = float(yellows_matches[-1][0])
             result["team_stats_away_yellows"] = float(yellows_matches[-1][1])
         
         # Riga Fouls
-        fouls_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Fouls\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        fouls_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Fouls\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if fouls_matches:
             result["team_stats_home_fouls"] = float(fouls_matches[-1][0])
             result["team_stats_away_fouls"] = float(fouls_matches[-1][1])
         
         # Riga Possession
-        poss_matches = re.findall(r'([\d.]+)%?\s*[\|]?\s*Possession\s*[\|]?\s*([\d.]+)%?', stats_text, re.IGNORECASE)
+        poss_matches = re.findall(r'([\d.]+)%?\s*[\|]?\s*\*\*?Possession\*\*?\s*[\|]?\s*([\d.]+)%?', stats_text, re.IGNORECASE)
         if poss_matches:
             result["team_stats_home_possession"] = float(poss_matches[-1][0])
             result["team_stats_away_possession"] = float(poss_matches[-1][1])
     
     # === 4. QUOTE LIVE ===
-    # Cerca la tabella Live Odds con righe "Live"
-    # Formato: | Live | 0.80 | -1 | 1.00 | 4.10 | 4.33 | 1.57 | 1.00 | 3 | 0.80 |
-    # Colonne: Time | AH_home_odds | AH_line | AH_away_odds | 1 | X | 2 | Over_odds | Total_line | Under_odds
+    # Cerca la tabella Live Odds con righe "Live" (pre-kickoff, score vuoto)
+    #
+    # Formato reale da Jina Reader (20 colonne totali):
+    # | Live |  | AH_init_H | AH_line | AH_init_A | AH_live_H | AH_line | AH_live_A |
+    #   | 1X2_i1 | 1X2_iX | 1X2_i2 | 1X2_l1 | 1X2_lX | 1X2_l2 |
+    #   | OU_iO | OU_line | OU_iU | OU_lO | OU_line | OU_lU |
+    #
+    # Le colonne sono ACCOPPIATE (Initial/Live) per ogni tipo di quota.
+    # Prendiamo SOLO i valori "Live" (gruppi 2-4 per AH, gruppi 6-8 per O/U).
     
     live_odds_match = re.search(
-        r'\|\s*Live\s*\|\s*([\d.]+)\s*\|\s*(-?[\d./]+)\s*\|\s*([\d.]+)\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)\s*\|\s*([\d./]+)\s*\|\s*([\d.]+)\s*\|',
+        r'\|\s*Live\s*\|\s*\|'                                    # | Live | (score vuoto) |
+        r'\s*[\d.]+\s*\|\s*(-?[\d./]+)\s*\|\s*[\d.]+\s*\|'       # AH_init_H | AH_line(1) | AH_init_A
+        r'\s*([\d.]+)\s*\|\s*(-?[\d./]+)\s*\|\s*([\d.]+)\s*\|'   # AH_live_H(2) | AH_line(3) | AH_live_A(4)
+        r'\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|'            # 1X2_init_1 | 1X2_init_X | 1X2_init_2
+        r'\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|'            # 1X2_live_1 | 1X2_live_X | 1X2_live_2
+        r'\s*[\d.]+\s*\|\s*(-?[\d./]+)\s*\|\s*[\d.]+\s*\|'       # OU_init_O | OU_line(5) | OU_init_U
+        r'\s*([\d.]+)\s*\|\s*(-?[\d./]+)\s*\|\s*([\d.]+)\s*\|',  # OU_live_O(6) | OU_line(7) | OU_live_U(8)
         text, re.IGNORECASE
     )
     if live_odds_match:
         try:
-            result["live_ah_home_odds"] = float(live_odds_match.group(1))
-            ah_line_raw = live_odds_match.group(2)
+            result["live_ah_home_odds"] = float(live_odds_match.group(2))
+            ah_line_raw = live_odds_match.group(3)
             result["live_ah_line"] = convert_nowgoal_line_to_software(ah_line_raw, invert_sign=True)
-            result["live_ah_away_odds"] = float(live_odds_match.group(3))
-            result["live_over_odds"] = float(live_odds_match.group(4))
-            total_line_raw = live_odds_match.group(5)
+            result["live_ah_away_odds"] = float(live_odds_match.group(4))
+            result["live_over_odds"] = float(live_odds_match.group(6))
+            total_line_raw = live_odds_match.group(7)
             result["live_total_line"] = convert_nowgoal_line_to_software(total_line_raw, invert_sign=False)
-            result["live_under_odds"] = float(live_odds_match.group(6))
+            result["live_under_odds"] = float(live_odds_match.group(8))
         except (ValueError, TypeError):
             pass
     
