@@ -2233,8 +2233,23 @@ def _extract_all_with_regex(text: str) -> dict:
         "away_motivation": "normal",
         "home_id": 0,
         "away_id": 0,
+        # Team Statistics (ultimi 10 match)
+        "team_stats_home_goals": 0.0,
+        "team_stats_home_conceded": 0.0,
+        "team_stats_home_shots": 0.0,
+        "team_stats_home_corners": 0.0,
+        "team_stats_home_yellows": 0.0,
+        "team_stats_home_fouls": 0.0,
+        "team_stats_home_possession": 0.0,
+        "team_stats_away_goals": 0.0,
+        "team_stats_away_conceded": 0.0,
+        "team_stats_away_shots": 0.0,
+        "team_stats_away_corners": 0.0,
+        "team_stats_away_yellows": 0.0,
+        "team_stats_away_fouls": 0.0,
+        "team_stats_away_possession": 0.0,
     }
-    
+
     # === H2H ===
     h2h = _extract_h2h_with_regex(text)
     result["h2h_home_win_pct"] = h2h["h2h_home_win_pct"]
@@ -2836,7 +2851,59 @@ def _extract_all_with_regex(text: str) -> dict:
             result["away_motivation"] = "high"
         elif result["away_rank"] > max_teams // 2 + 3 and result["away_rank"] < max_teams - 3:
             result["away_motivation"] = "low"
-    
+
+    # === 6. TEAM STATISTICS (ultimi 10 match) ===
+    # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
+    # DEVO estrarre dall'ULTIMO gruppo (Recent 10 Matches) non dal primo!
+    team_stats_section = re.search(
+        r'Team Statistics.*?(?=\*\*Last Updated|HT/FT Statistics|$)',
+        text, re.IGNORECASE | re.DOTALL
+    )
+    if team_stats_section:
+        stats_text = team_stats_section.group(0)
+
+        # Estrai Goals
+        goals_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Goal\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        if goals_matches:
+            result["team_stats_home_goals"] = float(goals_matches[-1][0])
+            result["team_stats_away_goals"] = float(goals_matches[-1][1])
+
+        # Estrai Loss (gol subiti)
+        loss_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Loss\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        if loss_matches:
+            result["team_stats_home_conceded"] = float(loss_matches[-1][0])
+            result["team_stats_away_conceded"] = float(loss_matches[-1][1])
+
+        # Estrai Opponent Shots
+        shots_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Opponent Shots\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        if shots_matches:
+            result["team_stats_home_shots"] = float(shots_matches[-1][0])
+            result["team_stats_away_shots"] = float(shots_matches[-1][1])
+
+        # Estrai Corners
+        corners_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Corners\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        if corners_matches:
+            result["team_stats_home_corners"] = float(corners_matches[-1][0])
+            result["team_stats_away_corners"] = float(corners_matches[-1][1])
+
+        # Estrai Yellow Cards
+        yellows_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Yellow Cards\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        if yellows_matches:
+            result["team_stats_home_yellows"] = float(yellows_matches[-1][0])
+            result["team_stats_away_yellows"] = float(yellows_matches[-1][1])
+
+        # Estrai Fouls
+        fouls_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Fouls\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        if fouls_matches:
+            result["team_stats_home_fouls"] = float(fouls_matches[-1][0])
+            result["team_stats_away_fouls"] = float(fouls_matches[-1][1])
+
+        # Estrai Possession
+        poss_matches = re.findall(r'([\d.]+)%?\s*[\|]?\s*Possession\s*[\|]?\s*([\d.]+)%?', stats_text, re.IGNORECASE)
+        if poss_matches:
+            result["team_stats_home_possession"] = float(poss_matches[-1][0])
+            result["team_stats_away_possession"] = float(poss_matches[-1][1])
+
     return result
 
 
@@ -2959,6 +3026,21 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         # ID squadre
         home_id=regex_data["home_id"],
         away_id=regex_data["away_id"],
+        # Team Statistics (ultimi 10 match)
+        team_stats_home_goals=regex_data["team_stats_home_goals"],
+        team_stats_home_conceded=regex_data["team_stats_home_conceded"],
+        team_stats_home_shots=regex_data["team_stats_home_shots"],
+        team_stats_home_corners=regex_data["team_stats_home_corners"],
+        team_stats_home_yellows=regex_data["team_stats_home_yellows"],
+        team_stats_home_fouls=regex_data["team_stats_home_fouls"],
+        team_stats_home_possession=regex_data["team_stats_home_possession"],
+        team_stats_away_goals=regex_data["team_stats_away_goals"],
+        team_stats_away_conceded=regex_data["team_stats_away_conceded"],
+        team_stats_away_shots=regex_data["team_stats_away_shots"],
+        team_stats_away_corners=regex_data["team_stats_away_corners"],
+        team_stats_away_yellows=regex_data["team_stats_away_yellows"],
+        team_stats_away_fouls=regex_data["team_stats_away_fouls"],
+        team_stats_away_possession=regex_data["team_stats_away_possession"],
     )
     
     # Calcola forma_mult
