@@ -490,6 +490,12 @@ def analizza(
     if state.absence_mult_a != 1.0 or state.forma_mult_a != 1.0:
         xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * state.absence_mult_a * state.forma_mult_a)
 
+    # Meteo: applica un micro-adjustment simmetrico se disponibile.
+    if state.weather_xg_impact != 0.0:
+        _wx_mult = max(0.85, min(1.05, 1.0 + state.weather_xg_impact))
+        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * _wx_mult)
+        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * _wx_mult)
+
     # 2c. Previous scores blend (Miglioramento #2) - solo prematch.
     # Se abbiamo dati sulle ultime 10 partite, li usiamo per calibrare gli xG.
     # Formula: xG stimato = (gol segnati + gol subiti avversario) / 2
