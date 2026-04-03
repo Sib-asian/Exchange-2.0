@@ -141,6 +141,7 @@ if _btn_prematch or _btn_live:
     _lou = _linea_ou(lines["tot_cur_raw"])
 
     _pa = st.session_state.get("prematch_analysis")
+    _lega = getattr(_pa, "league_name", "") if _pa else ""
     _fm_raw_h = getattr(_pa, "forma_mult_h", None) if _pa else None
     _fm_raw_a = getattr(_pa, "forma_mult_a", None) if _pa else None
     _forma_h  = float(_fm_raw_h) if _fm_raw_h is not None else 1.0
@@ -377,7 +378,6 @@ if _btn_prematch or _btn_live:
     # I nomi dei campi in PrematchAnalysisExtracted sono home_team/away_team/league_name
     _squadra_casa = getattr(_pa, "home_team", "") if _pa else ""
     _squadra_trasf = getattr(_pa, "away_team", "") if _pa else ""
-    _lega = getattr(_pa, "league_name", "") if _pa else ""
 
     # Se non ci sono i nomi, usa placeholder
     if not _squadra_casa:
