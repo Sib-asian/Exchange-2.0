@@ -971,6 +971,9 @@ class PrematchAnalysisExtracted:
     home_last6_win: int = 0
     home_last6_draw: int = 0
     home_last6_lose: int = 0
+    # Riga Last 6 FT: gol fatti / subiti nelle ultime 6 (colonne Scored, Conceded su Nowgoal)
+    home_last6_scored: int = 0
+    home_last6_conceded: int = 0
     # Riga Home (performance specificamente in casa)
     home_home_win: int = 0
     home_home_draw: int = 0
@@ -994,6 +997,8 @@ class PrematchAnalysisExtracted:
     away_last6_win: int = 0
     away_last6_draw: int = 0
     away_last6_lose: int = 0
+    away_last6_scored: int = 0
+    away_last6_conceded: int = 0
     # Riga Away (performance specificamente in trasferta)
     away_away_win: int = 0
     away_away_draw: int = 0
@@ -1256,6 +1261,16 @@ def _compute_streaks_from_results(results: list[tuple[int, int]]) -> tuple[int, 
     return scoring, clean_sheet
 
 
+def _fill_last6_goals_from_recent_results(r: PrematchAnalysisExtracted) -> None:
+    """Se Last 6 non ha colonne Scored/Conceded, somma i primi 6 risultati da h_data/a_data."""
+    if r.home_last6_scored == 0 and r.home_last6_conceded == 0 and len(r.home_recent_results) >= 6:
+        r.home_last6_scored = sum(g for g, s in r.home_recent_results[:6])
+        r.home_last6_conceded = sum(s for g, s in r.home_recent_results[:6])
+    if r.away_last6_scored == 0 and r.away_last6_conceded == 0 and len(r.away_recent_results) >= 6:
+        r.away_last6_scored = sum(g for g, s in r.away_recent_results[:6])
+        r.away_last6_conceded = sum(s for g, s in r.away_recent_results[:6])
+
+
 PREMATCH_ANALYSIS_PROMPT = """Sei un assistente che legge screenshot della pagina "Analysis" di Nowgoal.
 
 === STRUTTURA DELLA PAGINA (importante per non confondere le sezioni) ===
@@ -1303,7 +1318,7 @@ Le colonne sono ESATTAMENTE in quest'ordine (contale da sinistra, posizione 1→
 Leggi:
 - Riga "Total": tutte le colonne → matches, win, draw, lose, scored, conceded, win_rate=Rate%
 - Riga "Home" (FT, NON HT): win, draw, lose, scored, conceded → home_win, home_draw, home_lose, home_scored, home_conceded
-- Riga "Last 6": win, draw, lose → last6_win, last6_draw, last6_lose
+- Riga "Last 6": matches, win, draw, lose, scored, conceded → last6_win, last6_draw, last6_lose, last6_scored, last6_conceded
   VINCOLO: last6_win + last6_draw + last6_lose DEVE essere uguale a 6. Se la somma non è 6,
   rileggila contando attentamente le colonne 2, 3, 4.
 
@@ -1319,7 +1334,7 @@ PARTE FT:
 - Riga "Total": matches, win, draw, lose, scored, conceded, win_rate
 - Riga "Away" (FT): win, draw, lose, scored, conceded → away_win, away_draw, away_lose, away_scored, away_conceded
   (NON la riga "Home" della trasferta — ci interessa la performance IN TRASFERTA)
-- Riga "Last 6": last6_win, last6_draw, last6_lose
+- Riga "Last 6": last6_win, last6_draw, last6_lose, last6_scored, last6_conceded (Scored/Conceded dalla tabella)
   VINCOLO: last6_win + last6_draw + last6_lose DEVE essere uguale a 6.
 
 PARTE HT:
@@ -1378,7 +1393,9 @@ Rispondi SOLO con JSON valido, nessun testo fuori dal JSON. Usa 0 per valori non
     "ht_lose": 3,
     "last6_win": 4,
     "last6_draw": 1,
-    "last6_lose": 1
+    "last6_lose": 1,
+    "last6_scored": 12,
+    "last6_conceded": 9
   },
   "away": {
     "rank": 13,
@@ -1399,7 +1416,9 @@ Rispondi SOLO con JSON valido, nessun testo fuori dal JSON. Usa 0 per valori non
     "ht_lose": 5,
     "last6_win": 4,
     "last6_draw": 0,
-    "last6_lose": 2
+    "last6_lose": 2,
+    "last6_scored": 11,
+    "last6_conceded": 8
   },
   "prev_home": {
     "win_pct": 80,
@@ -1554,6 +1573,8 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         hl6w = _i(home.get("last6_win"))
         hl6d = _i(home.get("last6_draw"))
         hl6l = _i(home.get("last6_lose"))
+        hl6sc = _i(home.get("last6_scored"))
+        hl6co = _i(home.get("last6_conceded"))
         # Sanity check: Last 6 must sum to 6; if not, try to correct using Total row
         if hl6w + hl6d + hl6l != 6 and hl6w + hl6d + hl6l > 0:
             _total = hl6w + hl6d + hl6l
@@ -1586,6 +1607,8 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
         al6w = _i(away.get("last6_win"))
         al6d = _i(away.get("last6_draw"))
         al6l = _i(away.get("last6_lose"))
+        al6sc = _i(away.get("last6_scored"))
+        al6co = _i(away.get("last6_conceded"))
         # Sanity check: Last 6 must sum to 6
         if al6w + al6d + al6l != 6 and al6w + al6d + al6l > 0:
             _total = al6w + al6d + al6l
@@ -1690,6 +1713,7 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
             home_matches=hm, home_win=hw, home_draw=hd, home_lose=hl,
             home_scored=hsc, home_conceded=hco, home_win_rate=hwr,
             home_last6_win=hl6w, home_last6_draw=hl6d, home_last6_lose=hl6l,
+            home_last6_scored=hl6sc, home_last6_conceded=hl6co,
             home_home_win=hhw, home_home_draw=hhd, home_home_lose=hhl,
             home_home_scored=hhsc, home_home_conceded=hhco,
             home_ht_win=hhtw, home_ht_draw=hhtd, home_ht_lose=hhtl,
@@ -1699,6 +1723,7 @@ def _parse_prematch_analysis_response(response: str) -> PrematchAnalysisExtracte
             away_matches=am, away_win=aw, away_draw=ad, away_lose=al,
             away_scored=asc, away_conceded=aco, away_win_rate=awr,
             away_last6_win=al6w, away_last6_draw=al6d, away_last6_lose=al6l,
+            away_last6_scored=al6sc, away_last6_conceded=al6co,
             away_away_win=aaw, away_away_draw=aad, away_away_lose=aal,
             away_away_scored=aasc, away_away_conceded=aaco,
             away_ht_win=ahtw, away_ht_draw=ahtd, away_ht_lose=ahtl,
@@ -1922,7 +1947,7 @@ DATI DA ESTRARRE:
    - rank: dal titolo [LEGA-RANK] es. "[ARG D1-17]" → 17
    - matches, win, draw, lose, scored, conceded, win_rate: riga Total (FT)
    - home_win, home_draw, home_lose, home_scored, home_conceded: riga Home (FT)
-   - last6_win, last6_draw, last6_lose: riga Last 6 — DEVONO sommare a 6
+   - last6_win, last6_draw, last6_lose, last6_scored, last6_conceded: riga Last 6 FT — W+D+L = 6; scored/conceded dalle colonne omonime
    - ht_win, ht_draw, ht_lose: riga Total sezione HT
    - goals_1h: totale gol segnati nel 1° tempo (dalla stagione corrente)
    - goals_2h: totale gol segnati nel 2° tempo
@@ -1931,7 +1956,7 @@ DATI DA ESTRARRE:
    - rank, matches, win, draw, lose, scored, conceded, win_rate: riga Total (FT)
    - away_win, away_draw, away_lose, away_scored, away_conceded: riga Away (FT)
      ⚠ NON la riga Home della trasferta — serve la performance IN TRASFERTA
-   - last6_win, last6_draw, last6_lose: riga Last 6 — DEVONO sommare a 6
+   - last6_win, last6_draw, last6_lose, last6_scored, last6_conceded: riga Last 6 FT — W+D+L = 6; scored/conceded dalle colonne omonime
    - ht_win, ht_draw, ht_lose: riga Total sezione HT
    - goals_1h: totale gol segnati nel 1° tempo
    - goals_2h: totale gol segnati nel 2° tempo
@@ -1952,13 +1977,13 @@ DATI DA ESTRARRE:
   "home": {"rank": 0, "matches": 0, "win": 0, "draw": 0, "lose": 0,
            "scored": 0, "conceded": 0, "win_rate": 0.0,
            "home_win": 0, "home_draw": 0, "home_lose": 0, "home_scored": 0, "home_conceded": 0,
-           "last6_win": 0, "last6_draw": 0, "last6_lose": 0,
+           "last6_win": 0, "last6_draw": 0, "last6_lose": 0, "last6_scored": 0, "last6_conceded": 0,
            "ht_win": 0, "ht_draw": 0, "ht_lose": 0,
            "goals_1h": 0, "goals_2h": 0},
   "away": {"rank": 0, "matches": 0, "win": 0, "draw": 0, "lose": 0,
            "scored": 0, "conceded": 0, "win_rate": 0.0,
            "away_win": 0, "away_draw": 0, "away_lose": 0, "away_scored": 0, "away_conceded": 0,
-           "last6_win": 0, "last6_draw": 0, "last6_lose": 0,
+           "last6_win": 0, "last6_draw": 0, "last6_lose": 0, "last6_scored": 0, "last6_conceded": 0,
            "ht_win": 0, "ht_draw": 0, "ht_lose": 0,
            "goals_1h": 0, "goals_2h": 0},
   "prev_home": {"win_pct": 0, "avg_scored": 0.0, "avg_conceded": 0.0, "over_pct": 0},
@@ -2798,6 +2823,8 @@ def _extract_all_with_regex(text: str) -> dict:
         "home_last6_win": 0,
         "home_last6_draw": 0,
         "home_last6_lose": 0,
+        "home_last6_scored": 0,
+        "home_last6_conceded": 0,
         # HT standings casa
         "home_ht_win": 0,
         "home_ht_draw": 0,
@@ -2819,6 +2846,8 @@ def _extract_all_with_regex(text: str) -> dict:
         "away_last6_win": 0,
         "away_last6_draw": 0,
         "away_last6_lose": 0,
+        "away_last6_scored": 0,
+        "away_last6_conceded": 0,
         # HT standings trasferta
         "away_ht_win": 0,
         "away_ht_draw": 0,
@@ -3127,32 +3156,55 @@ def _extract_all_with_regex(text: str) -> dict:
         result["away_away_scored"] = int(m[4])
         result["away_away_conceded"] = int(m[5])
     
-    # Riga Last 6
-    # Es: "Last 6  6  2  2  2  9  8" (matches, win, draw, lose, scored, conceded)
-    # NOTA: ci sono QUATTRO righe Last 6 (FT e HT per entrambe le squadre)
-    # L'ordine è: 1) FT casa, 2) HT casa, 3) FT trasferta, 4) HT trasferta
-    # Per casa: PRIMA riga. Per trasferta: TERZA riga.
-    last6_pattern = r"Last\s*6\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
-    last6_matches = re.findall(last6_pattern, text, re.IGNORECASE)
-    if last6_matches:
-        # Home Last 6: PRIMA riga (FT casa)
-        if len(last6_matches) >= 1:
-            l = last6_matches[0]
-            # l[0] = Matches (ignorato)
-            result["home_last6_win"] = int(l[1])
-            result["home_last6_draw"] = int(l[2])
-            result["home_last6_lose"] = int(l[3])
-        # Away Last 6: TERZA riga (FT trasferta)
-        if len(last6_matches) >= 3:
-            l = last6_matches[2]
+    # Riga Last 6 (solo blocco FT — vedi sezioni ft_home_section / ft_away_section)
+    # Es. Nowgoal: Last 6 | 6 | 2 | 1 | 3 | 8 | 10 | 7 | 33.3%  → scored=8, conceded=10
+    last6_re = re.compile(
+        r"Last\s*6\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+(\d+)\s+(\d+))?",
+        re.IGNORECASE,
+    )
+
+    def _apply_last6_row(section: str, prefix: str) -> None:
+        m6 = last6_re.search(section)
+        if not m6:
+            return
+        result[f"{prefix}_last6_win"] = int(m6.group(2))
+        result[f"{prefix}_last6_draw"] = int(m6.group(3))
+        result[f"{prefix}_last6_lose"] = int(m6.group(4))
+        if m6.group(5) and m6.group(6):
+            result[f"{prefix}_last6_scored"] = int(m6.group(5))
+            result[f"{prefix}_last6_conceded"] = int(m6.group(6))
+
+    if ft_home_section:
+        _apply_last6_row(ft_home_section, "home")
+    if ft_away_section:
+        _apply_last6_row(ft_away_section, "away")
+
+    # Fallback su tutto il testo: ordine Last 6 = FT casa, HT casa, FT trasferta, HT trasferta
+    _home_l6_empty = result["home_last6_win"] + result["home_last6_draw"] + result["home_last6_lose"] == 0
+    _away_l6_empty = result["away_last6_win"] + result["away_last6_draw"] + result["away_last6_lose"] == 0
+    rows_fb = last6_re.findall(text) if (_home_l6_empty or _away_l6_empty) else []
+    if _home_l6_empty and len(rows_fb) >= 1:
+        l = rows_fb[0]
+        result["home_last6_win"] = int(l[1])
+        result["home_last6_draw"] = int(l[2])
+        result["home_last6_lose"] = int(l[3])
+        if l[4] and l[5]:
+            result["home_last6_scored"] = int(l[4])
+            result["home_last6_conceded"] = int(l[5])
+    if _away_l6_empty and rows_fb:
+        if len(rows_fb) >= 3:
+            l = rows_fb[2]
+        elif len(rows_fb) >= 2:
+            l = rows_fb[1]
+        else:
+            l = None
+        if l is not None:
             result["away_last6_win"] = int(l[1])
             result["away_last6_draw"] = int(l[2])
             result["away_last6_lose"] = int(l[3])
-        elif len(last6_matches) >= 2:
-            l = last6_matches[1]
-            result["away_last6_win"] = int(l[1])
-            result["away_last6_draw"] = int(l[2])
-            result["away_last6_lose"] = int(l[3])
+            if l[4] and l[5]:
+                result["away_last6_scored"] = int(l[4])
+                result["away_last6_conceded"] = int(l[5])
     
     # === RANK ===
     # Es: "[SPA D2-3]" → rank=3 o "Rank: 3"
@@ -3714,6 +3766,8 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         home_last6_win=regex_data["home_last6_win"],
         home_last6_draw=regex_data["home_last6_draw"],
         home_last6_lose=regex_data["home_last6_lose"],
+        home_last6_scored=regex_data["home_last6_scored"],
+        home_last6_conceded=regex_data["home_last6_conceded"],
         # HT standings casa
         home_ht_win=regex_data["home_ht_win"],
         home_ht_draw=regex_data["home_ht_draw"],
@@ -3734,6 +3788,8 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         away_last6_win=regex_data["away_last6_win"],
         away_last6_draw=regex_data["away_last6_draw"],
         away_last6_lose=regex_data["away_last6_lose"],
+        away_last6_scored=regex_data["away_last6_scored"],
+        away_last6_conceded=regex_data["away_last6_conceded"],
         # HT standings trasferta
         away_ht_win=regex_data["away_ht_win"],
         away_ht_draw=regex_data["away_ht_draw"],
@@ -3822,6 +3878,8 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         result.away_last6_win, result.away_last6_draw, result.away_last6_lose,
         result.away_scored, result.away_conceded, result.away_matches,
     )
+
+    _fill_last6_goals_from_recent_results(result)
     
     # Calcola win_rate se non estratto (W / Matches * 100)
     if result.home_win_rate == 0 and result.home_matches > 0 and result.home_win > 0:
