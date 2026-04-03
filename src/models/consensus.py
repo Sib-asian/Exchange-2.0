@@ -177,6 +177,25 @@ def compute_consensus(
     return consensus
 
 
+def per_model_market_probs(
+    full_bp: dict[tuple[int, int], float],
+    full_copula: dict[tuple[int, int], float],
+    full_markov: dict[tuple[int, int], float],
+    gol_casa: int,
+    gol_trasf: int,
+    linea_ou: float,
+) -> dict[str, dict[str, float]]:
+    """
+    Probabilità di mercato (1X2, O/U, BTTS) per ciascun modello prima del consensus.
+    Usate per logging e per aggiornare i pesi ensemble da storico.
+    """
+    return {
+        "bp": _probs_from_matrix(full_bp, gol_casa, gol_trasf, linea_ou),
+        "copula": _probs_from_matrix(full_copula, gol_casa, gol_trasf, linea_ou),
+        "markov": _probs_from_matrix(full_markov, gol_casa, gol_trasf, linea_ou),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Intervalli di credibilità (basati sullo spread tra modelli)
 # ---------------------------------------------------------------------------

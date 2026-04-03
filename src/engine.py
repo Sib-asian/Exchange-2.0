@@ -280,6 +280,20 @@ class ProbabilitaModello:
     # potrebbe esserci informazione asimmetrica (infortuni, formazioni, notizie).
     market_shock: bool = False
 
+    # Pesi consensus effettivi e marginali 1X2 per modello (tracking / ensemble adattivo)
+    consensus_w_bp: float = 0.5
+    consensus_w_cop: float = 0.3
+    consensus_w_mk: float = 0.2
+    p1_bp: float = 0.0
+    px_bp: float = 0.0
+    p2_bp: float = 0.0
+    p1_cop: float = 0.0
+    px_cop: float = 0.0
+    p2_cop: float = 0.0
+    p1_mk: float = 0.0
+    px_mk: float = 0.0
+    p2_mk: float = 0.0
+
     # Intervalli di credibilità multi-modello
     credible_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
 
@@ -409,7 +423,9 @@ def analizza(
         calibrate_probabilities,
         compute_consensus,
         compute_model_credible_intervals,
+        per_model_market_probs,
     )
+    from src.models.ensemble_adaptive import blend_consensus_weights_with_history
     from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
 
     # Cap temporale: i gol rimanenti non possono superare ~(90-minuto)/90 * 4.0.
@@ -802,6 +818,14 @@ def analizza(
         _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID
     else:
         _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_LATE, CONSENSUS.W_COP_LATE, CONSENSUS.W_MK_LATE
+
+    _w_bp, _w_cop, _w_mk = blend_consensus_weights_with_history(
+        state.minuto, _w_bp, _w_cop, _w_mk
+    )
+    _per_raw = per_model_market_probs(
+        full_bp, full_copula, full_markov,
+        state.gol_casa, state.gol_trasf, state.linea_ou,
+    )
     consensus_probs = compute_consensus(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
@@ -1012,4 +1036,16 @@ def analizza(
         delta_tot=delta_tot,
         lines_need_update=lines_need_update,
         market_shock=market_shock,
+        consensus_w_bp=_w_bp,
+        consensus_w_cop=_w_cop,
+        consensus_w_mk=_w_mk,
+        p1_bp=_per_raw["bp"]["p1"],
+        px_bp=_per_raw["bp"]["px"],
+        p2_bp=_per_raw["bp"]["p2"],
+        p1_cop=_per_raw["copula"]["p1"],
+        px_cop=_per_raw["copula"]["px"],
+        p2_cop=_per_raw["copula"]["p2"],
+        p1_mk=_per_raw["markov"]["p1"],
+        px_mk=_per_raw["markov"]["px"],
+        p2_mk=_per_raw["markov"]["p2"],
     )

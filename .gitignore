@@ -48,5 +48,8 @@ Thumbs.db
 .ruff_cache/
 .mypy_cache/
 
+# Runtime cache (esternal league fallback)
+data/league_fallback_cache.json
+
 # Secrets
 .streamlit/secrets.toml

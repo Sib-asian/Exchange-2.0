@@ -6,6 +6,7 @@ Flusso: Linee → ANALIZZA  |  ▶ Dati Live → ANALIZZA
 import streamlit as st
 
 from src.config import SIGNALS, UI
+from src.tracking.prediction_log import tot_op_band
 from src.session_storage import (
     PartitaSalvata,
     build_saved_at_label,
@@ -336,20 +337,15 @@ if _btn_prematch or _btn_live:
     with st.spinner("Calcolo..."):
         from dataclasses import replace as _dc_replace
         from src.engine import analizza
-        from src.models.prematch_history_calibration import calibrate_prematch_probs
-        risultati = analizza(state)
-        if state.minuto == 0:
-            p1, px, p2, p_over, p_under, p_btts, _cal_sig = calibrate_prematch_probs(
-                risultati.p1, risultati.px, risultati.p2,
-                risultati.p_over, risultati.p_under, risultati.p_btts,
-                league=_lega,
-            )
-            risultati.p1 = p1
-            risultati.px = px
-            risultati.p2 = p2
-            risultati.p_over = p_over
-            risultati.p_under = p_under
-            risultati.p_btts = p_btts
+        from src.pipeline import run_analysis_pipeline
+
+        _cov_pipe = float(_coverage) if (state.minuto == 0 and _pa) else 1.0
+        risultati, _cal_sig = run_analysis_pipeline(
+            state,
+            league=_lega,
+            apply_prematch_calibration=(state.minuto == 0),
+            extraction_coverage=_cov_pipe,
+        )
         # Scenari "se segna subito" (solo live)
         _scen_h: object = None
         _scen_a: object = None
@@ -407,6 +403,25 @@ if _btn_prematch or _btn_live:
         "quota_2": _mkt2,
     }
 
+    _tracking_meta = {
+        "extraction_coverage": float(_coverage),
+        "league_source": str(getattr(_pa, "league_source", "")) if _pa else "",
+        "model_agreement": float(risultati.model_agreement),
+        "tot_band": tot_op_band(float(lines["tot_op"])),
+        "software_version": str(UI.VERSION),
+        "consensus_w_bp": float(risultati.consensus_w_bp),
+        "consensus_w_cop": float(risultati.consensus_w_cop),
+        "consensus_w_mk": float(risultati.consensus_w_mk),
+        "p1_bp": float(risultati.p1_bp),
+        "px_bp": float(risultati.px_bp),
+        "p2_bp": float(risultati.p2_bp),
+        "p1_cop": float(risultati.p1_cop),
+        "px_cop": float(risultati.px_cop),
+        "p2_cop": float(risultati.p2_cop),
+        "p1_mk": float(risultati.p1_mk),
+        "px_mk": float(risultati.px_mk),
+        "p2_mk": float(risultati.p2_mk),
+    }
     _tracking_record = create_record_from_analysis(
         squadra_casa=_squadra_casa,
         squadra_trasf=_squadra_trasf,
@@ -414,6 +429,7 @@ if _btn_prematch or _btn_live:
         input_data=_input_data,
         predictions=_predictions,
         market_quotes=_market_quotes,
+        metadata=_tracking_meta,
     )
 
     _pred_log = get_prediction_log()

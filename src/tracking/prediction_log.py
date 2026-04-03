@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, field, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +28,23 @@ import os
 _APP_DIR = Path(__file__).parent.parent.parent  # sale da src/tracking -> src -> root
 DATA_DIR = _APP_DIR / "data"
 PREDICTIONS_FILE = DATA_DIR / "predictions.json"
+
+
+def tot_op_band(tot_op: float) -> str:
+    """Fascia della linea total apertura per segmentazione statistiche."""
+    if tot_op <= 0:
+        return "unknown"
+    if tot_op < 2.25:
+        return "<2.25"
+    if tot_op <= 2.75:
+        return "2.25-2.75"
+    return ">2.75"
+
+
+def record_from_dict(data: dict[str, Any]) -> "PredictionRecord":
+    """Costruisce un record ignorando chiavi sconosciute (retrocompatibilità JSON)."""
+    allowed = {f.name for f in fields(PredictionRecord)}
+    return PredictionRecord(**{k: v for k, v in data.items() if k in allowed})
 
 
 @dataclass
@@ -68,6 +85,26 @@ class PredictionRecord:
 
     # Confidenza modello
     model_confidence: float = 0.0
+
+    # Osservabilità / qualità estrazione e motore
+    extraction_coverage: float = 0.0
+    league_source: str = ""
+    model_agreement: float = 0.0
+    tot_band: str = ""
+    software_version: str = ""
+    consensus_w_bp: float = 0.0
+    consensus_w_cop: float = 0.0
+    consensus_w_mk: float = 0.0
+    # Probabilità 1X2 grezze per modello (pre-consensus calibrato) — apprendimento pesi
+    p1_bp: float = 0.0
+    px_bp: float = 0.0
+    p2_bp: float = 0.0
+    p1_cop: float = 0.0
+    px_cop: float = 0.0
+    p2_cop: float = 0.0
+    p1_mk: float = 0.0
+    px_mk: float = 0.0
+    p2_mk: float = 0.0
 
     # Risultato (vuoto fino a fine partita)
     gol_casa: int | None = None
@@ -129,7 +166,7 @@ class PredictionLog:
         try:
             with open(PREDICTIONS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return [PredictionRecord(**r) for r in data.get("predictions", [])]
+            return [record_from_dict(r) for r in data.get("predictions", [])]
         except (json.JSONDecodeError, FileNotFoundError):
             return []
 
@@ -223,6 +260,7 @@ def create_record_from_analysis(
     input_data: dict[str, Any],
     predictions: dict[str, float],
     market_quotes: dict[str, float] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> PredictionRecord:
     """
     Crea un record da salvare dai dati dell'analisi.
@@ -245,6 +283,8 @@ def create_record_from_analysis(
     record_id = f"{now.strftime('%Y%m%d')}_{safe_home}_{safe_away}"
 
     quotes = market_quotes or {}
+    meta = metadata or {}
+    tot_op_val = float(input_data.get("tot_op", 0.0))
 
     return PredictionRecord(
         id=record_id,
@@ -253,7 +293,7 @@ def create_record_from_analysis(
         squadra_trasf=squadra_trasf,
         lega=lega,
         ah_op=input_data.get("ah_op", 0.0),
-        tot_op=input_data.get("tot_op", 0.0),
+        tot_op=tot_op_val,
         xg_h=input_data.get("xg_h", 0.0),
         xg_a=input_data.get("xg_a", 0.0),
         minuto=int(input_data.get("minuto", 0)),
@@ -272,4 +312,21 @@ def create_record_from_analysis(
         quota_under=quotes.get("quota_under", 0.0),
         quota_btts_si=quotes.get("quota_btts_si", 0.0),
         quota_btts_no=quotes.get("quota_btts_no", 0.0),
+        extraction_coverage=float(meta.get("extraction_coverage", 0.0)),
+        league_source=str(meta.get("league_source", "")),
+        model_agreement=float(meta.get("model_agreement", 0.0)),
+        tot_band=str(meta.get("tot_band", tot_op_band(tot_op_val))),
+        software_version=str(meta.get("software_version", "")),
+        consensus_w_bp=float(meta.get("consensus_w_bp", 0.0)),
+        consensus_w_cop=float(meta.get("consensus_w_cop", 0.0)),
+        consensus_w_mk=float(meta.get("consensus_w_mk", 0.0)),
+        p1_bp=float(meta.get("p1_bp", 0.0)),
+        px_bp=float(meta.get("px_bp", 0.0)),
+        p2_bp=float(meta.get("p2_bp", 0.0)),
+        p1_cop=float(meta.get("p1_cop", 0.0)),
+        px_cop=float(meta.get("px_cop", 0.0)),
+        p2_cop=float(meta.get("p2_cop", 0.0)),
+        p1_mk=float(meta.get("p1_mk", 0.0)),
+        px_mk=float(meta.get("px_mk", 0.0)),
+        p2_mk=float(meta.get("p2_mk", 0.0)),
     )
