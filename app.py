@@ -358,6 +358,12 @@ if _btn_prematch or _btn_live:
             apply_prematch_calibration=(state.minuto == 0),
             extraction_coverage=_cov_pipe,
         )
+        if state.minuto == 0:
+            st.session_state["prematch_last_model_1x2"] = {
+                "p1": float(risultati.p1),
+                "px": float(risultati.px),
+                "p2": float(risultati.p2),
+            }
         # Scenari "se segna subito" (solo live)
         _scen_h: object = None
         _scen_a: object = None

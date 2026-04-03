@@ -15,6 +15,8 @@ Restituisce oggetti tipizzati (MatchState, ExchangeQuotes) pronti per il motore.
 
 from __future__ import annotations
 
+from typing import Any
+
 import streamlit as st
 
 from src.config import BAYES, INPUT_VALIDATION, UI
@@ -1146,7 +1148,8 @@ def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
             st.success(f"📍 Dati da cache — Meteo: {cached.weather_condition}, {cached.weather_temp}°C")
         else:
             st.info("📍 Dati da cache (senza meteo) — Clicca 'Rimuovi analisi' per estrarre di nuovo con OpenWeather")
-        _render_prematch_analysis_summary(cached)
+        _model = st.session_state.get("prematch_last_model_1x2")
+        _render_prematch_analysis_summary(cached, model_probs=_model if isinstance(_model, dict) else None)
         return cached
 
     tab_url, tab_screen = st.tabs(["🔗 URL Nowgoal", "📷 Screenshot"])
@@ -1215,9 +1218,140 @@ def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
     return None
 
 
-def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
+def _implied_probs_1x2(o1: float, ox: float, o2: float) -> tuple[float, float, float] | None:
+    """Probabilità implicite normalizzate (rimuove overround)."""
+    if o1 <= 1.0 or ox <= 1.0 or o2 <= 1.0:
+        return None
+    i1, ix, i2 = 1.0 / o1, 1.0 / ox, 1.0 / o2
+    s = i1 + ix + i2
+    if s <= 0:
+        return None
+    return i1 / s, ix / s, i2 / s
+
+
+def _render_prematch_market_synthesis(data: PrematchAnalysisExtracted) -> None:
+    """Aperture vs attuali: 1X2, Asian, Total, eventuale riga Live — in parole povere."""
+    st.markdown("##### Mercato (da estrazione URL/Live)")
+    rows_mkt: list[str] = []
+
+    imp = _implied_probs_1x2(data.mkt_init_1, data.mkt_init_x, data.mkt_init_2)
+    if imp:
+        p1, px, p2 = imp
+        rows_mkt.append(
+            f"**1X2 implicito** (da quote *iniziali* Nowgoal): "
+            f"Casa **{p1 * 100:.1f}%** · X **{px * 100:.1f}%** · Trasf. **{p2 * 100:.1f}%** "
+            f"— quote {data.mkt_init_1:.2f} / {data.mkt_init_x:.2f} / {data.mkt_init_2:.2f}"
+        )
+    elif data.mkt_init_1 > 0:
+        rows_mkt.append(
+            f"**1X2** (quote iniziali): {data.mkt_init_1:.2f} / {data.mkt_init_x:.2f} / {data.mkt_init_2:.2f}"
+        )
+
+    ah_o = float(data.ah_line_open or 0.0)
+    ah_c = float(data.ah_line_close or 0.0)
+    if ah_o != 0.0 or ah_c != 0.0:
+        d_ah = float(data.line_movement_ah or 0.0)
+        mov = f" · movimento linea **{d_ah:+.2f}**" if (ah_o != 0 and ah_c != 0) else ""
+        extra = ""
+        if data.ah_home_odds_open > 0 or data.ah_away_odds_open > 0:
+            extra = (
+                f" · quote AH apertura casa/tr. **{data.ah_home_odds_open:.2f}** / "
+                f"**{data.ah_away_odds_open:.2f}**"
+            )
+        rows_mkt.append(
+            f"**Asian (consensus tabella)**: apertura **{ah_o:+.2f}** → attuale **{ah_c:+.2f}**{mov}{extra}"
+        )
+
+    to_o = float(data.total_line_open or 0.0)
+    to_c = float(data.total_line_close or 0.0)
+    if to_o != 0.0 or to_c != 0.0:
+        d_tot = float(data.line_movement_total or 0.0)
+        mov = f" · movimento **{d_tot:+.2f}**" if (to_o != 0 and to_c != 0) else ""
+        ou = ""
+        if data.total_over_odds_open > 0 or data.total_under_odds_open > 0:
+            ou = f" · O/U apertura **{data.total_over_odds_open:.2f}** / **{data.total_under_odds_open:.2f}**"
+        rows_mkt.append(
+            f"**Over/Under (consensus)**: apertura **{to_o:.2f}** → attuale **{to_c:.2f}**{mov}{ou}"
+        )
+
+    liv_ah = float(data.live_ah_line or 0.0)
+    liv_tot = float(data.live_total_line or 0.0)
+    if liv_ah != 0.0 or liv_tot != 0.0:
+        la = (
+            f"AH **{liv_ah:+.2f}** @ {data.live_ah_home_odds:.2f} / {data.live_ah_away_odds:.2f}"
+            if liv_ah != 0.0
+            else ""
+        )
+        lt = (
+            f" · Total **{liv_tot:.2f}** @ O {data.live_over_odds:.2f} / U {data.live_under_odds:.2f}"
+            if liv_tot != 0.0
+            else ""
+        )
+        rows_mkt.append(f"**Da pagina Live (Jina)** — {la}{lt}")
+
+    sig = float(getattr(data, "odds_sharp_signal", 0.0) or 0.0)
+    if sig > 0:
+        rows_mkt.append(f"Segnale movimento quote (interno): **{sig:.3f}**")
+
+    if rows_mkt:
+        for line in rows_mkt:
+            st.markdown(line)
+    else:
+        st.caption(
+            "Nessuna linea AH/Total o quote 1X2 estratta da questa pagina. "
+            "Compila le linee nel pannello principale o riprova l'URL."
+        )
+
+
+def _render_model_vs_market_1x2(
+    data: PrematchAnalysisExtracted,
+    model_probs: dict[str, Any] | None,
+) -> None:
+    """Confronto ultimo ANALIZZA prematch vs implicito del mercato."""
+    if not model_probs:
+        st.caption(
+            "Dopo **ANALIZZA** (minuto 0) qui comparirà il confronto **modello ↔ mercato** sul 1X2."
+        )
+        return
+    try:
+        mp1 = float(model_probs.get("p1", 0.0))
+        mpx = float(model_probs.get("px", 0.0))
+        mp2 = float(model_probs.get("p2", 0.0))
+    except (TypeError, ValueError):
+        return
+    if mp1 <= 0 and mpx <= 0 and mp2 <= 0:
+        return
+
+    imp = _implied_probs_1x2(data.mkt_init_1, data.mkt_init_x, data.mkt_init_2)
+    if not imp:
+        st.caption("Modello: Casa / X / Trasf. calcolati; mercato 1X2 non disponibile per il confronto.")
+        return
+
+    m1, mx, m2 = imp
+    st.markdown("##### Modello vs mercato (1X2)")
+    h = data.home_team or "Casa"
+    a = data.away_team or "Trasferta"
+    d1 = (mp1 - m1) * 100.0
+    dx = (mpx - mx) * 100.0
+    d2 = (mp2 - m2) * 100.0
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric(h, f"{mp1 * 100:.1f}%", f"{d1:+.1f} pp vs mercato", help="Differenza in punti percentuali vs implicito delle quote iniziali")
+    c2.metric("X", f"{mpx * 100:.1f}%", f"{dx:+.1f} pp vs mercato")
+    c3.metric(a, f"{mp2 * 100:.1f}%", f"{d2:+.1f} pp vs mercato")
+
+    st.caption(
+        "Mercato = probabilità implicite dalle **quote 1X2 iniziali** Nowgoal (normalizzate). "
+        "Modello = ultimo **ANALIZZA** a minuto 0."
+    )
+
+
+def _render_prematch_analysis_summary(
+    data: PrematchAnalysisExtracted,
+    model_probs: dict[str, Any] | None = None,
+) -> None:
     """Mostra un riepilogo compatto dei dati estratti dallo screen Analysis."""
-    with st.expander("✅ Dati Analisi estratti", expanded=False):
+    with st.expander("✅ Dati Analisi estratti", expanded=True):
         # Nomi squadre
         if data.home_team or data.away_team:
             st.markdown(f"**{data.home_team}** vs **{data.away_team}**")
@@ -1226,7 +1360,10 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
                 src = getattr(data, "league_source", "unknown")
                 if src and src != "unknown":
                     st.caption(f"Sorgente lega: `{src}`")
-        
+
+        _render_prematch_market_synthesis(data)
+        _render_model_vs_market_1x2(data, model_probs)
+
         # H2H data — mostra messaggio chiaro se non disponibile
         h2h_available = data.h2h_home_win_pct > 0 or data.h2h_draw_pct > 0 or data.h2h_away_win_pct > 0
         if h2h_available:
@@ -1305,13 +1442,6 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
             st.caption(
                 "Solo informativi: HT/FT completo, quote live, parte delle metriche di tabella non "
                 "ancora collegate direttamente al modello."
-            )
-
-        # Quote 1X2 iniziali (solo se estratte via URL)
-        if data.mkt_init_1 > 0:
-            st.caption(
-                f"Quote 1X2 iniziali (consensus): "
-                f"**1** {data.mkt_init_1:.2f} · **X** {data.mkt_init_x:.2f} · **2** {data.mkt_init_2:.2f}"
             )
 
         # HT H2H
