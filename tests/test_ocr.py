@@ -131,6 +131,21 @@ class TestNowgoalRegexNotes:
         parsed = _extract_all_with_regex(text)
         assert parsed["h2h_btts_pct"] == 66.7
 
+    def test_previous_scores_table_fills_prev_avgs(self):
+        """Medie gol da righe tabella Previous Scores (non solo riga riassuntiva Nowgoal)."""
+        text = (
+            "Title: Alpha FC vs Beta SC Live Score\n"
+            "## Previous Scores Statistics\n"
+            "| CHI D1 | | Alpha FC | 2-1(1-0) | Gamma United |\n"
+            "| CHI D1 | | Delta | 0-3(0-2) | Alpha FC |\n"
+            "| CHI D1 | | Beta SC | 1-1(0-0) | Epsilon FC |\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["prev_home_avg_scored"] == 2.5
+        assert parsed["prev_home_avg_conceded"] == 0.5
+        assert parsed["prev_away_avg_scored"] == 1.0
+        assert parsed["prev_away_avg_conceded"] == 1.0
+
     def test_extract_absence_counts_from_explicit_home_away_lines(self):
         text = (
             "Injuries and Suspensions\n"

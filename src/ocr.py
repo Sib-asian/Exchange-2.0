@@ -2201,6 +2201,123 @@ def _teams_name_match(a: str, b: str) -> bool:
     return False
 
 
+def _parse_previous_scores_table_line(line: str) -> tuple[str, str, int, int] | None:
+    """
+    Riga tabella Previous Scores (markdown | ... |) o riga compatta stile H2H.
+    Ritorna (home_name, away_name, gol_casa, gol_trasferta) o None.
+    """
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    if "|" in line:
+        if not re.search(r"\d+\s*-\s*\d+\s*\(", line):
+            return None
+        sm = re.search(r"(\d+)\s*-\s*(\d+)\s*\([^)]+\)", line)
+        if not sm:
+            return None
+        gh, ga = int(sm.group(1)), int(sm.group(2))
+        cells = [re.sub(r"\*+", "", c).strip() for c in line.split("|")]
+        idx_score = None
+        for i, c in enumerate(cells):
+            if re.search(r"^\d+\s*-\s*\d+\s*\(", c):
+                idx_score = i
+                break
+        if idx_score is None:
+            return None
+        th_i = idx_score - 1
+        while th_i >= 0 and not cells[th_i]:
+            th_i -= 1
+        ta_i = idx_score + 1
+        while ta_i < len(cells) and not cells[ta_i]:
+            ta_i += 1
+        if th_i < 0 or ta_i >= len(cells):
+            return None
+        th, ta = cells[th_i], cells[ta_i]
+        if not th or not ta:
+            return None
+        low_h = th.lower()
+        if any(x in low_h for x in ("league", "cup", "home", "away", "score", "date", "corner")):
+            return None
+        if re.match(r"^(w|d|l|hw|aw)$", th.strip(), re.I):
+            return None
+        return th, ta, gh, ga
+    # Compatto: "CHI D1 O.Higgins 1-0(1-0) Audax" (Jina senza pipe)
+    m = re.match(
+        r"^(.+?)\s+(\d+)\s*-\s*(\d+)\s*\([^)]*\)\s+(.+)$",
+        line,
+    )
+    if not m:
+        return None
+    left_raw, gh_s, ga_s, right_raw = m.group(1), m.group(2), m.group(3), m.group(4).strip()
+    gh, ga = int(gh_s), int(ga_s)
+    th = _strip_league_code_prefix(left_raw)
+    ta = right_raw
+    if not th or not ta:
+        return None
+    return th, ta, gh, ga
+
+
+def _avg_goals_for_team_from_previous_scores_text(
+    prev_text: str,
+    team: str,
+    max_rows: int = 10,
+) -> tuple[float, float, int]:
+    """
+    Media gol fatti / subiti per `team` sulle prime `max_rows` righe valide
+    nella sezione Previous Scores (non H2H diretto).
+    """
+    scored: list[int] = []
+    conceded: list[int] = []
+    for line in prev_text.splitlines():
+        if len(scored) >= max_rows:
+            break
+        pr = _parse_previous_scores_table_line(line)
+        if not pr:
+            continue
+        th, ta, gh, ga = pr
+        if _teams_name_match(th, team) and not _teams_name_match(ta, team):
+            scored.append(gh)
+            conceded.append(ga)
+        elif _teams_name_match(ta, team) and not _teams_name_match(th, team):
+            scored.append(ga)
+            conceded.append(gh)
+    n = len(scored)
+    if n == 0:
+        return 0.0, 0.0, 0
+    return sum(scored) / n, sum(conceded) / n, n
+
+
+def _supplement_previous_scores_from_tables(result: dict, text: str) -> None:
+    """
+    Se mancano le medie dalla riga riassuntiva Nowgoal, calcolale dalle righe
+    tabella in Previous Scores Statistics (ultime ~10 partite per squadra).
+    """
+    fh = (result.get("home_team") or "").strip()
+    fa = (result.get("away_team") or "").strip()
+    if not fh or not fa:
+        return
+    prev_sec = re.search(
+        r"Previous\s+Score.*?(?=\*\*Last Updated|HT/FT Statistics|\n##\s+\w|Historical\s+Matches|$)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    prev_txt = prev_sec.group(0) if prev_sec else ""
+    if not prev_txt or len(prev_txt) < 40:
+        return
+
+    if result.get("prev_home_avg_scored", 0) == 0 and result.get("prev_home_avg_conceded", 0) == 0:
+        hs, hc, nh = _avg_goals_for_team_from_previous_scores_text(prev_txt, fh)
+        if nh > 0:
+            result["prev_home_avg_scored"] = round(hs, 2)
+            result["prev_home_avg_conceded"] = round(hc, 2)
+
+    if result.get("prev_away_avg_scored", 0) == 0 and result.get("prev_away_avg_conceded", 0) == 0:
+        as_, ac, na = _avg_goals_for_team_from_previous_scores_text(prev_txt, fa)
+        if na > 0:
+            result["prev_away_avg_scored"] = round(as_, 2)
+            result["prev_away_avg_conceded"] = round(ac, 2)
+
+
 def _h2h_goals_for_fixture_teams(
     hist_home: str, hist_away: str, gh: int, ga: int, fixture_home: str, fixture_away: str
 ) -> tuple[int, int] | None:
@@ -3251,6 +3368,13 @@ def _extract_all_with_regex(text: str) -> dict:
     # ma il testo ha "Goal Score/Loss per Game" (la parola "Goal" in mezzo).
     prev_goals_pattern = r"(\d+[.,]\d+)\s*goals?\s*Goal\s+Score/Loss\s+per\s+Game\s*(\d+[.,]\d+)\s*goals?"
     prev_goals_matches = re.findall(prev_goals_pattern, _prev_text, re.IGNORECASE)
+    if not prev_goals_matches:
+        # Variante senza la parola "Goal" duplicata (alcuni render Jina/Nowgoal)
+        prev_goals_matches = re.findall(
+            r"(\d+[.,]\d+)\s*goals?\s+Score/Loss\s+per\s+Game\s*(\d+[.,]\d+)\s*goals?",
+            _prev_text,
+            re.IGNORECASE,
+        )
     if prev_goals_matches:
         # Prima occorrenza = casa
         if len(prev_goals_matches) >= 1:
@@ -3700,6 +3824,21 @@ def _extract_all_with_regex(text: str) -> dict:
         if poss_matches:
             result["team_stats_home_possession"] = float(poss_matches[-1][0])
             result["team_stats_away_possession"] = float(poss_matches[-1][1])
+
+    # Nomi da riga Title (Nowgoal / Jina) se il pattern "X vs Y" a inizio riga non li ha catturati
+    if not (result.get("home_team") or "").strip() or not (result.get("away_team") or "").strip():
+        tm = re.search(
+            r"(?i)(?:^|\n)Title:\s*([^\n|]+?)\s+(?:vs|VS)\s+([^\n|]+?)(?:\s*$|\s+Live|\s*\|)",
+            text,
+        )
+        if tm:
+            if not (result.get("home_team") or "").strip():
+                result["home_team"] = _clean_team_name(tm.group(1))
+            if not (result.get("away_team") or "").strip():
+                result["away_team"] = _clean_team_name(tm.group(2))
+
+    # Previous Scores: medie gol da righe tabella se manca il riassunto testuale Nowgoal
+    _supplement_previous_scores_from_tables(result, text)
 
     result["extraction_section_scores"] = {
         "identity": 1.0 if (result["home_team"] and result["away_team"]) else 0.0,
