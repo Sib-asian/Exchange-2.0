@@ -83,6 +83,17 @@ class TestNowgoalRegexNotes:
         parsed = _extract_all_with_regex("Title: Foo VS Bar\nFootball> Serie A>\n")
         assert "market_1x2_missing_or_unreadable" in parsed["extraction_notes"]
 
+    def test_extract_h2h_btts_pct_from_scores(self):
+        text = (
+            "Head to Head Statistics\n"
+            "AUS D1 Auckland FC 2-1(1-0) Adelaide United\n"
+            "AUS D1 Auckland FC 0-0(0-0) Adelaide United\n"
+            "AUS D1 Adelaide United 3-2(1-1) Auckland FC\n"
+            "Previous Scores Statistics\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["h2h_btts_pct"] == 66.7
+
 
 class TestGetEnvWithPath:
     def test_includes_common_paths(self):

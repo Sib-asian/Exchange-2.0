@@ -953,6 +953,7 @@ class PrematchAnalysisExtracted:
     # H2H trend scommesse (da grafici O/U e AH nella sezione H2H)
     h2h_over_pct: float = 0.0        # % partite H2H andate Over (0-100)
     h2h_ah_home_cover_pct: float = 0.0  # % partite H2H in cui la casa ha coperto l'AH
+    h2h_btts_pct: float = 0.0        # % partite H2H con entrambe a segno
 
     # Standings casa — riga Total
     home_rank: int = 0
@@ -1052,6 +1053,10 @@ class PrematchAnalysisExtracted:
     away_form_trend: float = 0.0      # Trend forma: negativo = in peggioramento
     home_xg_from_recent: float = 0.0  # xG stimato da partite recenti
     away_xg_from_recent: float = 0.0  # xG stimato da partite recenti
+    scoring_streak_h: int = 0         # partite consecutive con gol segnato (casa)
+    scoring_streak_a: int = 0         # partite consecutive con gol segnato (trasferta)
+    clean_sheet_streak_h: int = 0     # partite consecutive senza subire (casa)
+    clean_sheet_streak_a: int = 0     # partite consecutive senza subire (trasferta)
 
     # === NUOVI CAMPI: Quote multi-bookmaker (Vs_hOdds) ===
     # Usati principalmente dallo Scanner (pagina principale ha input manuale)
@@ -1181,6 +1186,23 @@ def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
     if breadcrumb:
         league = _clean_league_name(breadcrumb.group(1))
     return home, away, league
+
+
+def _compute_streaks_from_results(results: list[tuple[int, int]]) -> tuple[int, int]:
+    """Ritorna (scoring_streak, clean_sheet_streak) su risultati recenti."""
+    scoring = 0
+    clean_sheet = 0
+    for gf, gs in results:
+        if gf > 0:
+            scoring += 1
+        else:
+            break
+    for gf, gs in results:
+        if gs == 0:
+            clean_sheet += 1
+        else:
+            break
+    return scoring, clean_sheet
 
 
 PREMATCH_ANALYSIS_PROMPT = """Sei un assistente che legge screenshot della pagina "Analysis" di Nowgoal.
@@ -2196,6 +2218,7 @@ def _extract_all_with_regex(text: str) -> dict:
         "h2h_draw_pct": 0.0,
         "h2h_away_win_pct": 0.0,
         "h2h_over_pct": 0.0,
+        "h2h_btts_pct": 0.0,
         "h2h_avg_goals_home": 0.0,
         "h2h_avg_goals_away": 0.0,
         # Strength
@@ -2269,6 +2292,10 @@ def _extract_all_with_regex(text: str) -> dict:
         "away_form_trend": 0.0,
         "home_xg_from_recent": 0.0,
         "away_xg_from_recent": 0.0,
+        "scoring_streak_h": 0,
+        "scoring_streak_a": 0,
+        "clean_sheet_streak_h": 0,
+        "clean_sheet_streak_a": 0,
         # Quote multi-bookmaker (da Vs_hOdds JS)
         "ah_line_open": 0.0,
         "ah_line_close": 0.0,
@@ -2347,6 +2374,16 @@ def _extract_all_with_regex(text: str) -> dict:
                 if len(goals_matches) >= 2:
                     result["h2h_avg_goals_home"] = float(goals_matches[0].replace(",", "."))
                     result["h2h_avg_goals_away"] = float(goals_matches[1].replace(",", "."))
+    # H2H BTTS% ricavato dai punteggi presenti nella tabella H2H.
+    h2h_section = re.search(
+        r"Head to Head Statistics(.*?)(?:Previous Scores Statistics|Adelaide United\s+Historical|$)",
+        text, re.IGNORECASE | re.DOTALL
+    )
+    if h2h_section:
+        score_pairs = re.findall(r"\b(\d+)-(\d+)\(", h2h_section.group(1))
+        if score_pairs:
+            btts_hits = sum(1 for h, a in score_pairs if int(h) > 0 and int(a) > 0)
+            result["h2h_btts_pct"] = round(btts_hits * 100.0 / len(score_pairs), 1)
     # Se H2H percentuali sono 0, lascia h2h_avg_goals a 0 (nessun H2H disponibile)
 
     # === STRENGTH ===
@@ -2711,6 +2748,10 @@ def _extract_all_with_regex(text: str) -> dict:
                             home_results.append((g1, g2))
             
             result["home_recent_results"] = home_results
+            if home_results:
+                sc, cs = _compute_streaks_from_results(home_results)
+                result["scoring_streak_h"] = sc
+                result["clean_sheet_streak_h"] = cs
             
             # Calcola trend forma (prime 5 vs ultime 5)
             if len(home_results) >= 10:
@@ -2748,6 +2789,10 @@ def _extract_all_with_regex(text: str) -> dict:
                             away_results.append((g1, g2))
             
             result["away_recent_results"] = away_results
+            if away_results:
+                sc, cs = _compute_streaks_from_results(away_results)
+                result["scoring_streak_a"] = sc
+                result["clean_sheet_streak_a"] = cs
             
             if len(away_results) >= 10:
                 first5 = away_results[:5]
@@ -3054,6 +3099,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         h2h_draw_pct=regex_data["h2h_draw_pct"],
         h2h_away_win_pct=regex_data["h2h_away_win_pct"],
         h2h_over_pct=regex_data["h2h_over_pct"],
+        h2h_btts_pct=regex_data["h2h_btts_pct"],
         h2h_avg_goals_home=regex_data["h2h_avg_goals_home"],
         h2h_avg_goals_away=regex_data["h2h_avg_goals_away"],
         # Strength
@@ -3125,6 +3171,10 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         away_form_trend=regex_data["away_form_trend"],
         home_xg_from_recent=regex_data["home_xg_from_recent"],
         away_xg_from_recent=regex_data["away_xg_from_recent"],
+        scoring_streak_h=regex_data["scoring_streak_h"],
+        scoring_streak_a=regex_data["scoring_streak_a"],
+        clean_sheet_streak_h=regex_data["clean_sheet_streak_h"],
+        clean_sheet_streak_a=regex_data["clean_sheet_streak_a"],
         # Quote multi-bookmaker
         ah_line_open=regex_data["ah_line_open"],
         ah_line_close=regex_data["ah_line_close"],

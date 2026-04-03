@@ -1004,6 +1004,10 @@ def build_match_state(
     away_ga_a: float = 0.0,
     weather_xg_impact: float = 0.0,
     h2h_btts_pct: float = 0.0,
+    scoring_streak_h: int = 0,
+    scoring_streak_a: int = 0,
+    clean_sheet_streak_h: int = 0,
+    clean_sheet_streak_a: int = 0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -1100,6 +1104,10 @@ def build_match_state(
         away_ga_a=away_ga_a,
         weather_xg_impact=weather_xg_impact,
         h2h_btts_pct=h2h_btts_pct,
+        scoring_streak_h=scoring_streak_h,
+        scoring_streak_a=scoring_streak_a,
+        clean_sheet_streak_h=clean_sheet_streak_h,
+        clean_sheet_streak_a=clean_sheet_streak_a,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )
@@ -1240,6 +1248,8 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
 
         if data.extraction_coverage > 0:
             st.caption(f"Qualita' estrazione URL: **{data.extraction_coverage * 100:.0f}%**")
+            if data.extraction_coverage < 0.55:
+                st.warning("Qualita' bassa: il motore usera' solo una parte dei dati prematch estratti.")
         if data.extraction_notes:
             st.caption("Note parser: " + ", ".join(data.extraction_notes))
         with st.expander("Mappa campi usati dal motore", expanded=False):

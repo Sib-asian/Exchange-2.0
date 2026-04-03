@@ -161,7 +161,11 @@ if _btn_prematch or _btn_live:
     _coverage = float(getattr(_pa, "extraction_coverage", 0.0)) if _pa else 0.0
     _movement_quality = 1.0 + min(0.30, _sharp_sig * 0.08)
     _ocr_conf_scale = 0.70 + min(0.30, _coverage)
-    
+    _streak_score_h = int(getattr(_pa, "scoring_streak_h", 0)) if _pa else 0
+    _streak_score_a = int(getattr(_pa, "scoring_streak_a", 0)) if _pa else 0
+    _streak_cs_h = int(getattr(_pa, "clean_sheet_streak_h", 0)) if _pa else 0
+    _streak_cs_a = int(getattr(_pa, "clean_sheet_streak_a", 0)) if _pa else 0
+
     # Previous Scores (da sezione H2H)
     _prev_sc_h = float(getattr(_pa, "home_prev_avg_scored", 0.0)) if _pa else 0.0
     _prev_co_h = float(getattr(_pa, "home_prev_avg_conceded", 0.0)) if _pa else 0.0
@@ -218,6 +222,18 @@ if _btn_prematch or _btn_live:
     _final_sc_a = _fuse(_prev_sc_a, _ts_sc_a)
     _final_co_a = _fuse(_prev_co_a, _ts_co_a)
 
+    # Quality gate prematch: se estrazione incompleta, disattiva i prior più fragili.
+    _quality_ok = _coverage >= 0.55
+    if _pa and not _quality_ok:
+        _h2h_home = _h2h_draw = _h2h_away = 0.0
+        _h2h_over = _h2h_btts = 0.0
+        _hist_tot = 0.0
+        _final_sc_h = _final_co_h = _final_sc_a = _final_co_a = 0.0
+        _weather_impact = 0.0
+        _streak_score_h = _streak_score_a = _streak_cs_h = _streak_cs_a = 0
+        _movement_quality = 1.0
+        _ocr_conf_scale = 0.70
+
     try:
         state = build_match_state(
             _match, lines, _lou, bankroll, comm_rate,
@@ -235,6 +251,10 @@ if _btn_prematch or _btn_live:
             strength_home=_str_home,
             strength_away=_str_away,
             weather_xg_impact=_weather_impact,
+            scoring_streak_h=_streak_score_h,
+            scoring_streak_a=_streak_score_a,
+            clean_sheet_streak_h=_streak_cs_h,
+            clean_sheet_streak_a=_streak_cs_a,
             movement_quality=_movement_quality,
             ocr_confidence_scale=_ocr_conf_scale,
             prev_avg_scored_h=_final_sc_h,
@@ -264,7 +284,19 @@ if _btn_prematch or _btn_live:
     with st.spinner("Calcolo..."):
         from dataclasses import replace as _dc_replace
         from src.engine import analizza
+        from src.models.prematch_history_calibration import calibrate_prematch_probs
         risultati = analizza(state)
+        if state.minuto == 0:
+            p1, px, p2, p_over, p_under, p_btts, _cal_sig = calibrate_prematch_probs(
+                risultati.p1, risultati.px, risultati.p2,
+                risultati.p_over, risultati.p_under, risultati.p_btts
+            )
+            risultati.p1 = p1
+            risultati.px = px
+            risultati.p2 = p2
+            risultati.p_over = p_over
+            risultati.p_under = p_under
+            risultati.p_btts = p_btts
         # Scenari "se segna subito" (solo live)
         _scen_h: object = None
         _scen_a: object = None
@@ -304,6 +336,7 @@ if _btn_prematch or _btn_live:
     _input_data = {
         "ah_op": lines["ah_op"],
         "tot_op": lines["tot_op"],
+        "minuto": state.minuto,
         "xg_h": risultati.xg_h_final,
         "xg_a": risultati.xg_a_final,
     }

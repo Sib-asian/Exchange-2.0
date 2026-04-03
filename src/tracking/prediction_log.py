@@ -40,6 +40,8 @@ class PredictionRecord:
     squadra_casa: str = ""
     squadra_trasf: str = ""
     lega: str = ""
+    minuto: int = 0
+    is_prematch: bool = False
 
     # Input del modello
     ah_op: float = 0.0
@@ -254,6 +256,8 @@ def create_record_from_analysis(
         tot_op=input_data.get("tot_op", 0.0),
         xg_h=input_data.get("xg_h", 0.0),
         xg_a=input_data.get("xg_a", 0.0),
+        minuto=int(input_data.get("minuto", 0)),
+        is_prematch=bool(input_data.get("minuto", 0) == 0),
         p1=predictions.get("p1", 0.0),
         px=predictions.get("px", 0.0),
         p2=predictions.get("p2", 0.0),
