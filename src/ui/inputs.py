@@ -1002,6 +1002,8 @@ def build_match_state(
     home_ga_h: float = 0.0,
     away_gf_a: float = 0.0,
     away_ga_a: float = 0.0,
+    weather_xg_impact: float = 0.0,
+    h2h_btts_pct: float = 0.0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -1096,6 +1098,8 @@ def build_match_state(
         home_ga_h=home_ga_h,
         away_gf_a=away_gf_a,
         away_ga_a=away_ga_a,
+        weather_xg_impact=weather_xg_impact,
+        h2h_btts_pct=h2h_btts_pct,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )
@@ -1234,6 +1238,20 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
         fm1.metric("Forma mult. Casa", f"{data.forma_mult_h:.3f}")
         fm2.metric("Forma mult. Trasf.", f"{data.forma_mult_a:.3f}")
 
+        if data.extraction_coverage > 0:
+            st.caption(f"Qualita' estrazione URL: **{data.extraction_coverage * 100:.0f}%**")
+        if data.extraction_notes:
+            st.caption("Note parser: " + ", ".join(data.extraction_notes))
+        with st.expander("Mappa campi usati dal motore", expanded=False):
+            st.caption(
+                "Usati nel calcolo: H2H 1X2/Over, standings, previous scores, team stats goal/loss, "
+                "strength, quote iniziali 1X2, meteo/quality."
+            )
+            st.caption(
+                "Solo informativi: HT/FT completo, quote live, parte delle metriche di tabella non "
+                "ancora collegate direttamente al modello."
+            )
+
         # Quote 1X2 iniziali (solo se estratte via URL)
         if data.mkt_init_1 > 0:
             st.caption(
@@ -1369,12 +1387,26 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
     gol_tot  = gol_casa + gol_trasf
     ah_cur   = ah_cur_raw + gol_diff
     tot_cur  = max(BAYES.TOT_BAYES_MIN, tot_cur_raw - gol_tot)
+    validation_errors: list[str] = []
+    blocking_errors: list[str] = []
 
     if gol_tot > 0:
         st.caption(
             f"Rimanenti calcolati automaticamente — "
             f"AH: **{ah_cur:+.2f}** · Total: **{tot_cur:.2f}**"
         )
+
+    if tot_cur_raw < gol_tot:
+        blocking_errors.append("Total corrente inferiore ai gol gia' segnati.")
+    if abs(ah_cur) > tot_cur + 0.25:
+        blocking_errors.append("AH rimanente incoerente rispetto al Total rimanente.")
+    if abs(ah_cur_raw - ah_op) < 0.01 and abs(tot_cur_raw - tot_op) < 0.01 and gol_tot > 0:
+        validation_errors.append("Linee correnti uguali all'apertura con gol gia' segnati.")
+
+    for msg in blocking_errors:
+        st.error(f"⛔ {msg}")
+    for msg in validation_errors:
+        st.warning(f"⚠️ {msg}")
 
     return {
         "ah_op": ah_op,
@@ -1383,8 +1415,8 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
         "tot_cur": tot_cur,
         "tot_cur_raw": tot_cur_raw,
         "fullgame_mode": True,
-        "validation_errors": [],
-        "blocking_errors": [],
+        "validation_errors": validation_errors,
+        "blocking_errors": blocking_errors,
     }
 
 

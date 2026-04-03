@@ -1126,6 +1126,61 @@ class PrematchAnalysisExtracted:
     live_total_line: float = 0.0      # linea Total live
     live_over_odds: float = 0.0       # quota Over live
     live_under_odds: float = 0.0      # quota Under live
+    # Quality report sintetico per capire affidabilita' estrazione URL.
+    extraction_coverage: float = 0.0  # [0,1] percentuale sezioni chiave trovate
+    extraction_notes: list[str] = field(default_factory=list)
+
+
+_NOISY_TEAM_SUFFIXES = (
+    " - football",
+    " football",
+    " - live",
+    " live score",
+    " live and analysis",
+)
+_INVALID_LEAGUE_TOKENS = {"statistics", "analysis", "football", "live score"}
+
+
+def _clean_team_name(value: str) -> str:
+    name = (value or "").strip()
+    name = re.sub(r"\s+", " ", name)
+    low = name.lower()
+    for suffix in _NOISY_TEAM_SUFFIXES:
+        if low.endswith(suffix):
+            name = name[: -len(suffix)].strip()
+            low = name.lower()
+    # Evita catture "lunghe" con testo descrittivo attaccato.
+    name = re.sub(r"\s+-\s+.*$", "", name).strip()
+    return name
+
+
+def _clean_league_name(value: str) -> str:
+    league = (value or "").strip()
+    league = re.sub(r"\s+", " ", league)
+    if league.lower() in _INVALID_LEAGUE_TOKENS:
+        return ""
+    # Rimuove porzioni descrittive non di lega.
+    league = re.sub(r"\s*[-:]\s*(round|statistics|analysis).*$", "", league, flags=re.IGNORECASE)
+    return league.strip()
+
+
+def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
+    """Parser dedicato per home/away/league, separato dal parser principale."""
+    home = ""
+    away = ""
+    league = ""
+    title = re.search(
+        r"Title:\s*([A-Za-z][A-Za-z\s\.'\-]{1,40}?)\s+(?:VS|vs)\s+([A-Za-z][A-Za-z\s\.'\-]{1,40}?)(?:\s+-|\s+Live|\s+Match|\s+Analysis|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if title:
+        home = _clean_team_name(title.group(1))
+        away = _clean_team_name(title.group(2))
+    breadcrumb = re.search(r"Football>\s*([A-Za-z][A-Za-z0-9\s\-\.\(\)]+?)>\s*$", text, re.MULTILINE)
+    if breadcrumb:
+        league = _clean_league_name(breadcrumb.group(1))
+    return home, away, league
 
 
 PREMATCH_ANALYSIS_PROMPT = """Sei un assistente che legge screenshot della pagina "Analysis" di Nowgoal.
@@ -2248,6 +2303,8 @@ def _extract_all_with_regex(text: str) -> dict:
         "team_stats_away_yellows": 0.0,
         "team_stats_away_fouls": 0.0,
         "team_stats_away_possession": 0.0,
+        # Qualita' estrazione
+        "extraction_notes": [],
     }
 
     # === H2H ===
@@ -2576,6 +2633,14 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["mkt_init_2"] = q2
     
     # === INFO PARTITA ===
+    id_home, id_away, id_league = _extract_match_identity_from_text(text)
+    if id_home:
+        result["home_team"] = id_home
+    if id_away:
+        result["away_team"] = id_away
+    if id_league:
+        result["league_name"] = id_league
+
     # Nomi squadre: "Team A vs Team B" o "Team A - Team B"
     # FIX: Usa spazio letterale (non \s) per evitare match su newlines.
     # Aggiunge word boundary alla fine per catturare il nome completo.
@@ -2584,18 +2649,22 @@ def _extract_all_with_regex(text: str) -> dict:
         text, re.MULTILINE
     )
     if teams_match:
-        result["home_team"] = teams_match.group(1).strip()
-        result["away_team"] = teams_match.group(2).strip()
+        result["home_team"] = _clean_team_name(teams_match.group(1))
+        result["away_team"] = _clean_team_name(teams_match.group(2))
     
-    # Data: YYYY-MM-DD o DD/MM/YYYY
-    date_match = re.search(r"(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})", text)
+    # Data partita: usa solo pattern contestualizzati (evita date spurie nel footer/log).
+    date_match = re.search(
+        r"(?:Match\s*Date|Date|Kick[-\s]?off)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})",
+        text,
+        re.IGNORECASE,
+    )
     if date_match:
         result["match_date"] = date_match.group(1)
     
     # Lega: "League: XXX" o dopo nome squadre
     league_match = re.search(r"(?:League|Lega|Competition)\s*[:\-]?\s*([A-Za-z][A-Za-z\s0-9]{2,30})", text, re.IGNORECASE)
     if league_match:
-        result["league_name"] = league_match.group(1).strip()
+        result["league_name"] = _clean_league_name(league_match.group(1))
     
     # =====================================================
     # === NUOVI CAMPI: ESTRAZIONE AVANZATA ===
@@ -2781,9 +2850,9 @@ def _extract_all_with_regex(text: str) -> dict:
         home = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', home, flags=re.IGNORECASE).strip()
         away = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', away, flags=re.IGNORECASE).strip()
         if home and not result["home_team"]:
-            result["home_team"] = home
+            result["home_team"] = _clean_team_name(home)
         if away and not result["away_team"]:
-            result["away_team"] = away
+            result["away_team"] = _clean_team_name(away)
     
     # Pattern 2: Formato HTML <title> (se raw HTML disponibile)
     if not result["home_team"] or not result["away_team"]:
@@ -2797,9 +2866,9 @@ def _extract_all_with_regex(text: str) -> dict:
             home = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', home, flags=re.IGNORECASE).strip()
             away = re.sub(r'\s*(Match Analysis|H2H Stats|Preview).*$', '', away, flags=re.IGNORECASE).strip()
             if home and not result["home_team"]:
-                result["home_team"] = home
+                result["home_team"] = _clean_team_name(home)
             if away and not result["away_team"]:
-                result["away_team"] = away
+                result["away_team"] = _clean_team_name(away)
     
     # Pattern 3: Cerca "# Team A vs Team B" heading (markdown)
     if not result["home_team"] or not result["away_team"]:
@@ -2809,9 +2878,9 @@ def _extract_all_with_regex(text: str) -> dict:
         )
         if heading_match:
             if not result["home_team"]:
-                result["home_team"] = heading_match.group(1).strip()
+                result["home_team"] = _clean_team_name(heading_match.group(1))
             if not result["away_team"]:
-                result["away_team"] = heading_match.group(2).strip()
+                result["away_team"] = _clean_team_name(heading_match.group(2))
     
     # Pattern 4: Cerca nella sezione H2H "Team A Home Same League"
     if not result["home_team"] or not result["away_team"]:
@@ -2821,7 +2890,7 @@ def _extract_all_with_regex(text: str) -> dict:
         )
         if h2h_home_match:
             if not result["home_team"]:
-                result["home_team"] = h2h_home_match.group(1).strip()
+                result["home_team"] = _clean_team_name(h2h_home_match.group(1))
     
     # Fallback: cerca in meta description
     if not result["home_team"] or not result["away_team"]:
@@ -2831,9 +2900,26 @@ def _extract_all_with_regex(text: str) -> dict:
         )
         if meta_match:
             if not result["home_team"]:
-                result["home_team"] = meta_match.group(1).strip()
+                result["home_team"] = _clean_team_name(meta_match.group(1))
             if not result["away_team"]:
-                result["away_team"] = meta_match.group(2).strip()
+                result["away_team"] = _clean_team_name(meta_match.group(2))
+
+    # League fallback robusto dalla breadcrumb di Nowgoal.
+    if not result["league_name"]:
+        breadcrumb = re.search(r"Football>\s*([A-Za-z][A-Za-z0-9\s\-\.\(\)]+?)>\s*$", text, re.MULTILINE)
+        if breadcrumb:
+            result["league_name"] = _clean_league_name(breadcrumb.group(1))
+
+    # Se la data non e' presente, lascia vuoto invece di fallback ambiguo.
+    if result["match_date"] and not re.match(r"\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}", result["match_date"]):
+        result["match_date"] = ""
+
+    if not result["home_team"] or not result["away_team"]:
+        result["extraction_notes"].append("team_names_partial")
+    if not result["league_name"]:
+        result["extraction_notes"].append("league_missing")
+    if result["mkt_init_1"] <= 1.0:
+        result["extraction_notes"].append("market_1x2_missing_or_unreadable")
     
     # === 4. PUNTI CLASSIFICA (dalla tabella standings) ===
     # FIX: La tabella standings ha righe FT e HT per OGNI squadra.
@@ -3074,6 +3160,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         team_stats_away_yellows=regex_data["team_stats_away_yellows"],
         team_stats_away_fouls=regex_data["team_stats_away_fouls"],
         team_stats_away_possession=regex_data["team_stats_away_possession"],
+        extraction_notes=list(regex_data.get("extraction_notes", [])),
     )
     
     # Calcola forma_mult
@@ -3107,6 +3194,18 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
     # Calcola fixture_historical_total (media gol H2H totali)
     if result.h2h_avg_goals_home > 0 or result.h2h_avg_goals_away > 0:
         result.fixture_historical_total = result.h2h_avg_goals_home + result.h2h_avg_goals_away
+
+    # Report qualita': quante sezioni chiave sono state davvero estratte.
+    key_sections = [
+        bool(result.home_team and result.away_team),
+        bool(result.league_name),
+        bool(result.h2h_home_win_pct or result.h2h_draw_pct or result.h2h_away_win_pct),
+        bool(result.home_matches and result.away_matches),
+        bool(result.home_prev_avg_scored or result.away_prev_avg_scored),
+        bool(result.team_stats_home_goals or result.team_stats_away_goals),
+        bool(result.weather_condition),
+    ]
+    result.extraction_coverage = sum(1 for x in key_sections if x) / len(key_sections)
     
     # === PASSO 2: Se regex ha estratto dati sufficienti, termina qui ===
     has_data = (
@@ -3399,6 +3498,7 @@ def _extract_live_page_data(text: str) -> dict:
         "live_total_line": 0.0,
         "live_over_odds": 0.0,
         "live_under_odds": 0.0,
+        "live_data_notes": [],
     }
     
     # === 1. METEO ===
@@ -3556,6 +3656,8 @@ def _extract_live_page_data(text: str) -> dict:
             result["live_under_odds"] = float(live_odds_match.group(8))
         except (ValueError, TypeError):
             pass
+    else:
+        result["live_data_notes"].append("live_odds_not_available_no_js")
     
     return result
 
@@ -3597,6 +3699,9 @@ def _apply_live_data_to_result(result: PrematchAnalysisExtracted, live_data: dic
     result.live_total_line = live_data.get("live_total_line", 0.0)
     result.live_over_odds = live_data.get("live_over_odds", 0.0)
     result.live_under_odds = live_data.get("live_under_odds", 0.0)
+    for note in live_data.get("live_data_notes", []):
+        if note not in result.extraction_notes:
+            result.extraction_notes.append(note)
 
 
 # ============================================================================

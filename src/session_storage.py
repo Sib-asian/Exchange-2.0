@@ -179,46 +179,11 @@ def collect_prematch_analysis(session_state: Any) -> dict[str, Any] | None:
     pa = session_state.get("prematch_analysis")
     if pa is None or not getattr(pa, "extraction_success", False):
         return None
-    return {
-        "fixture_historical_total": pa.fixture_historical_total,
-        "forma_mult_h": pa.forma_mult_h,
-        "forma_mult_a": pa.forma_mult_a,
-        "h2h_home_win_pct": pa.h2h_home_win_pct,
-        "h2h_draw_pct": pa.h2h_draw_pct,
-        "h2h_away_win_pct": pa.h2h_away_win_pct,
-        "h2h_avg_goals_home": pa.h2h_avg_goals_home,
-        "h2h_avg_goals_away": pa.h2h_avg_goals_away,
-        "home_rank": pa.home_rank,
-        "home_win_rate": pa.home_win_rate,
-        "home_last6_win": pa.home_last6_win,
-        "home_last6_draw": pa.home_last6_draw,
-        "home_last6_lose": pa.home_last6_lose,
-        "away_rank": pa.away_rank,
-        "away_win_rate": pa.away_win_rate,
-        "away_last6_win": pa.away_last6_win,
-        "away_last6_draw": pa.away_last6_draw,
-        "away_last6_lose": pa.away_last6_lose,
-        "h2h_ht_home_win_pct": pa.h2h_ht_home_win_pct,
-        "h2h_ht_draw_pct": pa.h2h_ht_draw_pct,
-        "h2h_ht_away_win_pct": pa.h2h_ht_away_win_pct,
-        "mkt_init_1": pa.mkt_init_1,
-        "mkt_init_x": pa.mkt_init_x,
-        "mkt_init_2": pa.mkt_init_2,
-        "home_goals_1h": pa.home_goals_1h,
-        "home_goals_2h": pa.home_goals_2h,
-        "away_goals_1h": pa.away_goals_1h,
-        "away_goals_2h": pa.away_goals_2h,
-        "away_prev_win_pct": pa.away_prev_win_pct,
-        "away_prev_avg_scored": pa.away_prev_avg_scored,
-        "away_prev_avg_conceded": pa.away_prev_avg_conceded,
-        "away_prev_over_pct": pa.away_prev_over_pct,
-        # Nuovi campi per miglioramenti
-        "h2h_over_pct": pa.h2h_over_pct,
-        "strength_home": pa.strength_home,
-        "strength_away": pa.strength_away,
-        "home_prev_avg_scored": pa.home_prev_avg_scored,
-        "home_prev_avg_conceded": pa.home_prev_avg_conceded,
-    }
+    pa_dict = asdict(pa)
+    # Evita payload inutilmente grande nei salvataggi locali.
+    pa_dict.pop("raw_response", None)
+    pa_dict.pop("error_message", None)
+    return pa_dict
 
 
 def restore_prematch_analysis(session_state: Any, data: dict[str, Any] | None) -> None:
@@ -233,47 +198,9 @@ def restore_prematch_analysis(session_state: Any, data: dict[str, Any] | None) -
         return
     try:
         from src.ocr import PrematchAnalysisExtracted
-        pa = PrematchAnalysisExtracted(
-            extraction_success=True,
-            fixture_historical_total=float(data.get("fixture_historical_total", 0.0)),
-            forma_mult_h=float(data.get("forma_mult_h", 1.0)),
-            forma_mult_a=float(data.get("forma_mult_a", 1.0)),
-            h2h_home_win_pct=float(data.get("h2h_home_win_pct", 0.0)),
-            h2h_draw_pct=float(data.get("h2h_draw_pct", 0.0)),
-            h2h_away_win_pct=float(data.get("h2h_away_win_pct", 0.0)),
-            h2h_avg_goals_home=float(data.get("h2h_avg_goals_home", 0.0)),
-            h2h_avg_goals_away=float(data.get("h2h_avg_goals_away", 0.0)),
-            home_rank=int(data.get("home_rank", 0)),
-            home_win_rate=float(data.get("home_win_rate", 0.0)),
-            home_last6_win=int(data.get("home_last6_win", 0)),
-            home_last6_draw=int(data.get("home_last6_draw", 0)),
-            home_last6_lose=int(data.get("home_last6_lose", 0)),
-            away_rank=int(data.get("away_rank", 0)),
-            away_win_rate=float(data.get("away_win_rate", 0.0)),
-            away_last6_win=int(data.get("away_last6_win", 0)),
-            away_last6_draw=int(data.get("away_last6_draw", 0)),
-            away_last6_lose=int(data.get("away_last6_lose", 0)),
-            h2h_ht_home_win_pct=float(data.get("h2h_ht_home_win_pct", 0.0)),
-            h2h_ht_draw_pct=float(data.get("h2h_ht_draw_pct", 0.0)),
-            h2h_ht_away_win_pct=float(data.get("h2h_ht_away_win_pct", 0.0)),
-            mkt_init_1=float(data.get("mkt_init_1", 0.0)),
-            mkt_init_x=float(data.get("mkt_init_x", 0.0)),
-            mkt_init_2=float(data.get("mkt_init_2", 0.0)),
-            home_goals_1h=float(data.get("home_goals_1h", 0.0)),
-            home_goals_2h=float(data.get("home_goals_2h", 0.0)),
-            away_goals_1h=float(data.get("away_goals_1h", 0.0)),
-            away_goals_2h=float(data.get("away_goals_2h", 0.0)),
-            away_prev_win_pct=float(data.get("away_prev_win_pct", 0.0)),
-            away_prev_avg_scored=float(data.get("away_prev_avg_scored", 0.0)),
-            away_prev_avg_conceded=float(data.get("away_prev_avg_conceded", 0.0)),
-            away_prev_over_pct=float(data.get("away_prev_over_pct", 0.0)),
-            # Nuovi campi per miglioramenti
-            h2h_over_pct=float(data.get("h2h_over_pct", 0.0)),
-            strength_home=int(data.get("strength_home", 0)),
-            strength_away=int(data.get("strength_away", 0)),
-            home_prev_avg_scored=float(data.get("home_prev_avg_scored", 0.0)),
-            home_prev_avg_conceded=float(data.get("home_prev_avg_conceded", 0.0)),
-        )
+        payload = dict(data)
+        payload["extraction_success"] = True
+        pa = PrematchAnalysisExtracted(**payload)
         session_state["prematch_analysis"] = pa
     except Exception:
         pass  # Dati corrotti o versione incompatibile: ignora

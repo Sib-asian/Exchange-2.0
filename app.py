@@ -66,6 +66,8 @@ _live_gh = st.session_state.get("live_gol_casa", 0)
 _live_ga = st.session_state.get("live_gol_trasf", 0)
 
 lines = render_linee_semplici(gol_casa=_live_gh, gol_trasf=_live_ga)
+if lines.get("blocking_errors"):
+    st.stop()
 
 # Linea O/U: sempre 2.5 (standard per pronostici)
 def _linea_ou(tot_raw: float) -> float:
@@ -151,8 +153,14 @@ if _btn_prematch or _btn_live:
     _h2h_away = float(getattr(_pa, "h2h_away_win_pct", 0.0)) if _pa else 0.0
     # Nuovi parametri per miglioramenti
     _h2h_over = float(getattr(_pa, "h2h_over_pct", 0.0)) if _pa else 0.0
+    _h2h_btts = float(getattr(_pa, "h2h_btts_pct", 0.0)) if _pa else 0.0
     _str_home = int(getattr(_pa, "strength_home", 0)) if _pa else 0
     _str_away = int(getattr(_pa, "strength_away", 0)) if _pa else 0
+    _weather_impact = float(getattr(_pa, "weather_impact", 0.0)) if _pa else 0.0
+    _sharp_sig = float(getattr(_pa, "odds_sharp_signal", 0.0)) if _pa else 0.0
+    _coverage = float(getattr(_pa, "extraction_coverage", 0.0)) if _pa else 0.0
+    _movement_quality = 1.0 + min(0.30, _sharp_sig * 0.08)
+    _ocr_conf_scale = 0.70 + min(0.30, _coverage)
     
     # Previous Scores (da sezione H2H)
     _prev_sc_h = float(getattr(_pa, "home_prev_avg_scored", 0.0)) if _pa else 0.0
@@ -223,8 +231,12 @@ if _btn_prematch or _btn_live:
             h2h_draw_pct=_h2h_draw,
             h2h_away_win_pct=_h2h_away,
             h2h_over_pct=_h2h_over,
+            h2h_btts_pct=_h2h_btts,
             strength_home=_str_home,
             strength_away=_str_away,
+            weather_xg_impact=_weather_impact,
+            movement_quality=_movement_quality,
+            ocr_confidence_scale=_ocr_conf_scale,
             prev_avg_scored_h=_final_sc_h,
             prev_avg_conceded_h=_final_co_h,
             prev_avg_scored_a=_final_sc_a,

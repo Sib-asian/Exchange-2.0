@@ -12,6 +12,8 @@ from src.ocr import (
     _check_openai_available,
     _check_zai_available,
     _extract_h2h_with_regex,
+    _extract_match_identity_from_text,
+    _extract_all_with_regex,
     _extract_with_gemini,
     _extract_with_openai,
     _extract_with_zai_cli,
@@ -25,6 +27,8 @@ from src.ocr import (
     _parse_vlm_response,
     _safe_float,
     _safe_int,
+    _clean_team_name,
+    _clean_league_name,
     extract_from_base64,
     extract_from_bytes,
     extract_from_image_file,
@@ -54,6 +58,30 @@ class TestExtractedData:
         result = data.to_dict()
         assert result["squadra_casa"] == "Juventus"
         assert result["backend_used"] == "gemini"
+
+
+class TestNowgoalIdentityCleaning:
+    def test_clean_team_name_removes_noise_suffix(self):
+        assert _clean_team_name("Auckland FC - Football") == "Auckland FC"
+
+    def test_clean_league_name_rejects_invalid_token(self):
+        assert _clean_league_name("statistics") == ""
+
+    def test_extract_match_identity_from_title_and_breadcrumb(self):
+        text = (
+            "Title: Adelaide United VS Auckland FC - Football Analysis\n"
+            "Football> Australia A-League>\n"
+        )
+        home, away, league = _extract_match_identity_from_text(text)
+        assert home == "Adelaide United"
+        assert away == "Auckland FC"
+        assert league == "Australia A-League"
+
+
+class TestNowgoalRegexNotes:
+    def test_adds_note_when_1x2_initial_odds_missing(self):
+        parsed = _extract_all_with_regex("Title: Foo VS Bar\nFootball> Serie A>\n")
+        assert "market_1x2_missing_or_unreadable" in parsed["extraction_notes"]
 
 
 class TestGetEnvWithPath:
