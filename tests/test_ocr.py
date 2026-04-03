@@ -206,6 +206,35 @@ class TestNowgoalRegexNotes:
         assert any("Maviram" in p for p in parsed["home_absences_players"])
         assert parsed["extraction_section_scores"].get("injuries") == 1.0
 
+    def test_extract_injuries_from_embedded_nowgoal_html_injury_h_g(self):
+        """HTML grezzo: colonne injuryH / injuryG (Jina tronca spesso i nomi)."""
+        html = """
+<div class="home-div" id="injuryH">
+  <div class="nodata">No Data!</div>
+</div>
+<div class="guest-div" id="injuryG">
+  <div class="injury">Injury</div>
+  <div class="player-list">
+    <div class="player-row">
+      <b> CF </b><span> 29 </span><a> Theoson Jordan Siebatcheu</a>
+    </div>
+    <div class="player-row">
+      <b> LB </b><span> 60 </span><a> Emmanuel Maviram</a>
+    </div>
+  </div>
+</div>
+<div class="home-div" id="lineupH">
+  <div class="player-row"><b> GK </b><span> 1 </span><a>Keep</a></div>
+</div>
+"""
+        text = "Title: Vitória VS Tondela\n=== RAW HTML ===\n" + html
+        parsed = _extract_all_with_regex(text)
+        assert parsed["home_absences_count"] == 0
+        assert parsed["away_absences_count"] == 2
+        assert any("Siebatcheu" in p for p in parsed["away_absences_players"])
+        assert any("Maviram" in p for p in parsed["away_absences_players"])
+        assert parsed["extraction_section_scores"].get("injuries") == 1.0
+
 
 class TestGetEnvWithPath:
     def test_includes_common_paths(self):
