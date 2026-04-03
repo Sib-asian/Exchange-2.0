@@ -954,6 +954,7 @@ class PrematchAnalysisExtracted:
     h2h_over_pct: float = 0.0        # % partite H2H andate Over (0-100)
     h2h_ah_home_cover_pct: float = 0.0  # % partite H2H in cui la casa ha coperto l'AH
     h2h_btts_pct: float = 0.0        # % partite H2H con entrambe a segno
+    h2h_matches_count: int = 0       # numero match H2H usati per statistiche
 
     # Standings casa — riga Total
     home_rank: int = 0
@@ -1185,6 +1186,16 @@ def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
     breadcrumb = re.search(r"Football>\s*([A-Za-z][A-Za-z0-9\s\-\.\(\)]+?)>\s*$", text, re.MULTILINE)
     if breadcrumb:
         league = _clean_league_name(breadcrumb.group(1))
+    # Fallback: blocco "Football> ... >" anche con trailing testo.
+    if not league:
+        breadcrumb2 = re.search(r"Football>\s*([A-Za-z][A-Za-z0-9\s\-\.\(\)]+?)\s*>\s*", text, re.IGNORECASE)
+        if breadcrumb2:
+            league = _clean_league_name(breadcrumb2.group(1))
+    # Fallback: riga sotto titolo partita "Australia A-League · Round 23".
+    if not league:
+        comp_line = re.search(r"\n\s*([A-Za-z][A-Za-z0-9\-\s]+League|[A-Za-z][A-Za-z0-9\-\s]+Cup)\s*[·\|]", text)
+        if comp_line:
+            league = _clean_league_name(comp_line.group(1))
     return home, away, league
 
 
@@ -2219,6 +2230,7 @@ def _extract_all_with_regex(text: str) -> dict:
         "h2h_away_win_pct": 0.0,
         "h2h_over_pct": 0.0,
         "h2h_btts_pct": 0.0,
+        "h2h_matches_count": 0,
         "h2h_avg_goals_home": 0.0,
         "h2h_avg_goals_away": 0.0,
         # Strength
@@ -2382,6 +2394,7 @@ def _extract_all_with_regex(text: str) -> dict:
     if h2h_section:
         score_pairs = re.findall(r"\b(\d+)-(\d+)\(", h2h_section.group(1))
         if score_pairs:
+            result["h2h_matches_count"] = len(score_pairs)
             btts_hits = sum(1 for h, a in score_pairs if int(h) > 0 and int(a) > 0)
             result["h2h_btts_pct"] = round(btts_hits * 100.0 / len(score_pairs), 1)
     # Se H2H percentuali sono 0, lascia h2h_avg_goals a 0 (nessun H2H disponibile)
@@ -3100,6 +3113,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         h2h_away_win_pct=regex_data["h2h_away_win_pct"],
         h2h_over_pct=regex_data["h2h_over_pct"],
         h2h_btts_pct=regex_data["h2h_btts_pct"],
+        h2h_matches_count=regex_data["h2h_matches_count"],
         h2h_avg_goals_home=regex_data["h2h_avg_goals_home"],
         h2h_avg_goals_away=regex_data["h2h_avg_goals_away"],
         # Strength
