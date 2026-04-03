@@ -153,6 +153,33 @@ class TestNowgoalRegexNotes:
         parsed = _extract_all_with_regex(text)
         assert parsed["home_absences_count"] == 2
         assert parsed["away_absences_count"] == 1
+        assert len(parsed["home_absences_players"]) == 2
+        assert len(parsed["away_absences_players"]) == 1
+        assert "Player A" in parsed["home_absences_players"][0]
+
+    def test_extract_nowgoal_injury_players_with_roles(self):
+        """Formato Nowgoal: blocchi ' Injury ' per casa e trasferta."""
+        text = (
+            "Title: Alpha VS Beta\n"
+            "Injury and Suspension\n"
+            "\n"
+            " Injury\n"
+            "\n"
+            " **GK**  1  The Keeper\n"
+            " **CF**  9  Star Striker\n"
+            "\n"
+            " Injury\n"
+            "\n"
+            " **CM**  8  Mid Player\n"
+            "\n"
+            "Last Match Lineups\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["home_absences_count"] == 2
+        assert parsed["away_absences_count"] == 1
+        assert any("GK" in p for p in parsed["home_absences_players"])
+        assert any("CF" in p for p in parsed["home_absences_players"])
+        assert any("CM" in p for p in parsed["away_absences_players"])
 
 
 class TestGetEnvWithPath:
