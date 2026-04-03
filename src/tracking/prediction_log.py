@@ -23,8 +23,6 @@ from typing import Any
 
 
 # Percorso del file dati (relativo alla directory dell'app)
-# Usa la directory corrente o una sottodirectory 'data'
-import os
 _APP_DIR = Path(__file__).parent.parent.parent  # sale da src/tracking -> src -> root
 DATA_DIR = _APP_DIR / "data"
 PREDICTIONS_FILE = DATA_DIR / "predictions.json"
@@ -148,21 +146,30 @@ class PredictionLog:
     """
     Gestore del log delle previsioni.
 
-    Salvataggio persistente su file JSON.
+    Salvataggio: file JSON locale, oppure Supabase se configurato
+    (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in env o Streamlit Secrets).
     """
 
     def __init__(self) -> None:
-        self._ensure_file_exists()
+        from src.tracking import supabase_store as _sb
+
+        self._use_supabase = _sb.is_enabled()
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # Carica prima da Supabase/file: non creare un file vuoto prima del load
+        # (eviterebbe di sovrascrivere dati remoti al redeploy senza file locale).
         self._records: list[PredictionRecord] = self._load()
 
-    def _ensure_file_exists(self) -> None:
-        """Crea il file se non esiste."""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        if not PREDICTIONS_FILE.exists():
-            self._save_to_file([])
-
     def _load(self) -> list[PredictionRecord]:
-        """Carica le previsioni dal file."""
+        """Carica da Supabase se attivo, altrimenti (o se errore rete) da file."""
+        from src.tracking import supabase_store as _sb
+
+        if self._use_supabase:
+            remote = _sb.fetch_payload()
+            if remote is not None:
+                try:
+                    return [record_from_dict(r) for r in remote.get("predictions", [])]
+                except (TypeError, ValueError):
+                    pass
         try:
             with open(PREDICTIONS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -171,14 +178,21 @@ class PredictionLog:
             return []
 
     def _save_to_file(self, records: list[PredictionRecord]) -> None:
-        """Salva le previsioni su file."""
+        """Salva il blob completo (file + opzionalmente Supabase)."""
+        from src.tracking import supabase_store as _sb
+
         data = {
             "version": 1,
             "last_updated": datetime.now().isoformat(),
             "predictions": [asdict(r) for r in records],
         }
-        with open(PREDICTIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        if self._use_supabase:
+            _sb.save_payload(data)
+        try:
+            with open(PREDICTIONS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except OSError:
+            pass
 
     def add(self, record: PredictionRecord) -> None:
         """Aggiunge una nuova previsione."""
