@@ -260,6 +260,18 @@ def _render_stats_tab(log: PredictionLog) -> None:
 
     # Calcola statistiche
     stats = PerformanceStats.compute_all_stats(completed)
+    # Alert automatico quando la qualità recente peggiora.
+    recent = sorted(completed, key=lambda r: r.completed_at or r.timestamp, reverse=True)[:50]
+    if len(recent) >= 20:
+        recent_stats = PerformanceStats.compute_all_stats(recent)
+        valid_recent = [s for s in recent_stats.values() if s.total_predictions >= 8]
+        if valid_recent:
+            worst_recent = max(valid_recent, key=lambda s: s.brier_score)
+            if worst_recent.brier_score > 0.28:
+                st.warning(
+                    f"⚠️ Alert qualità: Brier alto ({worst_recent.brier_score:.3f}) su {worst_recent.market_name} "
+                    f"nelle ultime {len(recent)} partite."
+                )
 
     # Tabella statistiche
     st.subheader("📊 Performance per Mercato")

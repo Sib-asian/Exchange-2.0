@@ -160,6 +160,7 @@ class MatchState:
 
     # === BTTS Calibration - Dati aggiuntivi ===
     h2h_btts_pct: float = 0.0          # % storica partite H2H con BTTS (0-100)
+    h2h_matches_count: int = 0         # numero di H2H usati per stimare h2h_btts_pct
     scoring_streak_h: int = 0          # partite consecutive con gol segnato casa
     scoring_streak_a: int = 0          # partite consecutive con gol segnato trasferta
     clean_sheet_streak_h: int = 0      # partite consecutive senza subire casa
@@ -834,6 +835,7 @@ def analizza(
             xg_h=xg_h_final,
             xg_a=xg_a_final,
             h2h_btts_pct=state.h2h_btts_pct,
+            h2h_btts_n=state.h2h_matches_count,
             last6_gf_h=state.last6_gf_h,
             last6_ga_h=state.last6_ga_h,
             last6_gf_a=state.last6_gf_a,

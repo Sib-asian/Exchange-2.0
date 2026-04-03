@@ -60,6 +60,7 @@ def calibra_btts(
     xg_h: float,
     xg_a: float,
     h2h_btts_pct: float = 0.0,
+    h2h_btts_n: int = 0,
     last6_gf_h: float = 0.0,
     last6_ga_h: float = 0.0,
     last6_gf_a: float = 0.0,
@@ -137,6 +138,10 @@ def calibra_btts(
 
     # === 3. Calibrazione basata su H2H ===
     if h2h_btts_pct > 0:
+        # Con pochi H2H il segnale è rumoroso: shrink verso 50%.
+        if h2h_btts_n > 0 and h2h_btts_n < 5:
+            _w = h2h_btts_n / 5.0
+            h2h_btts_pct = 50.0 * (1.0 - _w) + h2h_btts_pct * _w
         if h2h_btts_pct >= BTTS_CALIBRATION.H2H_BTTS_HIGH_THRESHOLD * 100:
             # H2H storico con alto BTTS
             adjustment += BTTS_CALIBRATION.H2H_BTTS_BONUS

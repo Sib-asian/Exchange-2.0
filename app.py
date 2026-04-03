@@ -165,6 +165,7 @@ if _btn_prematch or _btn_live:
     _streak_score_a = int(getattr(_pa, "scoring_streak_a", 0)) if _pa else 0
     _streak_cs_h = int(getattr(_pa, "clean_sheet_streak_h", 0)) if _pa else 0
     _streak_cs_a = int(getattr(_pa, "clean_sheet_streak_a", 0)) if _pa else 0
+    _h2h_n = int(getattr(_pa, "h2h_matches_count", 0)) if _pa else 0
 
     # Previous Scores (da sezione H2H)
     _prev_sc_h = float(getattr(_pa, "home_prev_avg_scored", 0.0)) if _pa else 0.0
@@ -223,7 +224,9 @@ if _btn_prematch or _btn_live:
     _final_co_a = _fuse(_prev_co_a, _ts_co_a)
 
     # Quality gate prematch: se estrazione incompleta, disattiva i prior più fragili.
-    _quality_ok = _coverage >= 0.55
+    _key_fields_ok = int(_hist_tot > 0) + int(_h2h_home + _h2h_draw + _h2h_away > 0) + int(_mkt1 > 1.0 and _mktx > 1.0 and _mkt2 > 1.0)
+    _quality_gate = 0.50 if _key_fields_ok >= 2 else 0.62
+    _quality_ok = _coverage >= _quality_gate
     if _pa and not _quality_ok:
         _h2h_home = _h2h_draw = _h2h_away = 0.0
         _h2h_over = _h2h_btts = 0.0
@@ -248,6 +251,7 @@ if _btn_prematch or _btn_live:
             h2h_away_win_pct=_h2h_away,
             h2h_over_pct=_h2h_over,
             h2h_btts_pct=_h2h_btts,
+            h2h_matches_count=_h2h_n,
             strength_home=_str_home,
             strength_away=_str_away,
             weather_xg_impact=_weather_impact,
