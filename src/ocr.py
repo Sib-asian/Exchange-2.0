@@ -1078,6 +1078,8 @@ class PrematchAnalysisExtracted:
     away_points: int = 0              # Punti in classifica trasferta
     home_motivation: str = "normal"   # "high" / "normal" / "low"
     away_motivation: str = "normal"   # "high" = lotta titolo/salvezza, "low" = salvo
+    home_absences_count: int = 0      # numero assenze/infortuni/squalifiche casa
+    away_absences_count: int = 0      # numero assenze/infortuni/squalifiche trasferta
     
     # === NUOVI CAMPI: ID squadre ===
     home_id: int = 0                  # ID squadra casa (da h2h_home)
@@ -2227,6 +2229,36 @@ def convert_nowgoal_line_to_software(line_str: str | float, invert_sign: bool = 
         return 0.0
 
 
+def _extract_absence_counts(text: str) -> tuple[int, int]:
+    """Stima numero assenze casa/trasferta da blocchi injuries/suspensions."""
+    section = re.search(
+        r"(Injuries(?:\s*&\s*Suspensions)?|Injuries and Suspensions)(.*?)(?:^##\s|\Z)",
+        text,
+        re.IGNORECASE | re.DOTALL | re.MULTILINE,
+    )
+    scope = section.group(2) if section else text
+    home = away = 0
+
+    m_home = re.search(r"(Home|Casa)[^\n]{0,40}(?:injur|suspend|assenz|indisponib)[^\n]*?(\d+)", scope, re.IGNORECASE)
+    m_away = re.search(r"(Away|Trasf|Ospit)[^\n]{0,40}(?:injur|suspend|assenz|indisponib)[^\n]*?(\d+)", scope, re.IGNORECASE)
+    if m_home:
+        home = int(m_home.group(2))
+    if m_away:
+        away = int(m_away.group(2))
+
+    if home == 0 or away == 0:
+        home_block = re.search(r"(Home|Casa)(.*?)(?:Away|Trasf|Ospit|$)", scope, re.IGNORECASE | re.DOTALL)
+        away_block = re.search(r"(Away|Trasf|Ospit)(.*?)(?:Home|Casa|$)", scope, re.IGNORECASE | re.DOTALL)
+        if home == 0 and home_block:
+            lines = [ln.strip() for ln in home_block.group(2).splitlines()]
+            home = sum(1 for ln in lines if re.search(r"(^[-*]\s+)|\b(out|injur|suspend|assente|infortun|doubtful)\b", ln, re.IGNORECASE))
+        if away == 0 and away_block:
+            lines = [ln.strip() for ln in away_block.group(2).splitlines()]
+            away = sum(1 for ln in lines if re.search(r"(^[-*]\s+)|\b(out|injur|suspend|assente|infortun|doubtful)\b", ln, re.IGNORECASE))
+
+    return max(0, min(8, home)), max(0, min(8, away))
+
+
 def _extract_all_with_regex(text: str) -> dict:
     """
     Estrae TUTTI i dati prematch dal testo usando solo regex.
@@ -2341,6 +2373,8 @@ def _extract_all_with_regex(text: str) -> dict:
         "away_points": 0,
         "home_motivation": "normal",
         "away_motivation": "normal",
+        "home_absences_count": 0,
+        "away_absences_count": 0,
         "home_id": 0,
         "away_id": 0,
         # Team Statistics (ultimi 10 match)
@@ -3046,6 +3080,11 @@ def _extract_all_with_regex(text: str) -> dict:
         elif result["away_rank"] > max_teams // 2 + 3 and result["away_rank"] < max_teams - 3:
             result["away_motivation"] = "low"
 
+    # === 6. ASSENZE/INFORTUNI (sezione injuries/suspensions) ===
+    abs_h, abs_a = _extract_absence_counts(text)
+    result["home_absences_count"] = abs_h
+    result["away_absences_count"] = abs_a
+
     # === 6. TEAM STATISTICS (ultimi 10 match) ===
     # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
     # DEVO estrarre dall'ULTIMO gruppo (Recent 10 Matches) non dal primo!
@@ -3106,6 +3145,7 @@ def _extract_all_with_regex(text: str) -> dict:
         "previous_scores": 1.0 if (result["prev_home_avg_scored"] > 0 or result["prev_away_avg_scored"] > 0) else 0.0,
         "market_1x2": 1.0 if (result["mkt_init_1"] > 1.0 and result["mkt_init_x"] > 1.0 and result["mkt_init_2"] > 1.0) else 0.0,
         "team_stats": 1.0 if (result["team_stats_home_goals"] > 0 or result["team_stats_away_goals"] > 0) else 0.0,
+        "injuries": 1.0 if (result["home_absences_count"] > 0 or result["away_absences_count"] > 0) else 0.0,
     }
 
     return result
@@ -3233,6 +3273,8 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         away_points=regex_data["away_points"],
         home_motivation=regex_data["home_motivation"],
         away_motivation=regex_data["away_motivation"],
+        home_absences_count=regex_data["home_absences_count"],
+        away_absences_count=regex_data["away_absences_count"],
         # ID squadre
         home_id=regex_data["home_id"],
         away_id=regex_data["away_id"],

@@ -1009,6 +1009,8 @@ def build_match_state(
     clean_sheet_streak_h: int = 0,
     clean_sheet_streak_a: int = 0,
     h2h_matches_count: int = 0,
+    late_goals_pct_h: float = 0.0,
+    late_goals_pct_a: float = 0.0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -1110,6 +1112,8 @@ def build_match_state(
         clean_sheet_streak_h=clean_sheet_streak_h,
         clean_sheet_streak_a=clean_sheet_streak_a,
         h2h_matches_count=h2h_matches_count,
+        late_goals_pct_h=late_goals_pct_h,
+        late_goals_pct_a=late_goals_pct_a,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )

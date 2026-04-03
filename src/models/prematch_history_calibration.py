@@ -27,6 +27,7 @@ class CalibrationSignals:
     btts_scale: float = 1.0
     weight: float = 0.0
     samples: int = 0
+    scope: str = "global"
 
 
 def _safe_scale(avg_pred: float, avg_outcome: float) -> float:
@@ -41,11 +42,25 @@ def _prematch_completed_records() -> list[PredictionRecord]:
     return [r for r in records if getattr(r, "is_prematch", False)]
 
 
-def estimate_calibration_signals() -> CalibrationSignals:
+def _normalize_league(league: str) -> str:
+    return (league or "").strip().lower()
+
+
+def estimate_calibration_signals(league: str = "") -> CalibrationSignals:
     records = _prematch_completed_records()
+    target_league = _normalize_league(league)
+    league_records = [r for r in records if _normalize_league(getattr(r, "lega", "")) == target_league] if target_league else []
+
+    # Preferisci calibrazione per lega se ci sono abbastanza campioni.
+    if len(league_records) >= max(12, _MIN_SAMPLES // 2):
+        records = league_records
+        scope = f"league:{target_league}"
+    else:
+        scope = "global"
+
     n = len(records)
     if n < _MIN_SAMPLES:
-        return CalibrationSignals(samples=n)
+        return CalibrationSignals(samples=n, scope=scope)
 
     avg_p1 = sum(r.p1 for r in records) / n
     avg_px = sum(r.px for r in records) / n
@@ -69,6 +84,7 @@ def estimate_calibration_signals() -> CalibrationSignals:
         btts_scale=_safe_scale(avg_btts, avg_btts_hit),
         weight=max(0.0, weight),
         samples=n,
+        scope=scope,
     )
 
 
@@ -79,8 +95,9 @@ def calibrate_prematch_probs(
     p_over: float,
     p_under: float,
     p_btts: float,
+    league: str = "",
 ) -> tuple[float, float, float, float, float, float, CalibrationSignals]:
-    signals = estimate_calibration_signals()
+    signals = estimate_calibration_signals(league=league)
     if signals.weight <= 0:
         return p1, px, p2, p_over, p_under, p_btts, signals
 

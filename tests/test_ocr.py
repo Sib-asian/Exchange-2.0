@@ -94,6 +94,29 @@ class TestNowgoalRegexNotes:
         parsed = _extract_all_with_regex(text)
         assert parsed["h2h_btts_pct"] == 66.7
 
+    def test_extract_absence_counts_from_explicit_home_away_lines(self):
+        text = (
+            "Injuries and Suspensions\n"
+            "Home Injuries: 2\n"
+            "Away Injuries: 1\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["home_absences_count"] == 2
+        assert parsed["away_absences_count"] == 1
+
+    def test_extract_absence_counts_from_bullets(self):
+        text = (
+            "## Injuries & Suspensions\n"
+            "Home\n"
+            "- Player A (out)\n"
+            "- Player B (injured)\n"
+            "Away\n"
+            "- Player C (suspended)\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["home_absences_count"] == 2
+        assert parsed["away_absences_count"] == 1
+
 
 class TestGetEnvWithPath:
     def test_includes_common_paths(self):
