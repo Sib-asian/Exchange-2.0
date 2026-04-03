@@ -38,7 +38,9 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1038,6 +1040,7 @@ class PrematchAnalysisExtracted:
     home_team: str = ""
     away_team: str = ""
     league_name: str = ""
+    league_source: str = "unknown"   # nowgoal | mirror | external | unknown
     match_date: str = ""
 
     # Parametri derivati → entrano direttamente nel MatchState
@@ -1201,7 +1204,7 @@ def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
             league = _clean_league_name(comp_line.group(1))
     # Fallback da codifica lega tipo [AUS D1-4] -> Australia A-League
     if not league:
-        code = re.search(r"\[([A-Z]{2,3}\s*D\d)-\d+\]", text)
+        code = re.search(r"\[?([A-Z]{2,3}\s*D\d)-\d+\]?", text)
         if code:
             map_code = {
                 "AUS D1": "Australia A-League",
@@ -1214,6 +1217,21 @@ def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
                 "FRA D1": "France Ligue 1",
             }
             league = map_code.get(code.group(1).strip(), "")
+    # Fallback: codifica lega senza rank (es. "AUS D1")
+    if not league:
+        code2 = re.search(r"\b([A-Z]{2,3}\s*D\d)\b", text)
+        if code2:
+            map_code = {
+                "AUS D1": "Australia A-League",
+                "ENG D1": "England Premier League",
+                "ENG D2": "England Championship",
+                "ITA D1": "Italy Serie A",
+                "ESP D1": "Spain LaLiga",
+                "SPA D2": "Spain Segunda",
+                "GER D1": "Germany Bundesliga",
+                "FRA D1": "France Ligue 1",
+            }
+            league = map_code.get(code2.group(1).strip(), "")
     return home, away, league
 
 
@@ -1839,11 +1857,26 @@ def extract_prematch_analysis_from_bytes(
 # ============================================================================
 
 _JINA_BASE_URL = "https://r.jina.ai/"
+_LEAGUE_CACHE_PATH = Path("data/league_fallback_cache.json")
+_LEAGUE_CACHE_TTL_SEC = 24 * 3600
 _NOWGOAL_DOMAINS = (
     "nowgoal.com", "nowgoal.net", "nowgoal.info",
     "nowgoal26.com", "nowgoal8.com",
     "live5.nowgoal26.com",  # Nuovo dominio funzionante
 )
+
+_LEAGUE_ALIAS_MAP = {
+    "australian a-league": "Australia A-League",
+    "a-league": "Australia A-League",
+    "english premier league": "England Premier League",
+    "premier league": "England Premier League",
+    "italian serie a": "Italy Serie A",
+    "serie a": "Italy Serie A",
+    "spanish la liga": "Spain LaLiga",
+    "laliga": "Spain LaLiga",
+    "german bundesliga": "Germany Bundesliga",
+    "french ligue 1": "France Ligue 1",
+}
 
 PREMATCH_ANALYSIS_TEXT_PROMPT = """Sei un assistente che estrae dati statistici da testo di una pagina Nowgoal Analysis/H2H.
 
@@ -1947,6 +1980,97 @@ def _fetch_jina_reader(url: str, timeout: int = 30) -> str:
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="replace")
+
+
+def _normalize_league_name_external(name: str) -> str:
+    cleaned = _clean_league_name(name)
+    if not cleaned:
+        return ""
+    key = cleaned.strip().lower()
+    return _LEAGUE_ALIAS_MAP.get(key, cleaned)
+
+
+def _league_cache_key(home_team: str, away_team: str) -> str:
+    return f"{home_team.strip().lower()}|{away_team.strip().lower()}"
+
+
+def _load_league_cache() -> dict[str, dict[str, Any]]:
+    try:
+        if _LEAGUE_CACHE_PATH.exists():
+            raw = json.loads(_LEAGUE_CACHE_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                return raw
+    except Exception:
+        pass
+    return {}
+
+
+def _save_league_cache(cache: dict[str, dict[str, Any]]) -> None:
+    try:
+        _LEAGUE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _LEAGUE_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _lookup_league_external_sportsdb(home_team: str, away_team: str) -> str:
+    """Lookup esterno lega via TheSportsDB (solo fallback finale)."""
+    if not home_team or not away_team:
+        return ""
+    q = urllib.parse.quote_plus(f"{home_team} vs {away_team}")
+    url = f"https://www.thesportsdb.com/api/v1/json/3/searchevents.php?e={q}"
+    try:
+        with urllib.request.urlopen(url, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return ""
+    events = data.get("event") or []
+    home_low = home_team.lower()
+    away_low = away_team.lower()
+    for ev in events:
+        eh = str(ev.get("strHomeTeam", "")).lower()
+        ea = str(ev.get("strAwayTeam", "")).lower()
+        lg = str(ev.get("strLeague", ""))
+        if lg and ((home_low in eh and away_low in ea) or (home_low in ea and away_low in eh)):
+            return _normalize_league_name_external(lg)
+    if events:
+        lg = str(events[0].get("strLeague", ""))
+        return _normalize_league_name_external(lg)
+    return ""
+
+
+def _fallback_league_external(home_team: str, away_team: str) -> str:
+    key = _league_cache_key(home_team, away_team)
+    cache = _load_league_cache()
+    now_ts = int(time.time())
+    hit = cache.get(key)
+    if isinstance(hit, dict):
+        ts = int(hit.get("ts", 0) or 0)
+        lg = str(hit.get("league", "") or "")
+        if lg and (now_ts - ts) <= _LEAGUE_CACHE_TTL_SEC:
+            return lg
+    league = _lookup_league_external_sportsdb(home_team, away_team)
+    if league:
+        cache[key] = {"league": league, "ts": now_ts}
+        _save_league_cache(cache)
+    return league
+
+
+def _fallback_league_from_nowgoal_mirrors(match_id: str, original_domain: str) -> str:
+    """Prova mirror Nowgoal alternativi per recuperare solo la lega."""
+    mirrors = [d for d in _NOWGOAL_DOMAINS if d != original_domain]
+    for domain in mirrors:
+        probe_url = f"https://{domain}/match/h2h-{match_id}"
+        try:
+            txt = _fetch_jina_reader(probe_url, timeout=12)
+        except Exception:
+            continue
+        if not txt or len(txt) < 20:
+            continue
+        _, _, league = _extract_match_identity_from_text(txt)
+        if league:
+            return league
+    return ""
 
 
 def _fetch_raw_html(url: str, timeout: int = 30) -> str:
@@ -2257,6 +2381,28 @@ def _extract_absence_counts(text: str) -> tuple[int, int]:
             away = sum(1 for ln in lines if re.search(r"(^[-*]\s+)|\b(out|injur|suspend|assente|infortun|doubtful)\b", ln, re.IGNORECASE))
 
     return max(0, min(8, home)), max(0, min(8, away))
+
+
+def _extract_identity_from_url(url: str) -> tuple[str, str, str]:
+    """Fallback identity parser directly from URL path/query."""
+    home = away = league = ""
+    # Path style: /match/h2h-2871782/adelaide-united-vs-auckland-fc
+    slug = re.search(r"/match/(?:h2h|live|detail)-\d+/([a-z0-9\-]+)", url, re.IGNORECASE)
+    if slug:
+        parts = slug.group(1).split("-vs-")
+        if len(parts) == 2:
+            home = _clean_team_name(parts[0].replace("-", " ").title())
+            away = _clean_team_name(parts[1].replace("-", " ").title())
+
+    # Query hint: ?league=AUS%20D1 or competition=AUS D1-4
+    q_league = re.search(r"(?:league|competition)=([A-Za-z0-9%+\-\s]+)", url, re.IGNORECASE)
+    if q_league:
+        raw = urllib.parse.unquote_plus(q_league.group(1))
+        _, _, league = _extract_match_identity_from_text(raw)
+        if not league:
+            league = _clean_league_name(raw)
+
+    return home, away, league
 
 
 def _extract_all_with_regex(text: str) -> dict:
@@ -3508,10 +3654,22 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
         # 1. Fetch text content via Jina Reader (per standings, H2H, strength)
         page_text = _fetch_jina_reader(h2h_url)
     except Exception as e:
-        return PrematchAnalysisExtracted(
-            extraction_success=False,
-            error_message=f"Errore lettura pagina: {e}",
-        )
+        # Fallback mirror: alcuni domini Nowgoal sono intermittenti.
+        if match_id and original_domain != "live5.nowgoal26.com":
+            try:
+                h2h_url = f"https://live5.nowgoal26.com/match/h2h-{match_id}"
+                live_url = f"https://live5.nowgoal26.com/match/live-{match_id}"
+                page_text = _fetch_jina_reader(h2h_url)
+            except Exception:
+                return PrematchAnalysisExtracted(
+                    extraction_success=False,
+                    error_message=f"Errore lettura pagina: {e}",
+                )
+        else:
+            return PrematchAnalysisExtracted(
+                extraction_success=False,
+                error_message=f"Errore lettura pagina: {e}",
+            )
 
     if not page_text or len(page_text) < 200:
         return PrematchAnalysisExtracted(
@@ -3536,6 +3694,18 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
 
     # 4. Estrai dati principali dalla pagina H2H
     result = _extract_prematch_analysis_from_text(combined_text)
+    # Fallback identita' da URL quando il testo e' incompleto/non standard.
+    u_home, u_away, u_league = _extract_identity_from_url(h2h_url)
+    if result.extraction_success:
+        if not result.home_team and u_home:
+            result.home_team = u_home
+        if not result.away_team and u_away:
+            result.away_team = u_away
+        if not result.league_name and u_league:
+            result.league_name = u_league
+            result.league_source = "mirror"
+        elif result.league_name:
+            result.league_source = "nowgoal"
     
     # 5. Estrai dati aggiuntivi dalla pagina LIVE (automazione!)
     if live_url and result.extraction_success:
@@ -3544,6 +3714,10 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
             if live_page_text and len(live_page_text) > 200:
                 live_data = _extract_live_page_data(live_page_text)
                 _apply_live_data_to_result(result, live_data)
+                if not result.league_name:
+                    _, _, live_league = _extract_match_identity_from_text(live_page_text)
+                    if live_league:
+                        result.league_name = live_league
         except Exception:
             pass  # Non critico, i dati H2H sono già estratti
     
@@ -3563,6 +3737,20 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
         # Applica l'impatto meteo agli xG stimati
         result.forma_mult_h *= (1.0 + result.weather_impact)
         result.forma_mult_a *= (1.0 + result.weather_impact)
+
+    # 8. Ultimo fallback lega da mirror alternativi (solo se ancora mancante)
+    if result.extraction_success and not result.league_name and match_id:
+        mirror_league = _fallback_league_from_nowgoal_mirrors(match_id, original_domain)
+        if mirror_league:
+            result.league_name = mirror_league
+            result.league_source = "mirror"
+
+    # 9. Fallback esterno (solo se manca ancora la lega)
+    if result.extraction_success and not result.league_name and result.home_team and result.away_team:
+        ext_league = _fallback_league_external(result.home_team, result.away_team)
+        if ext_league:
+            result.league_name = ext_league
+            result.league_source = "external"
     
     return result
 
@@ -3627,6 +3815,8 @@ def _extract_live_page_data(text: str) -> dict:
         "live_total_line": 0.0,
         "live_over_odds": 0.0,
         "live_under_odds": 0.0,
+        "home_absences_count": 0,
+        "away_absences_count": 0,
         "live_data_notes": [],
     }
     
@@ -3787,6 +3977,11 @@ def _extract_live_page_data(text: str) -> dict:
             pass
     else:
         result["live_data_notes"].append("live_odds_not_available_no_js")
+
+    # === 5. INJURIES/SUSPENSIONS ===
+    abs_h, abs_a = _extract_absence_counts(text)
+    result["home_absences_count"] = abs_h
+    result["away_absences_count"] = abs_a
     
     return result
 
@@ -3828,6 +4023,10 @@ def _apply_live_data_to_result(result: PrematchAnalysisExtracted, live_data: dic
     result.live_total_line = live_data.get("live_total_line", 0.0)
     result.live_over_odds = live_data.get("live_over_odds", 0.0)
     result.live_under_odds = live_data.get("live_under_odds", 0.0)
+    if result.home_absences_count <= 0:
+        result.home_absences_count = int(live_data.get("home_absences_count", 0) or 0)
+    if result.away_absences_count <= 0:
+        result.away_absences_count = int(live_data.get("away_absences_count", 0) or 0)
     for note in live_data.get("live_data_notes", []):
         if note not in result.extraction_notes:
             result.extraction_notes.append(note)

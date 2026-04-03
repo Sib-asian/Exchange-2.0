@@ -1,0 +1,8 @@
+Title: Adelaide United VS Auckland FC - Football Analysis
+AUS D1
+## Injuries & Suspensions
+Home
+- Player A (out)
+- Player B (injured)
+Away
+- Player C (suspended)

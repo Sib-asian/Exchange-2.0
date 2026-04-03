@@ -30,3 +30,11 @@ def test_snapshot_3_league_fallback_from_code_and_section_scores():
     assert parsed["league_name"] == "Australia A-League"
     assert parsed["extraction_section_scores"]["identity"] == 1.0
     assert parsed["extraction_section_scores"]["market_1x2"] == 0.0
+
+
+def test_snapshot_4_plain_code_and_injuries_section():
+    parsed = _extract_all_with_regex(_fixture("nowgoal_snapshot_4.txt"))
+    assert parsed["league_name"] == "Australia A-League"
+    assert parsed["home_absences_count"] == 2
+    assert parsed["away_absences_count"] == 1
+    assert parsed["extraction_section_scores"]["injuries"] == 1.0
