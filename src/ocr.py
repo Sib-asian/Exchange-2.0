@@ -2142,6 +2142,120 @@ def _fetch_raw_html(url: str, timeout: int = 30) -> str:
         return ""
 
 
+def _text_before_previous_scores_statistics(text: str) -> str:
+    """Esclude la sezione Previous Scores: stesso formato W/D/L ma non è H2H."""
+    low = text.lower()
+    idx = low.find("previous scores statistics")
+    return text[:idx] if idx >= 0 else text
+
+
+_LEAGUE_CODE_PREFIX_RE = re.compile(r"^([A-Z]{2,3}\s+D\d+\s+)+", re.IGNORECASE)
+
+
+def _strip_league_code_prefix(left_chunk: str) -> str:
+    s = (left_chunk or "").strip()
+    s = _LEAGUE_CODE_PREFIX_RE.sub("", s)
+    return s.strip()
+
+
+def _teams_name_match(a: str, b: str) -> bool:
+    ca = _clean_team_name(a).lower()
+    cb = _clean_team_name(b).lower()
+    if not ca or not cb:
+        return False
+    if ca == cb:
+        return True
+    if len(ca) >= 4 and len(cb) >= 4 and (ca in cb or cb in ca):
+        return True
+    return False
+
+
+def _h2h_goals_for_fixture_teams(
+    hist_home: str, hist_away: str, gh: int, ga: int, fixture_home: str, fixture_away: str
+) -> tuple[int, int] | None:
+    """
+    (gol squadra che nella partita in programma è in casa, gol ospite programmato)
+    per uno scontro storico dove hist_home ha giocato in casa con punteggio gh-ga.
+    """
+    if _teams_name_match(hist_home, fixture_home) and _teams_name_match(hist_away, fixture_away):
+        return gh, ga
+    if _teams_name_match(hist_home, fixture_away) and _teams_name_match(hist_away, fixture_home):
+        return ga, gh
+    return None
+
+
+def _head_to_head_table_slice(text: str) -> str:
+    """Dopo l'ultima intestazione Head to Head Statistics, fino a Previous Scores."""
+    low = text.lower()
+    starts = list(
+        re.finditer(r"(?:^|\n)\s*(?:#+\s*)?(?:head\s*to\s*head|h2h)\s+statistics", low, re.IGNORECASE)
+    )
+    if not starts:
+        return ""
+    start = starts[-1].end()
+    end = low.find("previous scores statistics", start)
+    return text[start:] if end < 0 else text[start:end]
+
+
+def _parse_h2h_score_rows(table_slice: str) -> list[tuple[str, str, int, int]]:
+    """
+    Righe stile Nowgoal: 'AUS D1 Auckland FC 2-1(1-1) Adelaide United'
+    -> (casa_storica, trasferta_storica, gol_casa, gol_trasferta).
+    """
+    rows: list[tuple[str, str, int, int]] = []
+    for line in table_slice.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.search(r"^(.+?)\s+(\d+)-(\d+)\(([^)]*)\)\s*(.+)$", line)
+        if not m:
+            continue
+        left_raw, gh_s, ga_s, right_raw = m.group(1), m.group(2), m.group(3), m.group(5)
+        gh, ga = int(gh_s), int(ga_s)
+        th = _strip_league_code_prefix(left_raw)
+        ta = right_raw.strip()
+        if th and ta:
+            rows.append((th, ta, gh, ga))
+    return rows
+
+
+def _derive_h2h_from_score_table(
+    parsed_rows: list[tuple[str, str, int, int]], fixture_home: str, fixture_away: str
+) -> dict | None:
+    """
+    W/D/L % e medie gol dalla prospettiva fixture_home vs fixture_away.
+    BTTS % su tutte le righe parsate (stesso campione del conteggio partite in tabella).
+    """
+    if not fixture_home or not fixture_away or not parsed_rows:
+        return None
+    goals_fh: list[int] = []
+    goals_fa: list[int] = []
+    for th, ta, gh, ga in parsed_rows:
+        pair = _h2h_goals_for_fixture_teams(th, ta, gh, ga, fixture_home, fixture_away)
+        if pair is None:
+            continue
+        gfh, gfa = pair
+        goals_fh.append(gfh)
+        goals_fa.append(gfa)
+    n = len(goals_fh)
+    if n == 0:
+        return None
+    w = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh > gfa)
+    d = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh == gfa)
+    l = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh < gfa)
+    btts_hits = sum(1 for _th, _ta, gh, ga in parsed_rows if gh > 0 and ga > 0)
+    return {
+        "n": n,
+        "h2h_home_win_pct": round(w / n * 100, 1),
+        "h2h_draw_pct": round(d / n * 100, 1),
+        "h2h_away_win_pct": round(l / n * 100, 1),
+        "h2h_avg_goals_home": round(sum(goals_fh) / n, 2),
+        "h2h_avg_goals_away": round(sum(goals_fa) / n, 2),
+        "h2h_btts_pct": round(btts_hits * 100.0 / len(parsed_rows), 1),
+        "h2h_matches_count": len(parsed_rows),
+    }
+
+
 def _extract_h2h_with_regex(text: str) -> dict:
     """
     Estrae dati H2H dal testo usando regex (GRATUITO, senza API key).
@@ -2151,6 +2265,10 @@ def _extract_h2h_with_regex(text: str) -> dict:
     - Formato compatto: "1W 3D 2L"
     - Formato percentuale: "Win 30% Draw 30% Lose 40%"
     - Formato misto: "1W 3D 2L" per casa e "2W 3D 1L" per trasferta
+
+    Usa solo il testo prima di "Previous Scores Statistics" e, se c'è l'intestazione
+    tabella H2H, il formato compatto XW YD ZL solo dentro quella sezione (evita
+    Last 6 e altre righe nella pagina).
     """
     result = {
         "h2h_home_win_pct": 0.0,
@@ -2158,34 +2276,37 @@ def _extract_h2h_with_regex(text: str) -> dict:
         "h2h_away_win_pct": 0.0,
     }
 
-    # FIX: Cerca "No Data!" nella sezione H2H prima di estrarre valori fake.
-    # Nowgoal mostra "No Data!" quando non ci sono partite H2H, seguito da
-    # "Previous Scores Statistics" che contiene statistiche di UNA squadra,
-    # non H2H. Non dobbiamo confonderle!
-    text_lower = text.lower()
+    work = _text_before_previous_scores_statistics(text)
+    text_lower = work.lower()
 
-    # Cerca "No Data" seguito eventualmente da "Previous Scores" o "League/Cup"
-    # Questo indica che l'H2H è vuoto
     if re.search(r"no\s*data!?[\s\S]{0,100}(?:previous\s*scores|league/cup)", text_lower, re.IGNORECASE):
         return result
 
-    # FIX: Cerca il pattern W/D/L specificamente nella sezione "Head to Head Statistics"
-    # Evita di confondere con "Previous Scores Statistics" che ha lo stesso formato
-    # ma contiene statistiche di UNA squadra, non H2H.
+    pattern_full = (
+        r"Win\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Draw\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*"
+        r"Lose\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)"
+    )
+    pattern_compact = r"(\d+)W\s+(\d+)D\s+(\d+)L"
+    pattern_pct = r"Win\s*(\d+(?:\.\d+)?)\s*%\s*Draw\s*(\d+(?:\.\d+)?)\s*%\s*Lose\s*(\d+(?:\.\d+)?)\s*%"
 
-    # Pattern per trovare la sezione H2H
-    h2h_section_start = re.search(r"(?:head\s*to\s*head|h2h)\s*statistics?", text_lower, re.IGNORECASE)
-    prev_section_start = re.search(r"previous\s*score", text_lower, re.IGNORECASE)
+    h2h_hdr = re.search(
+        r"(?:^|\n)\s*(?:#+\s*)?(?:head\s*to\s*head|h2h)\s+statistics", text_lower, re.IGNORECASE
+    )
 
-    # Se troviamo la sezione H2H, cerca il pattern solo in quella sezione
-    if h2h_section_start:
-        # Delimita la sezione H2H: dalla sezione H2H fino a "Previous Scores" o fine testo
-        h2h_start = h2h_section_start.end()
-        h2h_end = prev_section_start.start() if prev_section_start else len(text)
-        h2h_text = text[h2h_start:h2h_end]
+    pre_table = work[: h2h_hdr.start()] if h2h_hdr else work
+    match = re.search(pattern_full, pre_table, re.IGNORECASE)
+    if match:
+        result["h2h_home_win_pct"] = float(match.group(2))
+        result["h2h_draw_pct"] = float(match.group(4))
+        result["h2h_away_win_pct"] = float(match.group(6))
+        return result
 
-        # Pattern 1: Formato completo "Win X (Y%) Draw X (Y%) Lose X (Y%)"
-        pattern_full = r"Win\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Draw\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Lose\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)"
+    if h2h_hdr:
+        h2h_start = h2h_hdr.end()
+        rel = re.search(r"previous\s*score", text_lower[h2h_start:])
+        h2h_end = h2h_start + rel.start() if rel else len(work)
+        h2h_text = work[h2h_start:h2h_end]
+
         match = re.search(pattern_full, h2h_text, re.IGNORECASE)
         if match:
             result["h2h_home_win_pct"] = float(match.group(2))
@@ -2193,8 +2314,6 @@ def _extract_h2h_with_regex(text: str) -> dict:
             result["h2h_away_win_pct"] = float(match.group(6))
             return result
 
-        # Pattern 2: Formato compatto "XW YD ZL"
-        pattern_compact = r"(\d+)W\s+(\d+)D\s+(\d+)L"
         match = re.search(pattern_compact, h2h_text, re.IGNORECASE)
         if match:
             w, d, l = int(match.group(1)), int(match.group(2)), int(match.group(3))
@@ -2205,8 +2324,6 @@ def _extract_h2h_with_regex(text: str) -> dict:
                 result["h2h_away_win_pct"] = round(l / total * 100, 1)
                 return result
 
-        # Pattern 3: Percentuali dirette
-        pattern_pct = r"Win\s*(\d+(?:\.\d+)?)\s*%\s*Draw\s*(\d+(?:\.\d+)?)\s*%\s*Lose\s*(\d+(?:\.\d+)?)\s*%"
         match = re.search(pattern_pct, h2h_text, re.IGNORECASE)
         if match:
             result["h2h_home_win_pct"] = float(match.group(1))
@@ -2214,24 +2331,17 @@ def _extract_h2h_with_regex(text: str) -> dict:
             result["h2h_away_win_pct"] = float(match.group(3))
             return result
 
-    # Fallback: se non troviamo la sezione H2H specifica, usa il metodo vecchio
-    # ma con avviso (meno affidabile)
-    # Pattern 1: Formato completo "Win X (Y%) Draw X (Y%) Lose X (Y%)"
-    # Es: "Win 3 (30%) Draw 3 (30%) Lose 4 (40%)"
-    pattern_full = r"Win\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Draw\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)\s*Lose\s+(\d+)\s*\((\d+(?:\.\d+)?)\s*%\)"
-    match = re.search(pattern_full, text, re.IGNORECASE)
+        return result
+
+    match = re.search(pattern_full, work, re.IGNORECASE)
     if match:
         result["h2h_home_win_pct"] = float(match.group(2))
         result["h2h_draw_pct"] = float(match.group(4))
         result["h2h_away_win_pct"] = float(match.group(6))
         return result
-    
-    # Pattern 2: Formato compatto "XW YD ZL" (solo numeri senza %)
-    # Es: "1W 3D 2L"
-    pattern_compact = r"(\d+)W\s+(\d+)D\s+(\d+)L"
-    matches = re.findall(pattern_compact, text, re.IGNORECASE)
+
+    matches = re.findall(pattern_compact, work, re.IGNORECASE)
     if matches:
-        # Prendi il primo match (di solito è l'H2H principale)
         w, d, l = matches[0]
         w, d, l = int(w), int(d), int(l)
         total = w + d + l
@@ -2240,21 +2350,16 @@ def _extract_h2h_with_regex(text: str) -> dict:
             result["h2h_draw_pct"] = round(d / total * 100, 1)
             result["h2h_away_win_pct"] = round(l / total * 100, 1)
             return result
-    
-    # Pattern 3: Cercare percentuali dirette "XX%" vicino a Win/Draw/Lose
-    # Es: "Win 30% Draw 30% Lose 40%"
-    pattern_pct = r"Win\s*(\d+(?:\.\d+)?)\s*%\s*Draw\s*(\d+(?:\.\d+)?)\s*%\s*Lose\s*(\d+(?:\.\d+)?)\s*%"
-    match = re.search(pattern_pct, text, re.IGNORECASE)
+
+    match = re.search(pattern_pct, work, re.IGNORECASE)
     if match:
         result["h2h_home_win_pct"] = float(match.group(1))
         result["h2h_draw_pct"] = float(match.group(2))
         result["h2h_away_win_pct"] = float(match.group(3))
         return result
-    
-    # Pattern 4: Formato con barra "/" tra squadre
-    # Es: "1W 3D 2L / 2W 3D 1L" - primo è casa, secondo è trasferta
+
     pattern_slash = r"(\d+)W\s+(\d+)D\s+(\d+)L\s*/\s*(\d+)W\s+(\d+)D\s+(\d+)L"
-    match = re.search(pattern_slash, text, re.IGNORECASE)
+    match = re.search(pattern_slash, work, re.IGNORECASE)
     if match:
         w1, d1, l1 = int(match.group(1)), int(match.group(2)), int(match.group(3))
         total1 = w1 + d1 + l1
@@ -2263,24 +2368,20 @@ def _extract_h2h_with_regex(text: str) -> dict:
             result["h2h_draw_pct"] = round(d1 / total1 * 100, 1)
             result["h2h_away_win_pct"] = round(l1 / total1 * 100, 1)
             return result
-    
-    # Pattern 5: Formato "W-D-L" con trattini
-    # Es: "1-3-2" o "W1-D3-L2"
+
     pattern_dash = r"(\d+)-(\d+)-(\d+)"
-    match = re.search(pattern_dash, text)
+    match = re.search(pattern_dash, work)
     if match:
         w, d, l = int(match.group(1)), int(match.group(2)), int(match.group(3))
         total = w + d + l
-        if total > 0 and total <= 50:  # Plausibilità: max 50 partite H2H
+        if total > 0 and total <= 50:
             result["h2h_home_win_pct"] = round(w / total * 100, 1)
             result["h2h_draw_pct"] = round(d / total * 100, 1)
             result["h2h_away_win_pct"] = round(l / total * 100, 1)
             return result
-    
-    # Pattern 6: Formato testuale esteso
-    # Es: "Home Team won 3 matches, drew 2 matches, lost 1 match"
+
     pattern_text = r"(?:Home\s+)?(?:Team\s+)?won\s+(\d+).*?drew?\s+(\d+).*?lost?\s+(\d+)"
-    match = re.search(pattern_text, text, re.IGNORECASE)
+    match = re.search(pattern_text, work, re.IGNORECASE)
     if match:
         w, d, l = int(match.group(1)), int(match.group(2)), int(match.group(3))
         total = w + d + l
@@ -2289,7 +2390,7 @@ def _extract_h2h_with_regex(text: str) -> dict:
             result["h2h_draw_pct"] = round(d / total * 100, 1)
             result["h2h_away_win_pct"] = round(l / total * 100, 1)
             return result
-    
+
     return result
 
 
@@ -2544,38 +2645,61 @@ def _extract_all_with_regex(text: str) -> dict:
     }
 
     # === H2H ===
+    pre_ps = _text_before_previous_scores_statistics(text)
+    id_h2h_home, id_h2h_away, _ = _extract_match_identity_from_text(text)
+
     h2h = _extract_h2h_with_regex(text)
     result["h2h_home_win_pct"] = h2h["h2h_home_win_pct"]
     result["h2h_draw_pct"] = h2h["h2h_draw_pct"]
     result["h2h_away_win_pct"] = h2h["h2h_away_win_pct"]
-    
-    # H2H Over %
-    # Formati: "60%Over" (Nowgoal H2H), "Over 67%", "Over: 67%"
-    # Cerca prima il formato specifico Nowgoal "XX%Over" (più affidabile per H2H)
-    over_match = re.search(r"(\d+(?:\.\d+)?)%\s*Over", text, re.IGNORECASE)
+
+    h2h_table_body = _head_to_head_table_slice(text)
+    parsed_h2h_rows = _parse_h2h_score_rows(h2h_table_body)
+    derived_h2h = (
+        _derive_h2h_from_score_table(parsed_h2h_rows, id_h2h_home, id_h2h_away)
+        if parsed_h2h_rows and id_h2h_home and id_h2h_away
+        else None
+    )
+    if derived_h2h:
+        result["h2h_home_win_pct"] = derived_h2h["h2h_home_win_pct"]
+        result["h2h_draw_pct"] = derived_h2h["h2h_draw_pct"]
+        result["h2h_away_win_pct"] = derived_h2h["h2h_away_win_pct"]
+        result["h2h_avg_goals_home"] = derived_h2h["h2h_avg_goals_home"]
+        result["h2h_avg_goals_away"] = derived_h2h["h2h_avg_goals_away"]
+        result["h2h_btts_pct"] = derived_h2h["h2h_btts_pct"]
+        result["h2h_matches_count"] = derived_h2h["h2h_matches_count"]
+    elif parsed_h2h_rows:
+        btts_hits = sum(1 for _th, _ta, gh, ga in parsed_h2h_rows if gh > 0 and ga > 0)
+        result["h2h_btts_pct"] = round(btts_hits * 100.0 / len(parsed_h2h_rows), 1)
+        result["h2h_matches_count"] = len(parsed_h2h_rows)
+
+    # H2H Over % — preferisci la sezione tabella H2H, non la prima "Over" della pagina.
+    over_scope = h2h_table_body if h2h_table_body.strip() else pre_ps
+    over_match = re.search(r"(\d+(?:\.\d+)?)%\s*Over", over_scope, re.IGNORECASE)
     if over_match:
         result["h2h_over_pct"] = float(over_match.group(1))
     else:
-        # Formato alternativo: "Over 67%"
-        over_match2 = re.search(r"Over\s*(\d+(?:\.\d+)?)\s*%?", text, re.IGNORECASE)
+        over_match2 = re.search(r"Over\s*(\d+(?:\.\d+)?)\s*%?", over_scope, re.IGNORECASE)
         if over_match2:
             result["h2h_over_pct"] = float(over_match2.group(1))
-    
-    # H2H media gol — SOLO dalla sezione H2H!
-    # FIX: Non estrarre se le percentuali H2H sono tutte 0 (nessun H2H disponibile)
-    # Il pattern generico "X.X goals" potrebbe catturare valori da "Previous Scores Statistics"
-    # che NON sono H2H data ma statistiche recenti di ogni squadra.
-    if result["h2h_home_win_pct"] > 0 or result["h2h_draw_pct"] > 0 or result["h2h_away_win_pct"] > 0:
-        # Cerca pattern "Goal Score/Loss per Game" specifico della sezione H2H
-        # Es: "1.1 goals   Goal Score/Loss per Game   1.5 goals"
+
+    # H2H media gol da testo solo se non ricavate dalla tabella punteggi.
+    if not derived_h2h and (
+        result["h2h_home_win_pct"] > 0
+        or result["h2h_draw_pct"] > 0
+        or result["h2h_away_win_pct"] > 0
+    ):
         h2h_goals_pattern = r"(\d+[.,]\d+)\s*goals?\s*Goal\s*Score/Loss\s*per\s*Game\s*(\d+[.,]\d+)\s*goals?"
-        h2h_goals_match = re.search(h2h_goals_pattern, text, re.IGNORECASE)
+        h2h_goals_match = re.search(h2h_goals_pattern, pre_ps, re.IGNORECASE)
         if h2h_goals_match:
             result["h2h_avg_goals_home"] = float(h2h_goals_match.group(1).replace(",", "."))
             result["h2h_avg_goals_away"] = float(h2h_goals_match.group(2).replace(",", "."))
         else:
-            # Fallback: cerca nella sezione H2H delimitata
-            h2h_section = re.search(r"(?:head\s*to\s*head|h2h)\s*statistics?(.*?)(?:previous\s*score|who\s*will\s*win|$)", text, re.IGNORECASE | re.DOTALL)
+            h2h_section = re.search(
+                r"(?:head\s*to\s*head|h2h)\s*statistics?(.*?)(?:previous\s*score|who\s*will\s*win|$)",
+                pre_ps,
+                re.IGNORECASE | re.DOTALL,
+            )
             if h2h_section:
                 h2h_text = h2h_section.group(1)
                 goals_pattern = r"(\d+[.,]\d+)\s*goals?"
@@ -2583,18 +2707,6 @@ def _extract_all_with_regex(text: str) -> dict:
                 if len(goals_matches) >= 2:
                     result["h2h_avg_goals_home"] = float(goals_matches[0].replace(",", "."))
                     result["h2h_avg_goals_away"] = float(goals_matches[1].replace(",", "."))
-    # H2H BTTS% ricavato dai punteggi presenti nella tabella H2H.
-    h2h_section = re.search(
-        r"Head to Head Statistics(.*?)(?:Previous Scores Statistics|Adelaide United\s+Historical|$)",
-        text, re.IGNORECASE | re.DOTALL
-    )
-    if h2h_section:
-        score_pairs = re.findall(r"\b(\d+)-(\d+)\(", h2h_section.group(1))
-        if score_pairs:
-            result["h2h_matches_count"] = len(score_pairs)
-            btts_hits = sum(1 for h, a in score_pairs if int(h) > 0 and int(a) > 0)
-            result["h2h_btts_pct"] = round(btts_hits * 100.0 / len(score_pairs), 1)
-    # Se H2H percentuali sono 0, lascia h2h_avg_goals a 0 (nessun H2H disponibile)
 
     # === STRENGTH ===
     # Nowgoal mostra la Strength come due numeri su righe isolate, seguiti dalle etichette:
