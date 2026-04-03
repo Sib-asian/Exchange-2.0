@@ -1164,19 +1164,30 @@ def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
         )
         if st.button("Estrai da URL", key="_extract_url_btn", type="primary"):
             if url_input.strip():
-                last_url = st.session_state.get("_prematch_analysis_url", "")
-                if url_input.strip() != last_url:
-                    with st.spinner("Lettura pagina e analisi..."):
-                        result = extract_prematch_analysis_from_url(url_input.strip())
-                    st.session_state["_prematch_analysis_url"] = url_input.strip()
-                    # Pulisce cache file per evitare conflitti
-                    st.session_state.pop("_prematch_analysis_file_id", None)
-                    if result.extraction_success:
-                        st.session_state["prematch_analysis"] = result
-                        cached = result
-                        st.rerun()
-                    else:
-                        st.error(f"Estrazione fallita: {result.error_message}")
+                with st.spinner("Lettura pagina e analisi..."):
+                    # Esegui sempre l'estrazione al click (anche stesso URL),
+                    # così l'utente può aggiornare subito senza cambiare link.
+                    result = extract_prematch_analysis_from_url(url_input.strip())
+
+                    # Auto-retry singolo se primo passaggio è incompleto/instabile.
+                    _h2h_ok = (result.h2h_home_win_pct + result.h2h_draw_pct + result.h2h_away_win_pct) > 0
+                    _need_retry = (not result.extraction_success) or (not _h2h_ok)
+                    if _need_retry:
+                        result_retry = extract_prematch_analysis_from_url(url_input.strip())
+                        if result_retry.extraction_success:
+                            _h2h_retry_ok = (result_retry.h2h_home_win_pct + result_retry.h2h_draw_pct + result_retry.h2h_away_win_pct) > 0
+                            if _h2h_retry_ok or not _h2h_ok:
+                                result = result_retry
+
+                st.session_state["_prematch_analysis_url"] = url_input.strip()
+                # Pulisce cache file per evitare conflitti
+                st.session_state.pop("_prematch_analysis_file_id", None)
+                if result.extraction_success:
+                    st.session_state["prematch_analysis"] = result
+                    cached = result
+                    st.rerun()
+                else:
+                    st.error(f"Estrazione fallita: {result.error_message}")
             else:
                 st.warning("Inserisci l'URL Nowgoal prima di procedere.")
 
