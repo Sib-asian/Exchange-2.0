@@ -1135,6 +1135,7 @@ class PrematchAnalysisExtracted:
     # Quality report sintetico per capire affidabilita' estrazione URL.
     extraction_coverage: float = 0.0  # [0,1] percentuale sezioni chiave trovate
     extraction_notes: list[str] = field(default_factory=list)
+    extraction_section_scores: dict[str, float] = field(default_factory=dict)  # 0/1 per sezione
 
 
 _NOISY_TEAM_SUFFIXES = (
@@ -1196,6 +1197,21 @@ def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
         comp_line = re.search(r"\n\s*([A-Za-z][A-Za-z0-9\-\s]+League|[A-Za-z][A-Za-z0-9\-\s]+Cup)\s*[·\|]", text)
         if comp_line:
             league = _clean_league_name(comp_line.group(1))
+    # Fallback da codifica lega tipo [AUS D1-4] -> Australia A-League
+    if not league:
+        code = re.search(r"\[([A-Z]{2,3}\s*D\d)-\d+\]", text)
+        if code:
+            map_code = {
+                "AUS D1": "Australia A-League",
+                "ENG D1": "England Premier League",
+                "ENG D2": "England Championship",
+                "ITA D1": "Italy Serie A",
+                "ESP D1": "Spain LaLiga",
+                "SPA D2": "Spain Segunda",
+                "GER D1": "Germany Bundesliga",
+                "FRA D1": "France Ligue 1",
+            }
+            league = map_code.get(code.group(1).strip(), "")
     return home, away, league
 
 
@@ -2344,6 +2360,7 @@ def _extract_all_with_regex(text: str) -> dict:
         "team_stats_away_possession": 0.0,
         # Qualita' estrazione
         "extraction_notes": [],
+        "extraction_section_scores": {},
     }
 
     # === H2H ===
@@ -3081,6 +3098,16 @@ def _extract_all_with_regex(text: str) -> dict:
             result["team_stats_home_possession"] = float(poss_matches[-1][0])
             result["team_stats_away_possession"] = float(poss_matches[-1][1])
 
+    result["extraction_section_scores"] = {
+        "identity": 1.0 if (result["home_team"] and result["away_team"]) else 0.0,
+        "league": 1.0 if bool(result["league_name"]) else 0.0,
+        "h2h_core": 1.0 if (result["h2h_home_win_pct"] or result["h2h_draw_pct"] or result["h2h_away_win_pct"]) else 0.0,
+        "standings": 1.0 if (result["home_matches"] > 0 and result["away_matches"] > 0) else 0.0,
+        "previous_scores": 1.0 if (result["prev_home_avg_scored"] > 0 or result["prev_away_avg_scored"] > 0) else 0.0,
+        "market_1x2": 1.0 if (result["mkt_init_1"] > 1.0 and result["mkt_init_x"] > 1.0 and result["mkt_init_2"] > 1.0) else 0.0,
+        "team_stats": 1.0 if (result["team_stats_home_goals"] > 0 or result["team_stats_away_goals"] > 0) else 0.0,
+    }
+
     return result
 
 
@@ -3225,6 +3252,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         team_stats_away_fouls=regex_data["team_stats_away_fouls"],
         team_stats_away_possession=regex_data["team_stats_away_possession"],
         extraction_notes=list(regex_data.get("extraction_notes", [])),
+        extraction_section_scores=dict(regex_data.get("extraction_section_scores", {})),
     )
     
     # Calcola forma_mult
@@ -3260,16 +3288,11 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         result.fixture_historical_total = result.h2h_avg_goals_home + result.h2h_avg_goals_away
 
     # Report qualita': quante sezioni chiave sono state davvero estratte.
-    key_sections = [
-        bool(result.home_team and result.away_team),
-        bool(result.league_name),
-        bool(result.h2h_home_win_pct or result.h2h_draw_pct or result.h2h_away_win_pct),
-        bool(result.home_matches and result.away_matches),
-        bool(result.home_prev_avg_scored or result.away_prev_avg_scored),
-        bool(result.team_stats_home_goals or result.team_stats_away_goals),
-        bool(result.weather_condition),
-    ]
-    result.extraction_coverage = sum(1 for x in key_sections if x) / len(key_sections)
+    section_scores = dict(result.extraction_section_scores)
+    section_scores["weather"] = 1.0 if bool(result.weather_condition) else 0.0
+    result.extraction_section_scores = section_scores
+    if section_scores:
+        result.extraction_coverage = sum(section_scores.values()) / len(section_scores)
     
     # === PASSO 2: Se regex ha estratto dati sufficienti, termina qui ===
     has_data = (
