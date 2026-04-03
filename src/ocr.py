@@ -1860,6 +1860,8 @@ def extract_prematch_analysis_from_bytes(
 # ============================================================================
 
 _JINA_BASE_URL = "https://r.jina.ai/"
+# L'HTML Nowgoal ha spesso H2H/infortuni oltre i primi 100k caratteri (es. injury ~290k).
+_RAW_HTML_APPEND_MAX = 400_000
 _LEAGUE_CACHE_PATH = Path("data/league_fallback_cache.json")
 _LEAGUE_CACHE_TTL_SEC = 24 * 3600
 _NOWGOAL_DOMAINS = (
@@ -2500,34 +2502,100 @@ def _parse_nowgoal_injury_block(body: str) -> list[str]:
         if not m:
             continue
         role, rest = m.group(1), m.group(2).strip()
+        # Jina: nomi spesso come markdown link `[Nome](url)`
+        link_m = re.match(r"^\[([^\]]+)\]\([^)]*\)\s*$", rest)
+        if link_m:
+            rest = link_m.group(1).strip()
+        else:
+            rest = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", rest).strip()
         formatted = _format_absence_line_for_mult(role, rest)
         if formatted:
             out.append(formatted)
     return out
 
 
-def _extract_nowgoal_injury_player_lists(text: str) -> tuple[list[str], list[str]]:
+def _parse_nowgoal_injury_column_html(fragment: str) -> list[str]:
+    """Colonna injuryH / injuryG nell'HTML Nowgoal (player-row con <b>RUOLO</b>)."""
+    if not fragment or not fragment.strip():
+        return []
+    if "player-row" not in fragment.lower():
+        return []
+    rows = re.findall(
+        r'<div[^>]*\bclass\s*=\s*["\'][^"\']*player-row[^"\']*["\'][^>]*>\s*'
+        r'<b>\s*([A-Z]{2,4})\s*</b>\s*'
+        r'<span>\s*(\d+)\s*</span>\s*'
+        r'<a[^>]*>\s*([^<]*?)\s*</a>',
+        fragment,
+        re.DOTALL | re.IGNORECASE,
+    )
+    out: list[str] = []
+    for role, _num, name in rows:
+        line = _format_absence_line_for_mult(role.strip().upper(), name.strip())
+        if line:
+            out.append(line)
+    return out[:8]
+
+
+def _extract_injury_player_lists_from_nowgoal_html(html: str) -> tuple[list[str], list[str]]:
     """
-    Formato pagina Analysis Nowgoal: due blocchi separati da una riga 'Injury' (team casa / team ospite).
+    Estrae infortuni dalle colonne id=injuryH (casa) e id=injuryG (trasferta).
+    Necessario perché Jina spesso tronca o omette i nomi; il markdown usa <b>CF</b> non **CF**.
     """
-    m = re.search(r"Injur(?:y|ies)\s+and\s+Suspension", text, re.IGNORECASE)
-    if not m:
+    if not html or ("injuryH" not in html and "injuryG" not in html):
         return [], []
-    rest = text[m.end() :]
-    # Nowgoal mette spesso "TeamA  Last Match Lineups TeamB" senza ## davanti
+    home_m = re.search(
+        r'<\s*div[^>]*\bid\s*=\s*["\']injuryH["\'][^>]*>(.*?)'
+        r'(?=<\s*div[^>]*\bid\s*=\s*["\']injuryG["\'])',
+        html,
+        re.DOTALL | re.IGNORECASE,
+    )
+    away_m = re.search(
+        r'<\s*div[^>]*\bid\s*=\s*["\']injuryG["\'][^>]*>(.*?)'
+        r'(?=<\s*div[^>]*\bid\s*=\s*["\']lineupH["\']|'
+        r'<\s*div[^>]*\bid\s*=\s*["\']lineupG["\']|'
+        r'Last Match Lineups)',
+        html,
+        re.DOTALL | re.IGNORECASE,
+    )
+    hl = _parse_nowgoal_injury_column_html(home_m.group(1)) if home_m else []
+    al = _parse_nowgoal_injury_column_html(away_m.group(1)) if away_m else []
+    return hl, al
+
+
+def _split_nowgoal_injury_markdown_scope(rest: str) -> tuple[list[str], list[str]]:
+    """Parte dopo 'Injury and Suspension' (o equivalente): split su righe 'Injury' isolate."""
     end_m = re.search(r"\bLast Match Lineups\b", rest, re.IGNORECASE)
+    if not end_m:
+        end_m = re.search(r"(?m)^\s*Lineups\s*\(", rest, re.IGNORECASE)
     if not end_m:
         end_m = re.search(r"\n(?:#{0,3}\s*)?Fixture\s*\(", rest, re.IGNORECASE)
     scope = rest[: end_m.start()] if end_m else rest[:12000]
     parts = re.split(r"(?m)^\s*Injury\s*$", scope)
     if len(parts) < 2:
         return [], []
-    # Una sola riga " Injury " = spesso solo la squadra casa (es. POR D1); ospite senza lista
     home_list = _parse_nowgoal_injury_block(parts[1])
     away_list: list[str] = []
     if len(parts) >= 3:
         away_list = _parse_nowgoal_injury_block(parts[2])
     return home_list, away_list
+
+
+def _extract_nowgoal_injury_player_lists(text: str) -> tuple[list[str], list[str]]:
+    """
+    Formato pagina Analysis Nowgoal: due blocchi separati da una riga 'Injury' (team casa / team ospite).
+    """
+    m = re.search(r"Injur(?:y|ies)\s+and\s+Suspensions?", text, re.IGNORECASE)
+    if m:
+        return _split_nowgoal_injury_markdown_scope(text[m.end() :])
+    # Jina omette spesso il titolo: cerca un blocco dove dopo "Injury" isolata compaiono righe **RUOLO**
+    for inj in re.finditer(r"(?m)^\s*Injury\s*$", text):
+        tail = text[inj.end() :]
+        if not re.search(r"\*\*[A-Z]{2,4}\*\*", tail[:8000]):
+            continue
+        home_l, away_l = _split_nowgoal_injury_markdown_scope(tail)
+        if home_l or away_l:
+            return home_l, away_l
+    return [], []
 
 
 def _bullet_absence_player_lists(text: str) -> tuple[list[str], list[str]]:
@@ -2634,8 +2702,16 @@ def _extract_absence_counts_fallback(text: str) -> tuple[int, int]:
 def _extract_absences_full(text: str) -> tuple[int, int, list[str], list[str]]:
     """
     Conteggi + liste giocatore per calcola_assenze_mult.
-    Ordine: Nowgoal markdown → bullet Home/Away → fallback solo numeri.
+    Ordine: HTML injuryH/G (RAW) → Nowgoal markdown → bullet Home/Away → fallback numeri.
     """
+    marker = "=== RAW HTML ==="
+    if marker in text:
+        html_part = text.split(marker, 1)[1].strip()
+        h_html, a_html = _extract_injury_player_lists_from_nowgoal_html(html_part)
+        if h_html or a_html:
+            h_html, a_html = h_html[:8], a_html[:8]
+            return len(h_html), len(a_html), h_html, a_html
+
     home_l, away_l = _extract_nowgoal_injury_player_lists(text)
     if home_l or away_l:
         home_l = home_l[:8]
@@ -3910,7 +3986,8 @@ def _extract_prematch_single_url_attempt(
 
     combined_text = page_text
     if raw_html:
-        combined_text = page_text + "\n\n=== RAW HTML ===\n" + raw_html[:100000]
+        cap = min(len(raw_html), _RAW_HTML_APPEND_MAX)
+        combined_text = page_text + "\n\n=== RAW HTML ===\n" + raw_html[:cap]
 
     result = _extract_prematch_analysis_from_text(combined_text)
     u_home, u_away, u_league = _extract_identity_from_url(h2h_url)
