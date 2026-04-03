@@ -15,6 +15,12 @@ def test_snapshot_1_identity_and_h2h_btts():
     assert parsed["league_name"] == "Australia A-League"
     assert parsed["h2h_matches_count"] == 3
     assert parsed["h2h_btts_pct"] == 100.0
+    # W/D/L e medie dalla tabella punteggi (prospettiva Adelaide in casa vs Auckland)
+    assert parsed["h2h_home_win_pct"] == 0.0
+    assert parsed["h2h_draw_pct"] == 66.7
+    assert parsed["h2h_away_win_pct"] == 33.3
+    assert parsed["h2h_avg_goals_home"] == 2.33
+    assert parsed["h2h_avg_goals_away"] == 2.67
 
 
 def test_snapshot_2_small_sample_h2h_count():
@@ -23,6 +29,9 @@ def test_snapshot_2_small_sample_h2h_count():
     assert parsed["away_team"] == "Team Beta"
     assert parsed["h2h_matches_count"] == 2
     assert parsed["h2h_btts_pct"] == 0.0
+    assert parsed["h2h_home_win_pct"] == 50.0
+    assert parsed["h2h_draw_pct"] == 50.0
+    assert parsed["h2h_away_win_pct"] == 0.0
 
 
 def test_snapshot_3_league_fallback_from_code_and_section_scores():
