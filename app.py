@@ -60,6 +60,7 @@ from src.ui.inputs import (
     render_live_semplice,
     render_prematch_analysis_screen,
 )
+from src.models.ai_adjustments import calcola_assenze_mult
 
 # ── Linee ─────────────────────────────────────────────────────────────────────
 _live_gh = st.session_state.get("live_gol_casa", 0)
@@ -166,6 +167,18 @@ if _btn_prematch or _btn_live:
     _streak_cs_h = int(getattr(_pa, "clean_sheet_streak_h", 0)) if _pa else 0
     _streak_cs_a = int(getattr(_pa, "clean_sheet_streak_a", 0)) if _pa else 0
     _h2h_n = int(getattr(_pa, "h2h_matches_count", 0)) if _pa else 0
+    _abs_h = int(getattr(_pa, "home_absences_count", 0)) if _pa else 0
+    _abs_a = int(getattr(_pa, "away_absences_count", 0)) if _pa else 0
+    _hg1 = float(getattr(_pa, "home_goals_1h", 0.0)) if _pa else 0.0
+    _hg2 = float(getattr(_pa, "home_goals_2h", 0.0)) if _pa else 0.0
+    _ag1 = float(getattr(_pa, "away_goals_1h", 0.0)) if _pa else 0.0
+    _ag2 = float(getattr(_pa, "away_goals_2h", 0.0)) if _pa else 0.0
+    _late_pct_h = (_hg2 / max(1e-9, _hg1 + _hg2)) * 100.0 if (_hg1 + _hg2) > 0 else 0.0
+    _late_pct_a = (_ag2 / max(1e-9, _ag1 + _ag2)) * 100.0 if (_ag1 + _ag2) > 0 else 0.0
+    _abs_h_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_h))
+    _abs_a_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_a))
+    _absence_mult_h = calcola_assenze_mult(_abs_h_list) * calcola_assenze_mult(_abs_a_list, per_avversario=True)
+    _absence_mult_a = calcola_assenze_mult(_abs_a_list) * calcola_assenze_mult(_abs_h_list, per_avversario=True)
 
     # Previous Scores (da sezione H2H)
     _prev_sc_h = float(getattr(_pa, "home_prev_avg_scored", 0.0)) if _pa else 0.0
@@ -234,6 +247,8 @@ if _btn_prematch or _btn_live:
         _final_sc_h = _final_co_h = _final_sc_a = _final_co_a = 0.0
         _weather_impact = 0.0
         _streak_score_h = _streak_score_a = _streak_cs_h = _streak_cs_a = 0
+        _late_pct_h = _late_pct_a = 0.0
+        _absence_mult_h = _absence_mult_a = 1.0
         _movement_quality = 1.0
         _ocr_conf_scale = 0.70
 
@@ -259,8 +274,12 @@ if _btn_prematch or _btn_live:
             scoring_streak_a=_streak_score_a,
             clean_sheet_streak_h=_streak_cs_h,
             clean_sheet_streak_a=_streak_cs_a,
+            late_goals_pct_h=_late_pct_h,
+            late_goals_pct_a=_late_pct_a,
             movement_quality=_movement_quality,
             ocr_confidence_scale=_ocr_conf_scale,
+            absence_mult_h=_absence_mult_h,
+            absence_mult_a=_absence_mult_a,
             prev_avg_scored_h=_final_sc_h,
             prev_avg_conceded_h=_final_co_h,
             prev_avg_scored_a=_final_sc_a,
@@ -293,7 +312,8 @@ if _btn_prematch or _btn_live:
         if state.minuto == 0:
             p1, px, p2, p_over, p_under, p_btts, _cal_sig = calibrate_prematch_probs(
                 risultati.p1, risultati.px, risultati.p2,
-                risultati.p_over, risultati.p_under, risultati.p_btts
+                risultati.p_over, risultati.p_under, risultati.p_btts,
+                league=_lega,
             )
             risultati.p1 = p1
             risultati.px = px
