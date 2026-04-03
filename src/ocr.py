@@ -2467,7 +2467,7 @@ def _format_absence_line_for_mult(role_code: str, player_name: str) -> str:
         tag = "GK"
     elif r in ("CB", "LB", "RB", "WB", "LWB", "RWB"):
         tag = "CB"
-    elif r in ("CM", "DM", "AM", "LM", "RM"):
+    elif r in ("CM", "DM", "AM", "LM", "RM", "MC"):
         tag = "CM"
     elif r in ("LW", "RW"):
         tag = r
@@ -2478,8 +2478,21 @@ def _format_absence_line_for_mult(role_code: str, player_name: str) -> str:
     return f"{name} ({tag}, injured)"
 
 
+def _trim_nowgoal_injury_body(body: str) -> str:
+    """Ferma il blocco prima di Last Match Lineups / formazioni (stesso blocco Injury su Nowgoal)."""
+    out_lines: list[str] = []
+    for line in body.splitlines():
+        if re.search(r"Last Match Lineups", line, re.IGNORECASE):
+            break
+        if re.match(r"^\s*Lineups\s*\(", line.strip(), re.IGNORECASE):
+            break
+        out_lines.append(line)
+    return "\n".join(out_lines)
+
+
 def _parse_nowgoal_injury_block(body: str) -> list[str]:
     """Estrae righe **CM** 8 Nome Cognome dalla sezione Injury/Suspension Nowgoal."""
+    body = _trim_nowgoal_injury_body(body)
     out: list[str] = []
     for line in body.splitlines():
         s = line.strip()
@@ -2501,15 +2514,15 @@ def _extract_nowgoal_injury_player_lists(text: str) -> tuple[list[str], list[str
     if not m:
         return [], []
     rest = text[m.end() :]
-    end_m = re.search(
-        r"\n(?:#{0,3}\s*|\*\*)?(?:Last Match Lineups|Fixture\s*\()",
-        rest,
-        re.IGNORECASE,
-    )
+    # Nowgoal mette spesso "TeamA  Last Match Lineups TeamB" senza ## davanti
+    end_m = re.search(r"\bLast Match Lineups\b", rest, re.IGNORECASE)
+    if not end_m:
+        end_m = re.search(r"\n(?:#{0,3}\s*)?Fixture\s*\(", rest, re.IGNORECASE)
     scope = rest[: end_m.start()] if end_m else rest[:12000]
     parts = re.split(r"(?m)^\s*Injury\s*$", scope)
     if len(parts) < 2:
         return [], []
+    # Una sola riga " Injury " = spesso solo la squadra casa (es. POR D1); ospite senza lista
     home_list = _parse_nowgoal_injury_block(parts[1])
     away_list: list[str] = []
     if len(parts) >= 3:

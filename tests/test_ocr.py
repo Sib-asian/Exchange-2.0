@@ -181,6 +181,31 @@ class TestNowgoalRegexNotes:
         assert any("CF" in p for p in parsed["home_absences_players"])
         assert any("CM" in p for p in parsed["away_absences_players"])
 
+    def test_extract_nowgoal_single_injury_block_before_lineups(self):
+        """Come h2h-2814974: un solo ' Injury ', poi 'Team  Last Match Lineups' (no ##)."""
+        text = (
+            "Title: Vitoria Guimaraes VS CD Tondela\n"
+            "Football> Liga Portugal 1>\n"
+            "Vitoria Guimaraes  Injury and Suspension CD Tondela \n"
+            "\n"
+            " No Data!\n"
+            "\n"
+            " Injury\n"
+            "\n"
+            " **CF**  29  Theoson Jordan Siebatcheu \n"
+            " **LB**  60  Emmanuel Maviram \n"
+            "\n"
+            "Vitoria Guimaraes  Last Match Lineups CD Tondela \n"
+            " Lineups (4-2-3-1)\n"
+            " **GK**  27 Charles \n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["home_absences_count"] == 2
+        assert parsed["away_absences_count"] == 0
+        assert any("Siebatcheu" in p for p in parsed["home_absences_players"])
+        assert any("Maviram" in p for p in parsed["home_absences_players"])
+        assert parsed["extraction_section_scores"].get("injuries") == 1.0
+
 
 class TestGetEnvWithPath:
     def test_includes_common_paths(self):
