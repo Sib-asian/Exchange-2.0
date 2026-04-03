@@ -1254,6 +1254,22 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
                 st.warning("Qualita' bassa: il motore usera' solo una parte dei dati prematch estratti.")
         if data.extraction_notes:
             st.caption("Note parser: " + ", ".join(data.extraction_notes))
+        if data.extraction_section_scores:
+            labels = {
+                "identity": "Identita'",
+                "league": "Lega",
+                "h2h_core": "H2H",
+                "standings": "Classifica",
+                "previous_scores": "Previous",
+                "market_1x2": "Quote 1X2",
+                "team_stats": "Team Stats",
+                "weather": "Meteo",
+            }
+            parts = []
+            for key, score in data.extraction_section_scores.items():
+                icon = "🟢" if score >= 1.0 else "🟡"
+                parts.append(f"{icon} {labels.get(key, key)}")
+            st.caption("Sezioni estratte: " + " · ".join(parts))
         with st.expander("Mappa campi usati dal motore", expanded=False):
             st.caption(
                 "Usati nel calcolo: H2H 1X2/Over, standings, previous scores, team stats goal/loss, "

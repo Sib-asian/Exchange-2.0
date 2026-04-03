@@ -23,3 +23,10 @@ def test_snapshot_2_small_sample_h2h_count():
     assert parsed["away_team"] == "Team Beta"
     assert parsed["h2h_matches_count"] == 2
     assert parsed["h2h_btts_pct"] == 0.0
+
+
+def test_snapshot_3_league_fallback_from_code_and_section_scores():
+    parsed = _extract_all_with_regex(_fixture("nowgoal_snapshot_3.txt"))
+    assert parsed["league_name"] == "Australia A-League"
+    assert parsed["extraction_section_scores"]["identity"] == 1.0
+    assert parsed["extraction_section_scores"]["market_1x2"] == 0.0
