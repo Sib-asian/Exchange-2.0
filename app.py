@@ -171,14 +171,26 @@ if _btn_prematch or _btn_live:
     _h2h_n = int(getattr(_pa, "h2h_matches_count", 0)) if _pa else 0
     _abs_h = int(getattr(_pa, "home_absences_count", 0)) if _pa else 0
     _abs_a = int(getattr(_pa, "away_absences_count", 0)) if _pa else 0
+    _abs_h_list = [
+        x.strip()
+        for x in (getattr(_pa, "home_absences_players", None) or [])
+        if isinstance(x, str) and x.strip()
+    ][:8]
+    _abs_a_list = [
+        x.strip()
+        for x in (getattr(_pa, "away_absences_players", None) or [])
+        if isinstance(x, str) and x.strip()
+    ][:8]
     _hg1 = float(getattr(_pa, "home_goals_1h", 0.0)) if _pa else 0.0
     _hg2 = float(getattr(_pa, "home_goals_2h", 0.0)) if _pa else 0.0
     _ag1 = float(getattr(_pa, "away_goals_1h", 0.0)) if _pa else 0.0
     _ag2 = float(getattr(_pa, "away_goals_2h", 0.0)) if _pa else 0.0
     _late_pct_h = (_hg2 / max(1e-9, _hg1 + _hg2)) * 100.0 if (_hg1 + _hg2) > 0 else 0.0
     _late_pct_a = (_ag2 / max(1e-9, _ag1 + _ag2)) * 100.0 if (_ag1 + _ag2) > 0 else 0.0
-    _abs_h_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_h))
-    _abs_a_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_a))
+    if not _abs_h_list and _abs_h > 0:
+        _abs_h_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_h))
+    if not _abs_a_list and _abs_a > 0:
+        _abs_a_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_a))
     _absence_mult_h = calcola_assenze_mult(_abs_h_list) * calcola_assenze_mult(_abs_a_list, per_avversario=True)
     _absence_mult_a = calcola_assenze_mult(_abs_a_list) * calcola_assenze_mult(_abs_h_list, per_avversario=True)
 

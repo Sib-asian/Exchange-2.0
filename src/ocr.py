@@ -1083,7 +1083,10 @@ class PrematchAnalysisExtracted:
     away_motivation: str = "normal"   # "high" = lotta titolo/salvezza, "low" = salvo
     home_absences_count: int = 0      # numero assenze/infortuni/squalifiche casa
     away_absences_count: int = 0      # numero assenze/infortuni/squalifiche trasferta
-    
+    # Righe per calcola_assenze_mult, es. "Nome (CM, injured)" — da Nowgoal o bullet list
+    home_absences_players: list[str] = field(default_factory=list)
+    away_absences_players: list[str] = field(default_factory=list)
+
     # === NUOVI CAMPI: ID squadre ===
     home_id: int = 0                  # ID squadra casa (da h2h_home)
     away_id: int = 0                  # ID squadra trasferta (da h2h_away)
@@ -2454,8 +2457,115 @@ def convert_nowgoal_line_to_software(line_str: str | float, invert_sign: bool = 
         return 0.0
 
 
-def _extract_absence_counts(text: str) -> tuple[int, int]:
-    """Stima numero assenze casa/trasferta da blocchi injuries/suspensions."""
+def _format_absence_line_for_mult(role_code: str, player_name: str) -> str:
+    """Stringa compatibile con calcola_assenze_mult / _parse_player_absence."""
+    r = role_code.upper().strip()
+    name = re.sub(r"\s+", " ", (player_name or "").strip())
+    if not name or name.lower().startswith("no data"):
+        return ""
+    if r == "GK":
+        tag = "GK"
+    elif r in ("CB", "LB", "RB", "WB", "LWB", "RWB"):
+        tag = "CB"
+    elif r in ("CM", "DM", "AM", "LM", "RM"):
+        tag = "CM"
+    elif r in ("LW", "RW"):
+        tag = r
+    elif r in ("CF", "ST", "SS", "FW"):
+        tag = "CF"
+    else:
+        tag = "CM"
+    return f"{name} ({tag}, injured)"
+
+
+def _parse_nowgoal_injury_block(body: str) -> list[str]:
+    """Estrae righe **CM** 8 Nome Cognome dalla sezione Injury/Suspension Nowgoal."""
+    out: list[str] = []
+    for line in body.splitlines():
+        s = line.strip()
+        m = re.match(r"^\*{0,2}([A-Z]{2,4})\*{0,2}\s+\d+\s+(.+)$", s)
+        if not m:
+            continue
+        role, rest = m.group(1), m.group(2).strip()
+        formatted = _format_absence_line_for_mult(role, rest)
+        if formatted:
+            out.append(formatted)
+    return out
+
+
+def _extract_nowgoal_injury_player_lists(text: str) -> tuple[list[str], list[str]]:
+    """
+    Formato pagina Analysis Nowgoal: due blocchi separati da una riga 'Injury' (team casa / team ospite).
+    """
+    m = re.search(r"Injur(?:y|ies)\s+and\s+Suspension", text, re.IGNORECASE)
+    if not m:
+        return [], []
+    rest = text[m.end() :]
+    end_m = re.search(
+        r"\n(?:#{0,3}\s*|\*\*)?(?:Last Match Lineups|Fixture\s*\()",
+        rest,
+        re.IGNORECASE,
+    )
+    scope = rest[: end_m.start()] if end_m else rest[:12000]
+    parts = re.split(r"(?m)^\s*Injury\s*$", scope)
+    if len(parts) < 2:
+        return [], []
+    home_list = _parse_nowgoal_injury_block(parts[1])
+    away_list: list[str] = []
+    if len(parts) >= 3:
+        away_list = _parse_nowgoal_injury_block(parts[2])
+    return home_list, away_list
+
+
+def _bullet_absence_player_lists(text: str) -> tuple[list[str], list[str]]:
+    """Home/Away con elenco puntato (snapshot test / markdown semplice)."""
+    section = re.search(
+        r"(?:^|\n)#{0,3}\s*Injur(?:y|ies)\s*(?:&|and)\s*Suspensions?\s*\n(.*?)(?=\n##\s|\Z)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    scope = section.group(1) if section else ""
+    if not scope.strip():
+        m2 = re.search(
+            r"Injur(?:y|ies)\s+and\s+Suspensions?\s*\n(.*?)(?=\n##\s|\Z)",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        scope = m2.group(1) if m2 else ""
+
+    def _lines_from_block(block: str) -> list[str]:
+        acc: list[str] = []
+        for line in block.splitlines():
+            line = line.strip()
+            bm = re.match(r"[-*]\s+(.+)", line)
+            if not bm:
+                continue
+            raw = bm.group(1).strip()
+            name = re.split(r"\s*\(", raw, maxsplit=1)[0].strip()
+            if not name:
+                continue
+            rl = raw.lower()
+            role_tag = "CM"
+            if "gk" in rl or "goalkeeper" in rl:
+                role_tag = "GK"
+            elif re.search(r"\b(st|cf|fw|forward|striker)\b", rl):
+                role_tag = "CF"
+            elif re.search(r"\b(cb|lb|rb|def)\b", rl):
+                role_tag = "CB"
+            elif re.search(r"\b(cm|dm|am|mid)\b", rl):
+                role_tag = "CM"
+            acc.append(f"{name} ({role_tag}, injured)")
+        return acc
+
+    home_m = re.search(r"(?is)Home\s*\n(.*?)(?=^\s*Away\s*$)", scope, re.MULTILINE)
+    away_m = re.search(r"(?is)Away\s*\n(.*?)(?=^\s*Home\s*$|\Z)", scope, re.MULTILINE)
+    hl = _lines_from_block(home_m.group(1)) if home_m else []
+    al = _lines_from_block(away_m.group(1)) if away_m else []
+    return hl, al
+
+
+def _extract_absence_counts_fallback(text: str) -> tuple[int, int]:
+    """Solo conteggi quando non ci sono liste strutturate (numeri espliciti o bullet count)."""
     section = re.search(
         r"(Injuries(?:\s*&\s*Suspensions)?|Injuries and Suspensions)(.*?)(?:^##\s|\Z)",
         text,
@@ -2464,8 +2574,16 @@ def _extract_absence_counts(text: str) -> tuple[int, int]:
     scope = section.group(2) if section else text
     home = away = 0
 
-    m_home = re.search(r"(Home|Casa)[^\n]{0,40}(?:injur|suspend|assenz|indisponib)[^\n]*?(\d+)", scope, re.IGNORECASE)
-    m_away = re.search(r"(Away|Trasf|Ospit)[^\n]{0,40}(?:injur|suspend|assenz|indisponib)[^\n]*?(\d+)", scope, re.IGNORECASE)
+    m_home = re.search(
+        r"(Home|Casa)[^\n]{0,40}(?:injur|suspend|assenz|indisponib)[^\n]*?(\d+)",
+        scope,
+        re.IGNORECASE,
+    )
+    m_away = re.search(
+        r"(Away|Trasf|Ospit)[^\n]{0,40}(?:injur|suspend|assenz|indisponib)[^\n]*?(\d+)",
+        scope,
+        re.IGNORECASE,
+    )
     if m_home:
         home = int(m_home.group(2))
     if m_away:
@@ -2476,12 +2594,54 @@ def _extract_absence_counts(text: str) -> tuple[int, int]:
         away_block = re.search(r"(Away|Trasf|Ospit)(.*?)(?:Home|Casa|$)", scope, re.IGNORECASE | re.DOTALL)
         if home == 0 and home_block:
             lines = [ln.strip() for ln in home_block.group(2).splitlines()]
-            home = sum(1 for ln in lines if re.search(r"(^[-*]\s+)|\b(out|injur|suspend|assente|infortun|doubtful)\b", ln, re.IGNORECASE))
+            home = sum(
+                1
+                for ln in lines
+                if re.search(
+                    r"(^[-*]\s+)|\b(out|injur|suspend|assente|infortun|doubtful)\b",
+                    ln,
+                    re.IGNORECASE,
+                )
+            )
         if away == 0 and away_block:
             lines = [ln.strip() for ln in away_block.group(2).splitlines()]
-            away = sum(1 for ln in lines if re.search(r"(^[-*]\s+)|\b(out|injur|suspend|assente|infortun|doubtful)\b", ln, re.IGNORECASE))
+            away = sum(
+                1
+                for ln in lines
+                if re.search(
+                    r"(^[-*]\s+)|\b(out|injur|suspend|assente|infortun|doubtful)\b",
+                    ln,
+                    re.IGNORECASE,
+                )
+            )
 
     return max(0, min(8, home)), max(0, min(8, away))
+
+
+def _extract_absences_full(text: str) -> tuple[int, int, list[str], list[str]]:
+    """
+    Conteggi + liste giocatore per calcola_assenze_mult.
+    Ordine: Nowgoal markdown → bullet Home/Away → fallback solo numeri.
+    """
+    home_l, away_l = _extract_nowgoal_injury_player_lists(text)
+    if home_l or away_l:
+        home_l = home_l[:8]
+        away_l = away_l[:8]
+        return len(home_l), len(away_l), home_l, away_l
+
+    hb, ab = _bullet_absence_player_lists(text)
+    if hb or ab:
+        hb, ab = hb[:8], ab[:8]
+        return len(hb), len(ab), hb, ab
+
+    h, a = _extract_absence_counts_fallback(text)
+    return h, a, [], []
+
+
+def _extract_absence_counts(text: str) -> tuple[int, int]:
+    """Solo conteggi (compat live e test)."""
+    h, a, _, _ = _extract_absences_full(text)
+    return h, a
 
 
 def _extract_identity_from_url(url: str) -> tuple[str, str, str]:
@@ -2622,6 +2782,8 @@ def _extract_all_with_regex(text: str) -> dict:
         "away_motivation": "normal",
         "home_absences_count": 0,
         "away_absences_count": 0,
+        "home_absences_players": [],
+        "away_absences_players": [],
         "home_id": 0,
         "away_id": 0,
         # Team Statistics (ultimi 10 match)
@@ -3339,9 +3501,11 @@ def _extract_all_with_regex(text: str) -> dict:
             result["away_motivation"] = "low"
 
     # === 6. ASSENZE/INFORTUNI (sezione injuries/suspensions) ===
-    abs_h, abs_a = _extract_absence_counts(text)
+    abs_h, abs_a, abs_h_players, abs_a_players = _extract_absences_full(text)
     result["home_absences_count"] = abs_h
     result["away_absences_count"] = abs_a
+    result["home_absences_players"] = abs_h_players
+    result["away_absences_players"] = abs_a_players
 
     # === 6. TEAM STATISTICS (ultimi 10 match) ===
     # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
@@ -3533,6 +3697,8 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         away_motivation=regex_data["away_motivation"],
         home_absences_count=regex_data["home_absences_count"],
         away_absences_count=regex_data["away_absences_count"],
+        home_absences_players=list(regex_data.get("home_absences_players", []) or []),
+        away_absences_players=list(regex_data.get("away_absences_players", []) or []),
         # ID squadre
         home_id=regex_data["home_id"],
         away_id=regex_data["away_id"],

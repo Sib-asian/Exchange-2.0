@@ -30,7 +30,7 @@ from src.config import AI_ADJ
 _STRIKER_TOKENS = {"striker", "forward", "attaccante", "centravanti", "st", "cf", "ss", "fw"}
 _GK_TOKENS = {"goalkeeper", "portiere", "keeper", "gk"}
 _MID_TOKENS = {"midfielder", "centrocampista", "mediano", "trequartista", "mezzala",
-               "regista", "cm", "am", "dm", "mf", "ala"}
+               "regista", "cm", "am", "dm", "mf", "ala", "lw", "rw", "lm", "rm"}
 _DEF_TOKENS = {"defender", "difensore", "terzino", "stopper", "centrale",
                "cb", "lb", "rb", "wb", "libero"}
 
