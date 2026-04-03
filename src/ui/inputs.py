@@ -1266,6 +1266,24 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
         fm1.metric("Forma mult. Casa", f"{data.forma_mult_h:.3f}")
         fm2.metric("Forma mult. Trasf.", f"{data.forma_mult_a:.3f}")
 
+        nh = len(data.home_absences_players or [])
+        na = len(data.away_absences_players or [])
+        if nh or na or data.home_absences_count or data.away_absences_count:
+            st.caption(
+                f"Infortuni/assenze estratti — **Casa**: {nh or data.home_absences_count} · "
+                f"**Trasf.**: {na or data.away_absences_count}"
+            )
+            if nh or na:
+                with st.expander("Dettaglio assenze (per il moltiplicatore xG)", expanded=False):
+                    if data.home_absences_players:
+                        st.markdown("**Casa**")
+                        for line in data.home_absences_players:
+                            st.markdown(f"- `{line}`")
+                    if data.away_absences_players:
+                        st.markdown("**Trasferta**")
+                        for line in data.away_absences_players:
+                            st.markdown(f"- `{line}`")
+
         if data.extraction_coverage > 0:
             st.caption(f"Qualita' estrazione URL: **{data.extraction_coverage * 100:.0f}%**")
             if data.extraction_coverage < 0.55:
@@ -1282,6 +1300,7 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
                 "market_1x2": "Quote 1X2",
                 "team_stats": "Team Stats",
                 "weather": "Meteo",
+                "injuries": "Infortuni",
             }
             parts = []
             for key, score in data.extraction_section_scores.items():
