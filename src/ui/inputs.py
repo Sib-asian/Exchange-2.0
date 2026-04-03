@@ -1431,16 +1431,13 @@ def _render_prematch_analysis_summary(
 
         if data.home_rank > 0 or data.away_rank > 0:
             r1, r2 = st.columns(2)
-            _l6h = (
-                f" · Last 6: {data.home_last6_scored}-{data.home_last6_conceded} gol"
-                if (data.home_last6_scored or data.home_last6_conceded)
-                else ""
-            )
-            _l6a = (
-                f" · Last 6: {data.away_last6_scored}-{data.away_last6_conceded} gol"
-                if (data.away_last6_scored or data.away_last6_conceded)
-                else ""
-            )
+            # getattr: sessioni Streamlit / pickle da versioni senza questi campi
+            _l6_hs = int(getattr(data, "home_last6_scored", 0) or 0)
+            _l6_hc = int(getattr(data, "home_last6_conceded", 0) or 0)
+            _l6_as = int(getattr(data, "away_last6_scored", 0) or 0)
+            _l6_ac = int(getattr(data, "away_last6_conceded", 0) or 0)
+            _l6h = f" · Last 6: {_l6_hs}-{_l6_hc} gol" if (_l6_hs or _l6_hc) else ""
+            _l6a = f" · Last 6: {_l6_as}-{_l6_ac} gol" if (_l6_as or _l6_ac) else ""
             r1.caption(
                 f"**Casa** — {data.home_rank}° · {data.home_win_rate:.1f}% win rate · "
                 f"Last 6: {data.home_last6_win}W {data.home_last6_draw}D {data.home_last6_lose}L{_l6h}"
