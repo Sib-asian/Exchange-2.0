@@ -3590,86 +3590,20 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
     )
 
 
-def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
-    """
-    Estrae analisi prematch da un URL Nowgoal.
-    
-    METODO PRIMARIO: Regex (GRATUITO, senza API key, senza limiti)
-    FALLBACK OPZIONALE: Gemini (richiede API key)
-    
-    AUTOMAZIONE LIVE: Estrae automaticamente anche dalla pagina LIVE
-    per ottenere meteo, HT/FT stats, team statistics extra.
-
-    Args:
-        url: URL della pagina Analysis di Nowgoal
-             (es. https://www.nowgoal.com/match/h2h-2800452)
-             Accetta anche URL live o detail.
-
-    Returns:
-        PrematchAnalysisExtracted con i dati estratti, o errore se fallisce.
-        
-    Note:
-        - Funziona GRATUITAMENTE senza configurare nulla
-        - Gemini è usato solo come fallback se regex non trova dati
-        - Estrae: H2H, Strength, Standings, Previous Scores, Quote iniziali
-        - + Meteo, HT/FT Stats, Team Statistics dalla pagina LIVE
-    """
-    url = url.strip()
-    if not url:
-        return PrematchAnalysisExtracted(
-            extraction_success=False, error_message="URL vuoto",
-        )
-
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    # Estrai l'ID partita dall'URL (funziona con h2h, live, detail)
-    match_id_match = re.search(r'/match/(?:h2h|live|detail)-(\d+)', url, re.IGNORECASE)
-    match_id = match_id_match.group(1) if match_id_match else None
-
-    # Estrai il dominio dall'URL originale per mantenerlo
-    # (www.nowgoal.com NON funziona, usiamo il dominio che l'utente ha fornito)
-    domain_match = re.search(r'https?://([^/]+)', url)
-    original_domain = domain_match.group(1) if domain_match else "live5.nowgoal26.com"
-
-    # Costruisci URL H2H (per estrarre standings, H2H, strength)
-    # Usa il dominio originale dall'URL inserito dall'utente
-    if match_id:
-        h2h_url = f"https://{original_domain}/match/h2h-{match_id}"
-        live_url = f"https://{original_domain}/match/live-{match_id}"
-    else:
-        # Fallback: usa l'URL originale
-        h2h_url = url
-        live_url = None
-        if not _is_valid_nowgoal_url(url):
-            return PrematchAnalysisExtracted(
-                extraction_success=False,
-                error_message=(
-                    "URL non riconosciuto. Usa un link Nowgoal Analysis "
-                    "(es. nowgoal.com/match/h2h-XXXXXX)"
-                ),
-            )
-
+def _extract_prematch_single_url_attempt(
+    h2h_url: str,
+    live_url: str | None,
+    domain_for_fallback: str,
+    match_id: str | None,
+) -> PrematchAnalysisExtracted:
+    """Un singolo fetch Jina+HTML + parsing (usato per retry server-side su mirror)."""
     try:
-        # 1. Fetch text content via Jina Reader (per standings, H2H, strength)
         page_text = _fetch_jina_reader(h2h_url)
     except Exception as e:
-        # Fallback mirror: alcuni domini Nowgoal sono intermittenti.
-        if match_id and original_domain != "live5.nowgoal26.com":
-            try:
-                h2h_url = f"https://live5.nowgoal26.com/match/h2h-{match_id}"
-                live_url = f"https://live5.nowgoal26.com/match/live-{match_id}"
-                page_text = _fetch_jina_reader(h2h_url)
-            except Exception:
-                return PrematchAnalysisExtracted(
-                    extraction_success=False,
-                    error_message=f"Errore lettura pagina: {e}",
-                )
-        else:
-            return PrematchAnalysisExtracted(
-                extraction_success=False,
-                error_message=f"Errore lettura pagina: {e}",
-            )
+        return PrematchAnalysisExtracted(
+            extraction_success=False,
+            error_message=f"Errore lettura pagina: {e}",
+        )
 
     if not page_text or len(page_text) < 200:
         return PrematchAnalysisExtracted(
@@ -3677,24 +3611,17 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
             error_message="Pagina vuota o non leggibile tramite Jina Reader",
         )
 
-    # 2. Fetch raw HTML (per JavaScript: h_data, a_data, Vs_hOdds, team names)
     raw_html = ""
     try:
         raw_html = _fetch_raw_html(h2h_url)
     except Exception:
-        pass  # Non critico, continuiamo con solo Jina Reader
+        pass
 
-    # 3. Combina testo + HTML per estrazione completa
     combined_text = page_text
     if raw_html:
-        # Aggiungi l'HTML grezzo alla fine per permettere estrazione JS
-        # NOTA: Usiamo 100000 caratteri (invece di 50000) per includere
-        # completamente Vs_hOdds che è intorno ai 28000-40000 caratteri
         combined_text = page_text + "\n\n=== RAW HTML ===\n" + raw_html[:100000]
 
-    # 4. Estrai dati principali dalla pagina H2H
     result = _extract_prematch_analysis_from_text(combined_text)
-    # Fallback identita' da URL quando il testo e' incompleto/non standard.
     u_home, u_away, u_league = _extract_identity_from_url(h2h_url)
     if result.extraction_success:
         if not result.home_team and u_home:
@@ -3706,8 +3633,7 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
             result.league_source = "mirror"
         elif result.league_name:
             result.league_source = "nowgoal"
-    
-    # 5. Estrai dati aggiuntivi dalla pagina LIVE (automazione!)
+
     if live_url and result.extraction_success:
         try:
             live_page_text = _fetch_jina_reader(live_url)
@@ -3719,9 +3645,8 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
                     if live_league:
                         result.league_name = live_league
         except Exception:
-            pass  # Non critico, i dati H2H sono già estratti
-    
-    # 6. Se il meteo non è stato estratto dalla pagina LIVE, usa OpenWeather API
+            pass
+
     if result.extraction_success and not result.weather_condition and WEATHER_MODULE_AVAILABLE and _get_weather_for_match:
         try:
             weather = _get_weather_for_match(result.home_team, result.away_team, result.league_name)
@@ -3730,29 +3655,111 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
                 result.weather_temp = weather.temp_celsius
                 result.weather_impact = weather.xg_impact
         except Exception:
-            pass  # Non critico, continuiamo senza meteo
-    
-    # 7. Applica impatto meteo agli xG (se presente)
+            pass
+
     if result.extraction_success and result.weather_impact != 0:
-        # Applica l'impatto meteo agli xG stimati
         result.forma_mult_h *= (1.0 + result.weather_impact)
         result.forma_mult_a *= (1.0 + result.weather_impact)
 
-    # 8. Ultimo fallback lega da mirror alternativi (solo se ancora mancante)
     if result.extraction_success and not result.league_name and match_id:
-        mirror_league = _fallback_league_from_nowgoal_mirrors(match_id, original_domain)
+        mirror_league = _fallback_league_from_nowgoal_mirrors(match_id, domain_for_fallback)
         if mirror_league:
             result.league_name = mirror_league
             result.league_source = "mirror"
 
-    # 9. Fallback esterno (solo se manca ancora la lega)
     if result.extraction_success and not result.league_name and result.home_team and result.away_team:
         ext_league = _fallback_league_external(result.home_team, result.away_team)
         if ext_league:
             result.league_name = ext_league
             result.league_source = "external"
-    
+
     return result
+
+
+def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
+    """
+    Estrae analisi prematch da un URL Nowgoal.
+
+    METODO PRIMARIO: Regex (GRATUITO, senza API key, senza limiti)
+    FALLBACK OPZIONALE: Gemini (richiede API key)
+
+    AUTOMAZIONE LIVE: pagina LIVE per meteo, HT/FT, team statistics.
+
+    Retry server-side: con `match_id`, se copertura bassa o fallimento sul dominio
+    richiesto, tenta automaticamente `live5.nowgoal26.com` (pausa breve tra Jina).
+
+    Nota: un fetch headless (es. Playwright) per HTML dipendente da JS resta possibile
+    come dipendenza opzionale; non è abilitato di default per restare leggeri.
+
+    Args:
+        url: URL Analysis / live / detail Nowgoal.
+
+    Returns:
+        PrematchAnalysisExtracted con i dati estratti, o errore se fallisce.
+    """
+    url = url.strip()
+    if not url:
+        return PrematchAnalysisExtracted(
+            extraction_success=False, error_message="URL vuoto",
+        )
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    match_id_match = re.search(r'/match/(?:h2h|live|detail)-(\d+)', url, re.IGNORECASE)
+    match_id = match_id_match.group(1) if match_id_match else None
+
+    domain_match = re.search(r'https?://([^/]+)', url)
+    original_domain = domain_match.group(1) if domain_match else "live5.nowgoal26.com"
+
+    if match_id:
+        h2h_url = f"https://{original_domain}/match/h2h-{match_id}"
+        live_url = f"https://{original_domain}/match/live-{match_id}"
+    else:
+        h2h_url = url
+        live_url = None
+        if not _is_valid_nowgoal_url(url):
+            return PrematchAnalysisExtracted(
+                extraction_success=False,
+                error_message=(
+                    "URL non riconosciuto. Usa un link Nowgoal Analysis "
+                    "(es. nowgoal.com/match/h2h-XXXXXX)"
+                ),
+            )
+
+    candidates: list[tuple[str, str | None, str]] = []
+    if match_id:
+        candidates.append((h2h_url, live_url, original_domain))
+        if original_domain.rstrip("/") != "live5.nowgoal26.com":
+            candidates.append((
+                f"https://live5.nowgoal26.com/match/h2h-{match_id}",
+                f"https://live5.nowgoal26.com/match/live-{match_id}",
+                "live5.nowgoal26.com",
+            ))
+    else:
+        candidates.append((h2h_url, live_url, original_domain))
+
+    _COVERAGE_OK = 0.40
+    best: PrematchAnalysisExtracted | None = None
+    for i, (hu, lu, dom_fb) in enumerate(candidates):
+        if i > 0:
+            time.sleep(0.35)
+        attempt = _extract_prematch_single_url_attempt(hu, lu, dom_fb, match_id)
+        if best is None or (
+            (attempt.extraction_success and not best.extraction_success)
+            or (
+                attempt.extraction_coverage > best.extraction_coverage
+                and attempt.extraction_success == best.extraction_success
+                )
+        ):
+            best = attempt
+        if attempt.extraction_success and attempt.extraction_coverage >= _COVERAGE_OK:
+            return attempt
+
+    return best if best is not None else PrematchAnalysisExtracted(
+        extraction_success=False,
+        error_message="Nessun tentativo di estrazione riuscito",
+    )
 
 
 def _extract_live_page_data(text: str) -> dict:

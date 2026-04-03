@@ -304,6 +304,62 @@ def _render_stats_tab(log: PredictionLog) -> None:
         df = pd.DataFrame(data)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
+    st.divider()
+    st.subheader("Calibrazione 1X2 (multiclasse)")
+    _mb = PerformanceStats.compute_multiclass_brier_1x2(completed)
+    _ll = PerformanceStats.compute_log_loss_1x2(completed)
+    c_m1, c_m2 = st.columns(2)
+    with c_m1:
+        st.metric(
+            "Brier 1X2 (vector)",
+            f"{_mb:.4f}" if _mb is not None else "—",
+        )
+    with c_m2:
+        st.metric(
+            "Log-loss 1X2",
+            f"{_ll:.4f}" if _ll is not None else "—",
+        )
+
+    _by_l = PerformanceStats.segment_by_league(completed)
+    _by_t = PerformanceStats.segment_by_tot_band(completed)
+    with st.expander("Per lega (N≥3)", expanded=False):
+        rows_l = []
+        for lega, sub in sorted(_by_l.items(), key=lambda x: -len(x[1])):
+            if len(sub) < 3:
+                continue
+            b = PerformanceStats.compute_multiclass_brier_1x2(sub)
+            ll = PerformanceStats.compute_log_loss_1x2(sub)
+            rows_l.append({
+                "Lega": lega[:48],
+                "N": len(sub),
+                "Brier 1X2": f"{b:.4f}" if b is not None else "—",
+                "Log-loss": f"{ll:.4f}" if ll is not None else "—",
+            })
+        if rows_l:
+            import pandas as pd
+            st.dataframe(pd.DataFrame(rows_l), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Servono almeno 3 partite completate per lega.")
+
+    with st.expander("Per fascia tot_op (N≥3)", expanded=False):
+        rows_t = []
+        for band, sub in sorted(_by_t.items(), key=lambda x: -len(x[1])):
+            if len(sub) < 3:
+                continue
+            b = PerformanceStats.compute_multiclass_brier_1x2(sub)
+            ll = PerformanceStats.compute_log_loss_1x2(sub)
+            rows_t.append({
+                "Fascia total": band,
+                "N": len(sub),
+                "Brier 1X2": f"{b:.4f}" if b is not None else "—",
+                "Log-loss": f"{ll:.4f}" if ll is not None else "—",
+            })
+        if rows_t:
+            import pandas as pd
+            st.dataframe(pd.DataFrame(rows_t), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Servono almeno 3 partite per fascia.")
+
     # Best/Worst
     st.divider()
     col_best, col_worst = st.columns(2)

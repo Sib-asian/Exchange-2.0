@@ -10,6 +10,7 @@ Metriche calcolate:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -258,3 +259,63 @@ class PerformanceStats:
             lines.append(f"  ⚠️ DA RIVEDERE: {worst_name} ({worst.avg_edge*100:+.1f}% edge)")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def compute_multiclass_brier_1x2(records: list["PredictionRecord"]) -> float | None:
+        """Brier medio sul vettore 1X2 (somma (p-o)^2 sui tre esiti, diviso N)."""
+        acc = 0.0
+        n = 0
+        for r in records:
+            if not r.is_completed() or r.risultato_1x2 not in ("1", "X", "2"):
+                continue
+            o1, ox, o2 = (1.0, 0.0, 0.0) if r.risultato_1x2 == "1" else (
+                (0.0, 1.0, 0.0) if r.risultato_1x2 == "X" else (0.0, 0.0, 1.0)
+            )
+            acc += (r.p1 - o1) ** 2 + (r.px - ox) ** 2 + (r.p2 - o2) ** 2
+            n += 1
+        if n == 0:
+            return None
+        return acc / n
+
+    @staticmethod
+    def compute_log_loss_1x2(records: list["PredictionRecord"]) -> float | None:
+        """Log-loss (naturale) medio per classe vincitrice 1X2."""
+        eps = 1e-6
+        acc = 0.0
+        n = 0
+        for r in records:
+            if not r.is_completed() or r.risultato_1x2 not in ("1", "X", "2"):
+                continue
+            if r.risultato_1x2 == "1":
+                p = max(eps, min(1.0 - eps, r.p1))
+            elif r.risultato_1x2 == "X":
+                p = max(eps, min(1.0 - eps, r.px))
+            else:
+                p = max(eps, min(1.0 - eps, r.p2))
+            acc += -math.log(p)
+            n += 1
+        if n == 0:
+            return None
+        return acc / n
+
+    @staticmethod
+    def segment_by_league(records: list["PredictionRecord"]) -> dict[str, list["PredictionRecord"]]:
+        out: dict[str, list] = {}
+        for r in records:
+            if not r.is_completed():
+                continue
+            key = (r.lega or "").strip() or "(senza lega)"
+            out.setdefault(key, []).append(r)
+        return out
+
+    @staticmethod
+    def segment_by_tot_band(records: list["PredictionRecord"]) -> dict[str, list["PredictionRecord"]]:
+        from src.tracking.prediction_log import tot_op_band
+
+        out: dict[str, list] = {}
+        for r in records:
+            if not r.is_completed():
+                continue
+            key = (r.tot_band or "").strip() or tot_op_band(r.tot_op)
+            out.setdefault(key, []).append(r)
+        return out
