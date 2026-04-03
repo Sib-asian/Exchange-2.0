@@ -1222,6 +1222,9 @@ def _render_prematch_analysis_summary(data: PrematchAnalysisExtracted) -> None:
             st.markdown(f"**{data.home_team}** vs **{data.away_team}**")
             if data.league_name:
                 st.caption(f"📍 {data.league_name}")
+                src = getattr(data, "league_source", "unknown")
+                if src and src != "unknown":
+                    st.caption(f"Sorgente lega: `{src}`")
         
         # H2H data — mostra messaggio chiaro se non disponibile
         h2h_available = data.h2h_home_win_pct > 0 or data.h2h_draw_pct > 0 or data.h2h_away_win_pct > 0

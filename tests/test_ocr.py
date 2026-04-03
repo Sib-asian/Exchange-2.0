@@ -13,6 +13,9 @@ from src.ocr import (
     _check_zai_available,
     _extract_h2h_with_regex,
     _extract_match_identity_from_text,
+    _extract_identity_from_url,
+    _fallback_league_from_nowgoal_mirrors,
+    _fallback_league_external,
     _extract_all_with_regex,
     _extract_with_gemini,
     _extract_with_openai,
@@ -76,6 +79,40 @@ class TestNowgoalIdentityCleaning:
         assert home == "Adelaide United"
         assert away == "Auckland FC"
         assert league == "Australia A-League"
+
+    def test_extract_league_from_plain_code(self):
+        home, away, league = _extract_match_identity_from_text("AUS D1")
+        assert home == ""
+        assert away == ""
+        assert league == "Australia A-League"
+
+    def test_extract_identity_from_url_slug(self):
+        home, away, league = _extract_identity_from_url(
+            "https://live5.nowgoal26.com/match/h2h-2871782/adelaide-united-vs-auckland-fc"
+        )
+        assert home == "Adelaide United"
+        assert away == "Auckland Fc"
+        assert league == ""
+
+    def test_fallback_league_from_mirrors(self, monkeypatch):
+        def _fake_fetch(url: str, timeout: int = 30):
+            if "nowgoal8.com" in url:
+                return "Football> Australia A-League>\n"
+            raise RuntimeError("mirror not reachable")
+
+        monkeypatch.setattr("src.ocr._fetch_jina_reader", _fake_fetch)
+        league = _fallback_league_from_nowgoal_mirrors("2871782", "live5.nowgoal26.com")
+        assert league == "Australia A-League"
+
+    def test_fallback_league_external_uses_cache(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("src.ocr._LEAGUE_CACHE_PATH", tmp_path / "league_cache.json")
+        monkeypatch.setattr("src.ocr._lookup_league_external_sportsdb", lambda h, a: "Australia A-League")
+        lg1 = _fallback_league_external("Adelaide United", "Auckland FC")
+        assert lg1 == "Australia A-League"
+
+        monkeypatch.setattr("src.ocr._lookup_league_external_sportsdb", lambda h, a: "")
+        lg2 = _fallback_league_external("Adelaide United", "Auckland FC")
+        assert lg2 == "Australia A-League"
 
 
 class TestNowgoalRegexNotes:

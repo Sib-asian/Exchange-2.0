@@ -236,21 +236,49 @@ if _btn_prematch or _btn_live:
     _final_sc_a = _fuse(_prev_sc_a, _ts_sc_a)
     _final_co_a = _fuse(_prev_co_a, _ts_co_a)
 
-    # Quality gate prematch: se estrazione incompleta, disattiva i prior più fragili.
+    # Quality gate graduale: riduce i prior in modo continuo invece di on/off.
     _key_fields_ok = int(_hist_tot > 0) + int(_h2h_home + _h2h_draw + _h2h_away > 0) + int(_mkt1 > 1.0 and _mktx > 1.0 and _mkt2 > 1.0)
     _quality_gate = 0.50 if _key_fields_ok >= 2 else 0.62
     _quality_ok = _coverage >= _quality_gate
-    if _pa and not _quality_ok:
-        _h2h_home = _h2h_draw = _h2h_away = 0.0
-        _h2h_over = _h2h_btts = 0.0
-        _hist_tot = 0.0
-        _final_sc_h = _final_co_h = _final_sc_a = _final_co_a = 0.0
-        _weather_impact = 0.0
-        _streak_score_h = _streak_score_a = _streak_cs_h = _streak_cs_a = 0
-        _late_pct_h = _late_pct_a = 0.0
-        _absence_mult_h = _absence_mult_a = 1.0
-        _movement_quality = 1.0
-        _ocr_conf_scale = 0.70
+    _sec_scores = getattr(_pa, "extraction_section_scores", {}) if _pa else {}
+
+    def _sec(name: str, default: float = 0.0) -> float:
+        if not _sec_scores:
+            return default
+        try:
+            return float(_sec_scores.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    _global_w = 1.0 if _quality_ok else max(0.25, min(1.0, _coverage / max(1e-9, _quality_gate)))
+    _w_identity = _sec("identity", _global_w)
+    _w_h2h = _global_w * _sec("h2h_core", _global_w)
+    _w_prev = _global_w * _sec("previous_scores", _global_w)
+    _w_stats = _global_w * _sec("team_stats", _global_w)
+    _w_weather = _global_w * _sec("weather", _global_w)
+    _w_inj = _global_w * _sec("injuries", _global_w)
+
+    _h2h_home *= _w_h2h
+    _h2h_draw *= _w_h2h
+    _h2h_away *= _w_h2h
+    _h2h_over *= _w_h2h
+    _h2h_btts *= _w_h2h
+    _hist_tot *= _w_h2h
+    _final_sc_h *= max(_w_prev, _w_stats)
+    _final_co_h *= max(_w_prev, _w_stats)
+    _final_sc_a *= max(_w_prev, _w_stats)
+    _final_co_a *= max(_w_prev, _w_stats)
+    _weather_impact *= _w_weather
+    _streak_score_h = int(round(_streak_score_h * _w_prev))
+    _streak_score_a = int(round(_streak_score_a * _w_prev))
+    _streak_cs_h = int(round(_streak_cs_h * _w_prev))
+    _streak_cs_a = int(round(_streak_cs_a * _w_prev))
+    _late_pct_h *= _w_stats
+    _late_pct_a *= _w_stats
+    _absence_mult_h = 1.0 + (_absence_mult_h - 1.0) * _w_inj
+    _absence_mult_a = 1.0 + (_absence_mult_a - 1.0) * _w_inj
+    _movement_quality = 1.0 + (_movement_quality - 1.0) * _global_w
+    _ocr_conf_scale = 0.70 + (min(1.0, _coverage) * 0.30 * max(_global_w, _w_identity))
 
     try:
         state = build_match_state(
