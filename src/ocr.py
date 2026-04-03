@@ -35,6 +35,7 @@ import contextlib
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 import shutil
 import subprocess
 import tempfile
@@ -3964,8 +3965,21 @@ def _extract_prematch_single_url_attempt(
     match_id: str | None,
 ) -> PrematchAnalysisExtracted:
     """Un singolo fetch Jina+HTML + parsing (usato per retry server-side su mirror)."""
+    page_text = ""
+    raw_html = ""
+
+    def _safe_raw() -> str:
+        try:
+            return _fetch_raw_html(h2h_url)
+        except Exception:
+            return ""
+
     try:
-        page_text = _fetch_jina_reader(h2h_url)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_j = pool.submit(_fetch_jina_reader, h2h_url)
+            fut_h = pool.submit(_safe_raw)
+            page_text = fut_j.result()
+            raw_html = fut_h.result() or ""
     except Exception as e:
         return PrematchAnalysisExtracted(
             extraction_success=False,
@@ -3977,12 +3991,6 @@ def _extract_prematch_single_url_attempt(
             extraction_success=False,
             error_message="Pagina vuota o non leggibile tramite Jina Reader",
         )
-
-    raw_html = ""
-    try:
-        raw_html = _fetch_raw_html(h2h_url)
-    except Exception:
-        pass
 
     combined_text = page_text
     if raw_html:
@@ -4002,12 +4010,19 @@ def _extract_prematch_single_url_attempt(
         elif result.league_name:
             result.league_source = "nowgoal"
 
-    if live_url and result.extraction_success:
+    # Stessi parser della pagina live sul blob H2H+HTML (spesso include Team/HT-FT senza secondo fetch).
+    if result.extraction_success:
+        embedded = _extract_live_page_data(combined_text)
+        _merge_live_snapshot_into_result(result, embedded)
+        _refresh_prematch_quality_scores(result)
+
+    if live_url and result.extraction_success and _prematch_needs_live_jina_page(result):
         try:
             live_page_text = _fetch_jina_reader(live_url)
             if live_page_text and len(live_page_text) > 200:
                 live_data = _extract_live_page_data(live_page_text)
-                _apply_live_data_to_result(result, live_data)
+                _merge_live_snapshot_into_result(result, live_data)
+                _refresh_prematch_quality_scores(result)
                 if not result.league_name:
                     _, _, live_league = _extract_match_identity_from_text(live_page_text)
                     if live_league:
@@ -4051,10 +4066,13 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
     METODO PRIMARIO: Regex (GRATUITO, senza API key, senza limiti)
     FALLBACK OPZIONALE: Gemini (richiede API key)
 
-    AUTOMAZIONE LIVE: pagina LIVE per meteo, HT/FT, team statistics.
+    AUTOMAZIONE LIVE: stessi parser anche su H2H+HTML; seconda richiesta Jina su `live-*`
+    solo se mancano HT/FT, team stats core/dettaglio o quote live (nessun dato in meno).
 
     Retry server-side: con `match_id`, se copertura bassa o fallimento sul dominio
     richiesto, tenta automaticamente `live5.nowgoal26.com` (pausa breve tra Jina).
+
+    Jina H2H e fetch HTML grezzo partono in parallelo per ridurre la latenza.
 
     Nota: un fetch headless (es. Playwright) per HTML dipendente da JS resta possibile
     come dipendenza opzionale; non è abilitato di default per restare leggeri.
@@ -4361,50 +4379,113 @@ def _extract_live_page_data(text: str) -> dict:
     return result
 
 
-def _apply_live_data_to_result(result: PrematchAnalysisExtracted, live_data: dict) -> None:
+_HTFT_LIVE_KEYS: tuple[str, ...] = (
+    "htft_home_htw_ftw", "htft_home_htd_ftw", "htft_home_htl_ftw",
+    "htft_home_htw_ftd", "htft_home_htd_ftd", "htft_home_htl_ftd",
+    "htft_home_htw_ftl", "htft_home_htd_ftl", "htft_home_htl_ftl",
+    "htft_away_htw_ftw", "htft_away_htd_ftw", "htft_away_htl_ftw",
+    "htft_away_htw_ftd", "htft_away_htd_ftd", "htft_away_htl_ftd",
+    "htft_away_htw_ftl", "htft_away_htd_ftl", "htft_away_htl_ftl",
+)
+
+_TEAM_STATS_LIVE_KEYS: tuple[str, ...] = (
+    "team_stats_home_goals", "team_stats_home_conceded", "team_stats_home_shots",
+    "team_stats_home_corners", "team_stats_home_yellows", "team_stats_home_fouls",
+    "team_stats_home_possession", "team_stats_away_goals", "team_stats_away_conceded",
+    "team_stats_away_shots", "team_stats_away_corners", "team_stats_away_yellows",
+    "team_stats_away_fouls", "team_stats_away_possession",
+)
+
+_TEAM_STATS_DETAIL_KEYS: tuple[str, ...] = (
+    "team_stats_home_shots", "team_stats_away_shots",
+    "team_stats_home_corners", "team_stats_away_corners",
+    "team_stats_home_yellows", "team_stats_away_yellows",
+    "team_stats_home_fouls", "team_stats_away_fouls",
+    "team_stats_home_possession", "team_stats_away_possession",
+)
+
+
+def _prematch_any_htft(result: PrematchAnalysisExtracted) -> bool:
+    return any(getattr(result, k, 0) for k in _HTFT_LIVE_KEYS)
+
+
+def _prematch_needs_live_jina_page(result: PrematchAnalysisExtracted) -> bool:
+    """True se mancano ancora blocchi tipici della pagina live-* (secondo fetch Jina)."""
+    if not _prematch_any_htft(result):
+        return True
+    if result.team_stats_home_goals == 0 and result.team_stats_away_goals == 0:
+        return True
+    if result.live_ah_line == 0 and result.live_total_line == 0:
+        return True
+    # Goal/Loss ok ma nessun dettaglio: spesso parse parziale su H2H — completa da live.
+    if (result.team_stats_home_goals > 0 or result.team_stats_away_goals > 0) and all(
+        float(getattr(result, k, 0.0) or 0.0) == 0.0 for k in _TEAM_STATS_DETAIL_KEYS
+    ):
+        return True
+    return False
+
+
+def _refresh_prematch_quality_scores(result: PrematchAnalysisExtracted) -> None:
+    """Aggiorna team_stats / weather / injuries in extraction_section_scores dopo merge."""
+    d = dict(result.extraction_section_scores or {})
+    if result.team_stats_home_goals or result.team_stats_away_goals:
+        d["team_stats"] = 1.0
+    d["weather"] = 1.0 if result.weather_condition else float(d.get("weather", 0.0))
+    if result.home_absences_count > 0 or result.away_absences_count > 0:
+        d["injuries"] = 1.0
+    result.extraction_section_scores = d
+    if d:
+        result.extraction_coverage = sum(d.values()) / len(d)
+
+
+def _merge_live_snapshot_into_result(result: PrematchAnalysisExtracted, live_data: dict) -> None:
     """
-    Applica i dati estratti dalla pagina LIVE al risultato principale.
-    Modifica result in-place.
+    Unisce dati estratti con gli stessi parser della pagina LIVE (testo Jina o blob H2H+HTML).
+    Non sovrascrive valori gia' popolati da regex/HTML: stessa o migliore precisione, meno fetch.
     """
-    # Meteo
-    if live_data.get("weather_condition"):
+    if live_data.get("weather_condition") and not (result.weather_condition or "").strip():
         result.weather_condition = live_data["weather_condition"]
-        result.weather_temp = live_data["weather_temp"]
-        result.weather_impact = live_data["weather_impact"]
-    
-    # HT/FT Stats
-    for key in ["htft_home_htw_ftw", "htft_home_htd_ftw", "htft_home_htl_ftw",
-                "htft_home_htw_ftd", "htft_home_htd_ftd", "htft_home_htl_ftd",
-                "htft_home_htw_ftl", "htft_home_htd_ftl", "htft_home_htl_ftl",
-                "htft_away_htw_ftw", "htft_away_htd_ftw", "htft_away_htl_ftw",
-                "htft_away_htw_ftd", "htft_away_htd_ftd", "htft_away_htl_ftd",
-                "htft_away_htw_ftl", "htft_away_htd_ftl", "htft_away_htl_ftl"]:
-        if key in live_data:
-            setattr(result, key, live_data[key])
-    
-    # Team Stats
-    for key in ["team_stats_home_goals", "team_stats_home_conceded", "team_stats_home_shots",
-                "team_stats_home_corners", "team_stats_home_yellows", "team_stats_home_fouls",
-                "team_stats_home_possession", "team_stats_away_goals", "team_stats_away_conceded",
-                "team_stats_away_shots", "team_stats_away_corners", "team_stats_away_yellows",
-                "team_stats_away_fouls", "team_stats_away_possession"]:
-        if key in live_data:
-            setattr(result, key, live_data[key])
-    
-    # Quote Live (informativo)
-    result.live_ah_line = live_data.get("live_ah_line", 0.0)
-    result.live_ah_home_odds = live_data.get("live_ah_home_odds", 0.0)
-    result.live_ah_away_odds = live_data.get("live_ah_away_odds", 0.0)
-    result.live_total_line = live_data.get("live_total_line", 0.0)
-    result.live_over_odds = live_data.get("live_over_odds", 0.0)
-    result.live_under_odds = live_data.get("live_under_odds", 0.0)
+        result.weather_temp = int(live_data.get("weather_temp", 0) or 0)
+        result.weather_impact = float(live_data.get("weather_impact", 0.0) or 0.0)
+
+    for key in _HTFT_LIVE_KEYS:
+        v = int(live_data.get(key, 0) or 0)
+        if v and getattr(result, key, 0) == 0:
+            setattr(result, key, v)
+
+    for key in _TEAM_STATS_LIVE_KEYS:
+        v = float(live_data.get(key, 0.0) or 0.0)
+        if v > 0 and float(getattr(result, key, 0.0) or 0.0) == 0.0:
+            setattr(result, key, v)
+
+    lah = float(live_data.get("live_ah_line", 0.0) or 0.0)
+    ltl = float(live_data.get("live_total_line", 0.0) or 0.0)
+    if lah != 0.0 and result.live_ah_line == 0.0:
+        result.live_ah_line = lah
+        result.live_ah_home_odds = float(live_data.get("live_ah_home_odds", 0.0) or 0.0)
+        result.live_ah_away_odds = float(live_data.get("live_ah_away_odds", 0.0) or 0.0)
+    if ltl != 0.0 and result.live_total_line == 0.0:
+        result.live_total_line = ltl
+        result.live_over_odds = float(live_data.get("live_over_odds", 0.0) or 0.0)
+        result.live_under_odds = float(live_data.get("live_under_odds", 0.0) or 0.0)
+
     if result.home_absences_count <= 0:
-        result.home_absences_count = int(live_data.get("home_absences_count", 0) or 0)
+        h = int(live_data.get("home_absences_count", 0) or 0)
+        if h > 0:
+            result.home_absences_count = h
     if result.away_absences_count <= 0:
-        result.away_absences_count = int(live_data.get("away_absences_count", 0) or 0)
+        a = int(live_data.get("away_absences_count", 0) or 0)
+        if a > 0:
+            result.away_absences_count = a
+
     for note in live_data.get("live_data_notes", []):
         if note not in result.extraction_notes:
             result.extraction_notes.append(note)
+
+
+def _apply_live_data_to_result(result: PrematchAnalysisExtracted, live_data: dict) -> None:
+    """Compat: stesso comportamento sicuro del merge (solo campi vuoti)."""
+    _merge_live_snapshot_into_result(result, live_data)
 
 
 # ============================================================================

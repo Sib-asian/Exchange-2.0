@@ -1165,19 +1165,9 @@ def render_prematch_analysis_screen() -> PrematchAnalysisExtracted | None:
         if st.button("Estrai da URL", key="_extract_url_btn", type="primary"):
             if url_input.strip():
                 with st.spinner("Lettura pagina e analisi..."):
-                    # Esegui sempre l'estrazione al click (anche stesso URL),
-                    # così l'utente può aggiornare subito senza cambiare link.
+                    # Un solo giro: `extract_prematch_analysis_from_url` già prova mirror live5
+                    # e merge da H2H+HTML; un secondo estratto raddoppiava tempi senza guadagni certi.
                     result = extract_prematch_analysis_from_url(url_input.strip())
-
-                    # Auto-retry singolo se primo passaggio è incompleto/instabile.
-                    _h2h_ok = (result.h2h_home_win_pct + result.h2h_draw_pct + result.h2h_away_win_pct) > 0
-                    _need_retry = (not result.extraction_success) or (not _h2h_ok)
-                    if _need_retry:
-                        result_retry = extract_prematch_analysis_from_url(url_input.strip())
-                        if result_retry.extraction_success:
-                            _h2h_retry_ok = (result_retry.h2h_home_win_pct + result_retry.h2h_draw_pct + result_retry.h2h_away_win_pct) > 0
-                            if _h2h_retry_ok or not _h2h_ok:
-                                result = result_retry
 
                 st.session_state["_prematch_analysis_url"] = url_input.strip()
                 # Pulisce cache file per evitare conflitti
