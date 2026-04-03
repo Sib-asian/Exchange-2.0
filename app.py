@@ -220,6 +220,10 @@ if _btn_prematch or _btn_live:
     _l6d_a = int(getattr(_pa, "away_last6_draw", 0)) if _pa else 0
     _l6_pts_h = _l6w_h * 3 + _l6d_h
     _l6_pts_a = _l6w_a * 3 + _l6d_a
+    _l6_gf_h = float(getattr(_pa, "home_last6_scored", 0)) if _pa else 0.0
+    _l6_ga_h = float(getattr(_pa, "home_last6_conceded", 0)) if _pa else 0.0
+    _l6_gf_a = float(getattr(_pa, "away_last6_scored", 0)) if _pa else 0.0
+    _l6_ga_a = float(getattr(_pa, "away_last6_conceded", 0)) if _pa else 0.0
     # Home/Away PPG e gol medi
     _h_home_w = int(getattr(_pa, "home_home_win", 0)) if _pa else 0
     _h_home_d = int(getattr(_pa, "home_home_draw", 0)) if _pa else 0
@@ -335,6 +339,10 @@ if _btn_prematch or _btn_live:
             standings_played_a=_st_played_a,
             last6_points_h=_l6_pts_h,
             last6_points_a=_l6_pts_a,
+            last6_gf_h=_l6_gf_h,
+            last6_ga_h=_l6_ga_h,
+            last6_gf_a=_l6_gf_a,
+            last6_ga_a=_l6_ga_a,
             home_ppg_h=_h_ppg,
             away_ppg_a=_a_ppg,
             home_gf_h=_h_gf,

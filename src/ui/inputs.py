@@ -998,6 +998,10 @@ def build_match_state(
     standings_total_teams: int = 20,
     last6_points_h: float = 0.0,
     last6_points_a: float = 0.0,
+    last6_gf_h: float = 0.0,
+    last6_ga_h: float = 0.0,
+    last6_gf_a: float = 0.0,
+    last6_ga_a: float = 0.0,
     home_ppg_h: float = 0.0,
     away_ppg_a: float = 0.0,
     home_gf_h: float = 0.0,
@@ -1101,6 +1105,10 @@ def build_match_state(
         standings_total_teams=standings_total_teams,
         last6_points_h=last6_points_h,
         last6_points_a=last6_points_a,
+        last6_gf_h=last6_gf_h,
+        last6_ga_h=last6_ga_h,
+        last6_gf_a=last6_gf_a,
+        last6_ga_a=last6_ga_a,
         home_ppg_h=home_ppg_h,
         away_ppg_a=away_ppg_a,
         home_gf_h=home_gf_h,
@@ -1229,9 +1237,43 @@ def _implied_probs_1x2(o1: float, ox: float, o2: float) -> tuple[float, float, f
     return i1 / s, ix / s, i2 / s
 
 
+def _session_manual_lines_summary() -> str | None:
+    """Linee dal modulo principale (Sbobet / exchange), se già presenti in session_state."""
+    stt = st.session_state
+    try:
+        ah_o = stt.get("lines_ah_op")
+        tot_o = stt.get("lines_tot_op")
+        ah_c = stt.get("ah_cur_raw_input")
+        tot_c = stt.get("tot_cur_raw_input")
+    except Exception:
+        return None
+    if ah_o is None or tot_o is None:
+        return None
+    try:
+        aho, too = float(ah_o), float(tot_o)
+        ahc = float(ah_c) if ah_c is not None else aho
+        toc = float(tot_c) if tot_c is not None else too
+    except (TypeError, ValueError):
+        return None
+    return (
+        f"**AH** apertura **{aho:+.2f}** → corrente **{ahc:+.2f}** · "
+        f"**Total** apertura **{too:.2f}** → corrente **{toc:.2f}**"
+    )
+
+
 def _render_prematch_market_synthesis(data: PrematchAnalysisExtracted) -> None:
     """Aperture vs attuali: 1X2, Asian, Total, eventuale riga Live — in parole povere."""
     st.markdown("##### Mercato (da estrazione URL/Live)")
+    st.info(
+        "Questi numeri **non** vengono dalle linee che inserisci sopra (Sbobet / modulo *Linee Asiatiche*). "
+        "Sono letti **solo** dalla pagina Nowgoal: tabella **consensus** multibook (dati JS `Vs_hOdds` nell'HTML) "
+        "e, se presente, dalla **pagina Live** letta da Jina. Book e definizione di “apertura” possono "
+        "differire da Sbobet — è normale vedere valori diversi dal tuo foglio."
+    )
+    manual = _session_manual_lines_summary()
+    if manual:
+        st.markdown(f"**Le tue linee (modulo principale):** {manual}")
+
     rows_mkt: list[str] = []
 
     imp = _implied_probs_1x2(data.mkt_init_1, data.mkt_init_x, data.mkt_init_2)
@@ -1251,15 +1293,21 @@ def _render_prematch_market_synthesis(data: PrematchAnalysisExtracted) -> None:
     ah_c = float(data.ah_line_close or 0.0)
     if ah_o != 0.0 or ah_c != 0.0:
         d_ah = float(data.line_movement_ah or 0.0)
-        mov = f" · movimento linea **{d_ah:+.2f}**" if (ah_o != 0 and ah_c != 0) else ""
+        # Apertura 0.00 con chiusura valorizzata: spesso manca la riga timestamp=1 in Vs_hOdds (non è pick'em reale).
+        if ah_o == 0.0 and ah_c != 0.0:
+            open_lbl = "apertura **non nel feed** (0.00 — confronta col modulo / Sbobet)"
+            mov = ""
+        else:
+            open_lbl = f"apertura **{ah_o:+.2f}**"
+            mov = f" · movimento linea **{d_ah:+.2f}**" if (ah_o != 0.0 and ah_c != 0.0) else ""
         extra = ""
         if data.ah_home_odds_open > 0 or data.ah_away_odds_open > 0:
             extra = (
-                f" · quote AH apertura casa/tr. **{data.ah_home_odds_open:.2f}** / "
+                f" · quote AH legate al feed apertura casa/tr. **{data.ah_home_odds_open:.2f}** / "
                 f"**{data.ah_away_odds_open:.2f}**"
             )
         rows_mkt.append(
-            f"**Asian (consensus tabella)**: apertura **{ah_o:+.2f}** → attuale **{ah_c:+.2f}**{mov}{extra}"
+            f"**Asian (consensus Nowgoal, Vs_hOdds)**: {open_lbl} → attuale **{ah_c:+.2f}**{mov}{extra}"
         )
 
     to_o = float(data.total_line_open or 0.0)
@@ -1271,7 +1319,7 @@ def _render_prematch_market_synthesis(data: PrematchAnalysisExtracted) -> None:
         if data.total_over_odds_open > 0 or data.total_under_odds_open > 0:
             ou = f" · O/U apertura **{data.total_over_odds_open:.2f}** / **{data.total_under_odds_open:.2f}**"
         rows_mkt.append(
-            f"**Over/Under (consensus)**: apertura **{to_o:.2f}** → attuale **{to_c:.2f}**{mov}{ou}"
+            f"**Over/Under (consensus Nowgoal, Vs_hOdds)**: apertura **{to_o:.2f}** → attuale **{to_c:.2f}**{mov}{ou}"
         )
 
     liv_ah = float(data.live_ah_line or 0.0)
@@ -1287,7 +1335,10 @@ def _render_prematch_market_synthesis(data: PrematchAnalysisExtracted) -> None:
             if liv_tot != 0.0
             else ""
         )
-        rows_mkt.append(f"**Da pagina Live (Jina)** — {la}{lt}")
+        rows_mkt.append(
+            f"**Da pagina Live Nowgoal (markdown Jina)** — altro snapshot del mercato, "
+            f"spesso più vicino a un singolo book rispetto al consensus — {la}{lt}"
+        )
 
     sig = float(getattr(data, "odds_sharp_signal", 0.0) or 0.0)
     if sig > 0:
@@ -1380,13 +1431,23 @@ def _render_prematch_analysis_summary(
 
         if data.home_rank > 0 or data.away_rank > 0:
             r1, r2 = st.columns(2)
+            _l6h = (
+                f" · Last 6: {data.home_last6_scored}-{data.home_last6_conceded} gol"
+                if (data.home_last6_scored or data.home_last6_conceded)
+                else ""
+            )
+            _l6a = (
+                f" · Last 6: {data.away_last6_scored}-{data.away_last6_conceded} gol"
+                if (data.away_last6_scored or data.away_last6_conceded)
+                else ""
+            )
             r1.caption(
                 f"**Casa** — {data.home_rank}° · {data.home_win_rate:.1f}% win rate · "
-                f"Last 6: {data.home_last6_win}W {data.home_last6_draw}D {data.home_last6_lose}L"
+                f"Last 6: {data.home_last6_win}W {data.home_last6_draw}D {data.home_last6_lose}L{_l6h}"
             )
             r2.caption(
                 f"**Trasf.** — {data.away_rank}° · {data.away_win_rate:.1f}% win rate · "
-                f"Last 6: {data.away_last6_win}W {data.away_last6_draw}D {data.away_last6_lose}L"
+                f"Last 6: {data.away_last6_win}W {data.away_last6_draw}D {data.away_last6_lose}L{_l6a}"
             )
 
         fm1, fm2 = st.columns(2)
@@ -1437,11 +1498,11 @@ def _render_prematch_analysis_summary(
         with st.expander("Mappa campi usati dal motore", expanded=False):
             st.caption(
                 "Usati nel calcolo: H2H 1X2/Over, standings, previous scores, team stats goal/loss, "
-                "strength, quote iniziali 1X2, meteo/quality."
+                "gol fatti/subiti riga Last 6 (calibrazione BTTS), strength, quote iniziali 1X2, meteo/quality."
             )
             st.caption(
-                "Solo informativi: HT/FT completo, quote live, parte delle metriche di tabella non "
-                "ancora collegate direttamente al modello."
+                "Solo informativi: HT/FT completo, quote live, alcune colonne extra della tabella (es. tiri) "
+                "non ancora nel modello."
             )
 
         # HT H2H
