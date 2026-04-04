@@ -299,12 +299,18 @@ def render_pronostici_rapidi(
 
     st.divider()
 
-    # ── Over/Under + BTTS + xG ───────────────────────────────────────────────
-    co, cu, cgg, cng = st.columns(4)
-    co.metric(f"Over {linea_ou}",  f"{risultati.p_over:.0%}")
+    # ── Over/Under (1.5 + linea mercato) + BTTS + xG ──────────────────────────
+    c15o, c15u, co, cu, cgg, cng = st.columns(6)
+    c15o.metric("Over 1.5", f"{risultati.p_over_15:.0%}")
+    c15u.metric("Under 1.5", f"{risultati.p_under_15:.0%}")
+    co.metric(f"Over {linea_ou}", f"{risultati.p_over:.0%}")
     cu.metric(f"Under {linea_ou}", f"{risultati.p_under:.0%}")
-    cgg.metric("GG (sì)",          f"{risultati.p_btts:.0%}")
-    cng.metric("NG (no)",          f"{1 - risultati.p_btts:.0%}")
+    cgg.metric("GG (sì)", f"{risultati.p_btts:.0%}")
+    cng.metric("NG (no)", f"{1 - risultati.p_btts:.0%}")
+    st.caption(
+        "Over 1.5 = almeno **2 gol** totali; Under 1.5 = **0 o 1 gol**. "
+        f"Over/Under **{linea_ou}** = linea mercato nel modulo."
+    )
     if minuto == 0 and prematch is not None:
         _qgg = float(getattr(prematch, "mkt_init_gg", 0.0) or 0.0)
         _qng = float(getattr(prematch, "mkt_init_ng", 0.0) or 0.0)
@@ -560,7 +566,9 @@ def render_quote_fair(
     cx.metric("X — Pareggio", f"@{_q_fair(risultati.px):.2f}", _ci_label(ci, "px", risultati.px))
     c2.metric("2 — Trasf.", f"@{_q_fair(risultati.p2):.2f}", _ci_label(ci, "p2", risultati.p2))
 
-    cu, co, cb = st.columns(3)
+    c15u, c15o, cu, co, cb = st.columns(5)
+    c15u.metric("Under 1.5", f"@{_q_fair(risultati.p_under_15):.2f}")
+    c15o.metric("Over 1.5", f"@{_q_fair(risultati.p_over_15):.2f}")
     cu.metric(f"Under {linea_ou}", f"@{_q_fair(risultati.p_under):.2f}", _ci_label(ci, "p_under", risultati.p_under))
     co.metric(f"Over  {linea_ou}", f"@{_q_fair(risultati.p_over):.2f}", _ci_label(ci, "p_over", risultati.p_over))
     cb.metric("BTTS — Sì", f"@{_q_fair(risultati.p_btts):.2f}", _ci_label(ci, "p_btts", risultati.p_btts))
@@ -762,8 +770,13 @@ def render_riepilogo_modello(
         _fav_delta = f"1: {risultati.p1:.0%} · X: {risultati.px:.0%} · 2: {risultati.p2:.0%}"
     col_xg3.metric("Favorita", _fav, _fav_delta)
 
-    # ── Riga 2: O/U + BTTS + Draw ───────────────────────────────────────────
-    col_ou, col_btts, col_x = st.columns(3)
+    # ── Riga 2: O/U 1.5 + O/U linea + BTTS + Draw ───────────────────────────
+    col_15, col_ou, col_btts, col_x = st.columns(4)
+    col_15.metric(
+        "Over 1.5",
+        f"{risultati.p_over_15:.0%}",
+        f"Under {risultati.p_under_15:.0%}",
+    )
     _ou_lbl = f"Over {linea_ou:.1f}"
     _ou_val = f"{risultati.p_over:.0%}"
     _ou_dir = f"Under {risultati.p_under:.0%}"

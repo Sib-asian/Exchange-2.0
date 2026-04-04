@@ -30,7 +30,7 @@ def run_analysis_pipeline(
     cal_sig: str | None = None
 
     if apply_prematch_calibration and state.minuto == 0 and league.strip():
-        p1, px, p2, p_over, p_under, p_btts, cal_sig = calibrate_prematch_probs(
+        p1, px, p2, p_over, p_under, p_btts, o15, u15, cal_sig = calibrate_prematch_probs(
             risultati.p1,
             risultati.px,
             risultati.p2,
@@ -38,6 +38,8 @@ def run_analysis_pipeline(
             risultati.p_under,
             risultati.p_btts,
             league=league,
+            p_over_15=risultati.p_over_15,
+            p_under_15=risultati.p_under_15,
         )
         risultati = replace(
             risultati,
@@ -47,9 +49,11 @@ def run_analysis_pipeline(
             p_over=p_over,
             p_under=p_under,
             p_btts=p_btts,
+            p_over_15=o15 if o15 is not None else risultati.p_over_15,
+            p_under_15=u15 if u15 is not None else risultati.p_under_15,
         )
 
-    q1, qx, q2, qo, qu, qb = shrink_outcome_probs(
+    q1, qx, q2, qo, qu, qb, qo15, qu15 = shrink_outcome_probs(
         risultati.p1,
         risultati.px,
         risultati.p2,
@@ -58,6 +62,8 @@ def run_analysis_pipeline(
         risultati.p_btts,
         extraction_coverage=extraction_coverage,
         model_agreement=risultati.model_agreement,
+        p_over_15=risultati.p_over_15,
+        p_under_15=risultati.p_under_15,
     )
     risultati = replace(
         risultati,
@@ -67,6 +73,8 @@ def run_analysis_pipeline(
         p_over=qo,
         p_under=qu,
         p_btts=qb,
+        p_over_15=qo15 if qo15 is not None else risultati.p_over_15,
+        p_under_15=qu15 if qu15 is not None else risultati.p_under_15,
     )
 
     return risultati, cal_sig

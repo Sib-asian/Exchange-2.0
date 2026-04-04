@@ -6,7 +6,11 @@ from src.tracking.prediction_log import PredictionRecord
 
 
 def test_calibration_no_history_keeps_probabilities():
-    p1, px, p2, po, pu, pb, sig = calibrate_prematch_probs(0.45, 0.27, 0.28, 0.54, 0.46, 0.52)
+    p1, px, p2, po, pu, pb, po15, pu15, sig = calibrate_prematch_probs(
+        0.45, 0.27, 0.28, 0.54, 0.46, 0.52,
+    )
+    assert po15 is None
+    assert pu15 is None
     assert abs((p1 + px + p2) - 1.0) < 1e-9
     assert abs((po + pu) - 1.0) < 1e-9
     assert 0.0 <= pb <= 1.0

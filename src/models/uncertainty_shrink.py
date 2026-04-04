@@ -18,7 +18,9 @@ def shrink_outcome_probs(
     model_agreement: float,
     max_mass_pull_1x2: float = 0.22,
     max_mass_pull_binary: float = 0.18,
-) -> tuple[float, float, float, float, float, float]:
+    p_over_15: float | None = None,
+    p_under_15: float | None = None,
+) -> tuple[float, float, float, float, float, float, float | None, float | None]:
     """
     Tira leggermente verso uniforme (1X2) e verso 0.5 (O/U, BTTS).
 
@@ -49,7 +51,18 @@ def shrink_outcome_probs(
     pb = (1.0 - lam_bi) * p_btts + lam_bi * 0.5
     pb = max(0.0, min(1.0, pb))
 
-    return q1, qx, q2, po, pu, pb
+    qo15: float | None = None
+    qu15: float | None = None
+    if p_over_15 is not None and p_under_15 is not None:
+        qo15 = (1.0 - lam_bi) * p_over_15 + lam_bi * 0.5
+        qu15 = (1.0 - lam_bi) * p_under_15 + lam_bi * 0.5
+        sou2 = qo15 + qu15
+        if sou2 > 0:
+            qo15, qu15 = qo15 / sou2, qu15 / sou2
+        else:
+            qo15, qu15 = 0.5, 0.5
+
+    return q1, qx, q2, po, pu, pb, qo15, qu15
 
 
 __all__ = ["shrink_outcome_probs"]
