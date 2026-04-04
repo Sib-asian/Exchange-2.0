@@ -2194,6 +2194,12 @@ def _strip_league_code_prefix(left_chunk: str) -> str:
     return s.strip()
 
 
+_GENERIC_FOOTBALL_TOKENS = frozenset({
+    "fc", "sc", "cf", "afc", "ac", "as", "cd", "fk", "sk", "rc", "bk",
+    "if", "us", "ss", "ssd", "fbc", "gf",
+})
+
+
 def _teams_name_match(a: str, b: str) -> bool:
     ca = _clean_team_name(a).lower()
     cb = _clean_team_name(b).lower()
@@ -2201,9 +2207,19 @@ def _teams_name_match(a: str, b: str) -> bool:
         return False
     if ca == cb:
         return True
-    if len(ca) >= 4 and len(cb) >= 4 and (ca in cb or cb in ca):
-        return True
-    return False
+    ta = set(ca.split())
+    tb = set(cb.split())
+    if not ta or not tb:
+        return False
+    shorter, longer = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    overlap = len(shorter & longer)
+    if len(shorter) == 1:
+        return overlap == 1 and len(longer) <= 2
+    meaningful = shorter - _GENERIC_FOOTBALL_TOKENS
+    if not meaningful:
+        return overlap == len(shorter)
+    meaningful_overlap = len(meaningful & longer)
+    return meaningful_overlap >= len(meaningful)
 
 
 def _parse_previous_scores_table_line(line: str) -> tuple[str, str, int, int] | None:
@@ -2350,27 +2366,37 @@ def _head_to_head_table_slice(text: str) -> str:
     return text[start:] if end < 0 else text[start:end]
 
 
-def _parse_h2h_score_rows(table_slice: str) -> list[tuple[str, str, int, int]]:
+def _extract_ht_from_score_text(line: str) -> tuple[int, int]:
+    """Estrae gol primo tempo da '2-1(1-0)' → (1, 0). Ritorna (-1,-1) se non trovato."""
+    m = re.search(r"\d+\s*-\s*\d+\s*\((\d+)\s*-\s*(\d+)\)", line)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return -1, -1
+
+
+def _parse_h2h_score_rows(table_slice: str) -> list[tuple[str, str, int, int, int, int]]:
     """
     Estrae righe di tabella H2H Nowgoal (Jina):
 
     - Markdown: ``| KOR D1 | | HomeTeam | 1-0(0-0) | AwayTeam | ...``
     - Compatto: ``KOR D1 Auckland FC 2-1(1-1) Adelaide United``
 
-    Ritorna (casa_storica, trasferta_storica, gol_casa, gol_trasferta).
+    Ritorna (casa_storica, trasferta_storica, gol_casa_ft, gol_trasf_ft, gol_casa_ht, gol_trasf_ht).
+    HT = -1 se non disponibile.
     """
-    rows: list[tuple[str, str, int, int]] = []
+    rows: list[tuple[str, str, int, int, int, int]] = []
     for line in table_slice.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
+        ht_h, ht_a = _extract_ht_from_score_text(line)
         pr = _parse_previous_scores_table_line(line)
         if pr:
             th, ta, gh, ga = pr
             th = _clean_team_name(th)
             ta = _clean_team_name(ta)
             if th and ta:
-                rows.append((th, ta, gh, ga))
+                rows.append((th, ta, gh, ga, ht_h, ht_a))
             continue
         m = re.search(r"^(.+?)\s+(\d+)-(\d+)\(([^)]*)\)\s*(.+)$", line)
         if not m:
@@ -2382,23 +2408,25 @@ def _parse_h2h_score_rows(table_slice: str) -> list[tuple[str, str, int, int]]:
         th = _clean_team_name(th)
         ta = _clean_team_name(ta)
         if th and ta:
-            rows.append((th, ta, gh, ga))
+            rows.append((th, ta, gh, ga, ht_h, ht_a))
     return rows
 
 
 def _derive_h2h_from_score_table(
-    parsed_rows: list[tuple[str, str, int, int]], fixture_home: str, fixture_away: str
+    parsed_rows: list[tuple[str, str, int, int, int, int]], fixture_home: str, fixture_away: str
 ) -> dict | None:
     """
-    W/D/L %, medie gol, BTTS % e Over 2.5 % dalla prospettiva fixture_home vs fixture_away.
+    W/D/L %, medie gol, BTTS %, Over 2.5 % e HT W/D/L % dalla prospettiva fixture_home.
     Usa solo le righe che corrispondono effettivamente alle due squadre.
     """
     if not fixture_home or not fixture_away or not parsed_rows:
         return None
     goals_fh: list[int] = []
     goals_fa: list[int] = []
+    ht_fh: list[int] = []
+    ht_fa: list[int] = []
     matched_gh_ga: list[tuple[int, int]] = []
-    for th, ta, gh, ga in parsed_rows:
+    for th, ta, gh, ga, hth, hta in parsed_rows:
         pair = _h2h_goals_for_fixture_teams(th, ta, gh, ga, fixture_home, fixture_away)
         if pair is None:
             continue
@@ -2406,6 +2434,11 @@ def _derive_h2h_from_score_table(
         goals_fh.append(gfh)
         goals_fa.append(gfa)
         matched_gh_ga.append((gh, ga))
+        if hth >= 0 and hta >= 0:
+            ht_pair = _h2h_goals_for_fixture_teams(th, ta, hth, hta, fixture_home, fixture_away)
+            if ht_pair:
+                ht_fh.append(ht_pair[0])
+                ht_fa.append(ht_pair[1])
     n = len(goals_fh)
     if n == 0:
         return None
@@ -2414,7 +2447,7 @@ def _derive_h2h_from_score_table(
     l = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh < gfa)
     btts_hits = sum(1 for gh, ga in matched_gh_ga if gh > 0 and ga > 0)
     over25_hits = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh + gfa > 2)
-    return {
+    result: dict = {
         "n": n,
         "h2h_home_win_pct": round(w / n * 100, 1),
         "h2h_draw_pct": round(d / n * 100, 1),
@@ -2425,6 +2458,15 @@ def _derive_h2h_from_score_table(
         "h2h_over_pct": round(over25_hits * 100.0 / n, 1),
         "h2h_matches_count": n,
     }
+    n_ht = len(ht_fh)
+    if n_ht > 0:
+        ht_w = sum(1 for h, a in zip(ht_fh, ht_fa) if h > a)
+        ht_d = sum(1 for h, a in zip(ht_fh, ht_fa) if h == a)
+        ht_l = sum(1 for h, a in zip(ht_fh, ht_fa) if h < a)
+        result["h2h_ht_home_win_pct"] = round(ht_w / n_ht * 100, 1)
+        result["h2h_ht_draw_pct"] = round(ht_d / n_ht * 100, 1)
+        result["h2h_ht_away_win_pct"] = round(ht_l / n_ht * 100, 1)
+    return result
 
 
 def _extract_h2h_with_regex(text: str) -> dict:
@@ -2943,6 +2985,9 @@ def _extract_all_with_regex(text: str) -> dict:
         "h2h_matches_count": 0,
         "h2h_avg_goals_home": 0.0,
         "h2h_avg_goals_away": 0.0,
+        "h2h_ht_home_win_pct": 0.0,
+        "h2h_ht_draw_pct": 0.0,
+        "h2h_ht_away_win_pct": 0.0,
         # Strength
         "strength_home": 0,
         "strength_away": 0,
@@ -3090,8 +3135,12 @@ def _extract_all_with_regex(text: str) -> dict:
         result["h2h_btts_pct"] = derived_h2h["h2h_btts_pct"]
         result["h2h_over_pct"] = derived_h2h["h2h_over_pct"]
         result["h2h_matches_count"] = derived_h2h["h2h_matches_count"]
+        if "h2h_ht_home_win_pct" in derived_h2h:
+            result["h2h_ht_home_win_pct"] = derived_h2h["h2h_ht_home_win_pct"]
+            result["h2h_ht_draw_pct"] = derived_h2h["h2h_ht_draw_pct"]
+            result["h2h_ht_away_win_pct"] = derived_h2h["h2h_ht_away_win_pct"]
     elif parsed_h2h_rows:
-        btts_hits = sum(1 for _th, _ta, gh, ga in parsed_h2h_rows if gh > 0 and ga > 0)
+        btts_hits = sum(1 for _th, _ta, gh, ga, *_ in parsed_h2h_rows if gh > 0 and ga > 0)
         result["h2h_btts_pct"] = round(btts_hits * 100.0 / len(parsed_h2h_rows), 1)
         result["h2h_matches_count"] = len(parsed_h2h_rows)
 
@@ -3636,6 +3685,18 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["total_line_open"] = total_line
                 result["total_over_odds_open"] = total_over
                 result["total_under_odds_open"] = total_under
+                # 1X2: index 5=home, 6=draw, 7=away
+                if result["mkt_init_1"] == 0 and len(opening_row) > 7:
+                    try:
+                        q1 = float(opening_row[5]) if opening_row[5] else 0.0
+                        qx = float(opening_row[6]) if opening_row[6] else 0.0
+                        q2 = float(opening_row[7]) if opening_row[7] else 0.0
+                        if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100:
+                            result["mkt_init_1"] = q1
+                            result["mkt_init_x"] = qx
+                            result["mkt_init_2"] = q2
+                    except (ValueError, TypeError):
+                        pass
             
             # Estrai dati da closing
             if closing_row and len(closing_row) >= 12:
@@ -3913,6 +3974,9 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         h2h_matches_count=regex_data["h2h_matches_count"],
         h2h_avg_goals_home=regex_data["h2h_avg_goals_home"],
         h2h_avg_goals_away=regex_data["h2h_avg_goals_away"],
+        h2h_ht_home_win_pct=regex_data["h2h_ht_home_win_pct"],
+        h2h_ht_draw_pct=regex_data["h2h_ht_draw_pct"],
+        h2h_ht_away_win_pct=regex_data["h2h_ht_away_win_pct"],
         # Strength
         strength_home=regex_data["strength_home"],
         strength_away=regex_data["strength_away"],

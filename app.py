@@ -187,6 +187,12 @@ if _btn_prematch or _btn_live:
     _ag2 = float(getattr(_pa, "away_goals_2h", 0.0)) if _pa else 0.0
     _late_pct_h = (_hg2 / max(1e-9, _hg1 + _hg2)) * 100.0 if (_hg1 + _hg2) > 0 else 0.0
     _late_pct_a = (_ag2 / max(1e-9, _ag1 + _ag2)) * 100.0 if (_ag1 + _ag2) > 0 else 0.0
+    _h_ht_lose = int(getattr(_pa, "home_ht_lose", 0)) if _pa else 0
+    _a_ht_lose = int(getattr(_pa, "away_ht_lose", 0)) if _pa else 0
+    _h_matches = int(getattr(_pa, "home_matches", 0)) if _pa else 0
+    _a_matches = int(getattr(_pa, "away_matches", 0)) if _pa else 0
+    _early_conc_h = round(_h_ht_lose / _h_matches * 100, 1) if _h_matches > 0 else 0.0
+    _early_conc_a = round(_a_ht_lose / _a_matches * 100, 1) if _a_matches > 0 else 0.0
     if not _abs_h_list and _abs_h > 0:
         _abs_h_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_h))
     if not _abs_a_list and _abs_a > 0:
@@ -322,6 +328,8 @@ if _btn_prematch or _btn_live:
             clean_sheet_streak_a=_streak_cs_a,
             late_goals_pct_h=_late_pct_h,
             late_goals_pct_a=_late_pct_a,
+            early_conceded_pct_h=_early_conc_h,
+            early_conceded_pct_a=_early_conc_a,
             movement_quality=_movement_quality,
             ocr_confidence_scale=_ocr_conf_scale,
             absence_mult_h=_absence_mult_h,
