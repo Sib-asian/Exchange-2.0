@@ -2390,13 +2390,14 @@ def _derive_h2h_from_score_table(
     parsed_rows: list[tuple[str, str, int, int]], fixture_home: str, fixture_away: str
 ) -> dict | None:
     """
-    W/D/L % e medie gol dalla prospettiva fixture_home vs fixture_away.
-    BTTS % su tutte le righe parsate (stesso campione del conteggio partite in tabella).
+    W/D/L %, medie gol, BTTS % e Over 2.5 % dalla prospettiva fixture_home vs fixture_away.
+    Usa solo le righe che corrispondono effettivamente alle due squadre.
     """
     if not fixture_home or not fixture_away or not parsed_rows:
         return None
     goals_fh: list[int] = []
     goals_fa: list[int] = []
+    matched_gh_ga: list[tuple[int, int]] = []
     for th, ta, gh, ga in parsed_rows:
         pair = _h2h_goals_for_fixture_teams(th, ta, gh, ga, fixture_home, fixture_away)
         if pair is None:
@@ -2404,13 +2405,15 @@ def _derive_h2h_from_score_table(
         gfh, gfa = pair
         goals_fh.append(gfh)
         goals_fa.append(gfa)
+        matched_gh_ga.append((gh, ga))
     n = len(goals_fh)
     if n == 0:
         return None
     w = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh > gfa)
     d = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh == gfa)
     l = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh < gfa)
-    btts_hits = sum(1 for _th, _ta, gh, ga in parsed_rows if gh > 0 and ga > 0)
+    btts_hits = sum(1 for gh, ga in matched_gh_ga if gh > 0 and ga > 0)
+    over25_hits = sum(1 for gfh, gfa in zip(goals_fh, goals_fa) if gfh + gfa > 2)
     return {
         "n": n,
         "h2h_home_win_pct": round(w / n * 100, 1),
@@ -2418,8 +2421,9 @@ def _derive_h2h_from_score_table(
         "h2h_away_win_pct": round(l / n * 100, 1),
         "h2h_avg_goals_home": round(sum(goals_fh) / n, 2),
         "h2h_avg_goals_away": round(sum(goals_fa) / n, 2),
-        "h2h_btts_pct": round(btts_hits * 100.0 / len(parsed_rows), 1),
-        "h2h_matches_count": len(parsed_rows),
+        "h2h_btts_pct": round(btts_hits * 100.0 / n, 1),
+        "h2h_over_pct": round(over25_hits * 100.0 / n, 1),
+        "h2h_matches_count": n,
     }
 
 
@@ -3084,21 +3088,23 @@ def _extract_all_with_regex(text: str) -> dict:
         result["h2h_avg_goals_home"] = derived_h2h["h2h_avg_goals_home"]
         result["h2h_avg_goals_away"] = derived_h2h["h2h_avg_goals_away"]
         result["h2h_btts_pct"] = derived_h2h["h2h_btts_pct"]
+        result["h2h_over_pct"] = derived_h2h["h2h_over_pct"]
         result["h2h_matches_count"] = derived_h2h["h2h_matches_count"]
     elif parsed_h2h_rows:
         btts_hits = sum(1 for _th, _ta, gh, ga in parsed_h2h_rows if gh > 0 and ga > 0)
         result["h2h_btts_pct"] = round(btts_hits * 100.0 / len(parsed_h2h_rows), 1)
         result["h2h_matches_count"] = len(parsed_h2h_rows)
 
-    # H2H Over % — preferisci la sezione tabella H2H, non la prima "Over" della pagina.
-    over_scope = h2h_table_body if h2h_table_body.strip() else pre_ps
-    over_match = re.search(r"(\d+(?:\.\d+)?)%\s*Over", over_scope, re.IGNORECASE)
-    if over_match:
-        result["h2h_over_pct"] = float(over_match.group(1))
-    else:
-        over_match2 = re.search(r"Over\s*(\d+(?:\.\d+)?)\s*%?", over_scope, re.IGNORECASE)
-        if over_match2:
-            result["h2h_over_pct"] = float(over_match2.group(1))
+    # H2H Over % — fallback regex (grafici JS); salta se già derivato dai punteggi.
+    if result["h2h_over_pct"] == 0:
+        over_scope = h2h_table_body if h2h_table_body.strip() else pre_ps
+        over_match = re.search(r"(\d+(?:\.\d+)?)%\s*Over", over_scope, re.IGNORECASE)
+        if over_match:
+            result["h2h_over_pct"] = float(over_match.group(1))
+        else:
+            over_match2 = re.search(r"Over\s*(\d+(?:\.\d+)?)\s*%?", over_scope, re.IGNORECASE)
+            if over_match2:
+                result["h2h_over_pct"] = float(over_match2.group(1))
 
     # H2H media gol da testo solo se non ricavate dalla tabella punteggi.
     if not derived_h2h and (

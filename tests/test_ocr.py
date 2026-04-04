@@ -164,8 +164,24 @@ class TestNowgoalRegexNotes:
         assert parsed["h2h_avg_goals_home"] == 1.0
         assert parsed["h2h_avg_goals_away"] == 0.0
         assert parsed["h2h_btts_pct"] == 0.0
-        # fixture_historical_total è valorizzato in PrematchAnalysisExtracted post-regex, non nel dict grezzo
+        assert parsed["h2h_over_pct"] == 0.0  # 1 gol totale per match → under
         assert parsed["h2h_avg_goals_home"] + parsed["h2h_avg_goals_away"] == 1.0
+
+    def test_h2h_over_pct_derived_from_score_table(self):
+        """h2h_over_pct calcolato da punteggi: 2 su 3 match Over 2.5 = 66.7%."""
+        text = (
+            "Title: Inter Turku vs Vaasa VPS Live\n"
+            "Football> Finland Veikkausliga>\n"
+            "## Head to Head Statistics\n"
+            "| FIN D1 | | Inter Turku | 2-1(0-0) | Vaasa VPS | 17-5(9-1) | W |\n"
+            "| FIN D1 | | Vaasa VPS | 0-2(0-1) | Inter Turku | 10-5(3-3) | W |\n"
+            "| FIN D1 | | Inter Turku | 4-2(1-1) | Vaasa VPS | 7-3(1-1) | W |\n"
+            "## Previous Scores Statistics\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["h2h_matches_count"] == 3
+        assert parsed["h2h_over_pct"] == 66.7  # 2-1=under, 0-2=under, 4-2=over → 1/3? No: 2+1=3>2.5, 0+2=2<=2.5, 4+2=6>2.5 → 2/3
+        assert parsed["h2h_btts_pct"] == 66.7  # 2-1 btts, 0-2 no, 4-2 btts → 2/3
 
     def test_prematch_from_text_sets_fixture_total_with_markdown_h2h(self):
         from src.ocr import _extract_prematch_analysis_from_text
@@ -183,6 +199,7 @@ class TestNowgoalRegexNotes:
         assert pa.h2h_draw_pct == 100.0
         assert pa.fixture_historical_total == 2.0
         assert pa.h2h_btts_pct == 100.0
+        assert pa.h2h_over_pct == 0.0  # 1-1 = 2 gol → under 2.5
 
     def test_extract_absence_counts_from_explicit_home_away_lines(self):
         text = (
