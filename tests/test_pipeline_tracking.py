@@ -9,6 +9,7 @@ from src.models.uncertainty_shrink import shrink_outcome_probs
 from src.pipeline import run_analysis_pipeline
 from src.tracking.prediction_log import (
     PredictionRecord,
+    create_record_from_analysis,
     record_from_dict,
     tot_op_band,
 )
@@ -111,3 +112,120 @@ def test_multiclass_brier_and_segments():
     ll = PerformanceStats.compute_log_loss_1x2(recs)
     assert ll is not None and ll > 0
     assert "Test League" in PerformanceStats.segment_by_league(recs)
+
+
+def test_create_record_id_includes_microseconds():
+    r = create_record_from_analysis(
+        "Alpha",
+        "Beta",
+        "Test",
+        {"tot_op": 2.5},
+        {"p1": 0.34, "px": 0.33, "p2": 0.33},
+    )
+    parts = r.id.split("_")
+    assert len(parts) >= 5
+    assert parts[2].isdigit() and len(parts[2]) == 6
+
+
+def test_market_stats_avg_edge_only_uses_rows_with_quota():
+    recs = [
+        PredictionRecord(
+            id="a",
+            timestamp="t",
+            p1=0.6,
+            px=0.25,
+            p2=0.15,
+            quota_1=2.0,
+            quota_x=3.5,
+            quota_2=3.5,
+            risultato_1x2="1",
+            gol_casa=1,
+            gol_trasf=0,
+            status="COMPLETED",
+        ),
+        PredictionRecord(
+            id="b",
+            timestamp="t2",
+            p1=0.6,
+            px=0.25,
+            p2=0.15,
+            quota_1=0.0,
+            quota_x=0.0,
+            quota_2=0.0,
+            risultato_1x2="2",
+            gol_casa=0,
+            gol_trasf=1,
+            status="COMPLETED",
+        ),
+    ]
+    s = PerformanceStats.compute_market_stats(recs, "1X2_1")
+    assert s.total_predictions == 2
+    assert s.predictions_with_quote == 1
+    implied = 1.0 / 2.0
+    assert s.avg_edge == pytest.approx(0.6 - implied)
+
+
+def test_pick_best_falls_back_to_brier_without_quotes():
+    """Con poche quote, pick_best usa Brier (più basso = meglio)."""
+    stats = {
+        "1X2_1": PerformanceStats.compute_market_stats(
+            [
+                PredictionRecord(
+                    id="1",
+                    timestamp="t",
+                    p1=0.5,
+                    px=0.3,
+                    p2=0.2,
+                    risultato_1x2="1",
+                    gol_casa=1,
+                    gol_trasf=0,
+                    status="COMPLETED",
+                ),
+            ]
+            * 5,
+            "1X2_1",
+        ),
+        "1X2_X": PerformanceStats.compute_market_stats(
+            [
+                PredictionRecord(
+                    id="x",
+                    timestamp="t",
+                    p1=0.33,
+                    px=0.34,
+                    p2=0.33,
+                    risultato_1x2="X",
+                    gol_casa=0,
+                    gol_trasf=0,
+                    status="COMPLETED",
+                ),
+            ]
+            * 5,
+            "1X2_X",
+        ),
+    }
+    best, how = PerformanceStats.pick_best_market(stats, min_n=5, min_with_quote=3)
+    assert best is not None
+    assert how == "brier"
+
+
+def test_sort_completed_newest_first():
+    a = PredictionRecord(
+        id="old",
+        timestamp="2020-01-01T10:00:00",
+        completed_at="2020-01-02T10:00:00",
+        risultato_1x2="1",
+        gol_casa=1,
+        gol_trasf=0,
+        status="COMPLETED",
+    )
+    b = PredictionRecord(
+        id="new",
+        timestamp="2021-01-01T10:00:00",
+        completed_at="2021-01-03T10:00:00",
+        risultato_1x2="1",
+        gol_casa=1,
+        gol_trasf=0,
+        status="COMPLETED",
+    )
+    out = PerformanceStats.sort_completed_newest_first([a, b])
+    assert out[0].id == "new"

@@ -12,6 +12,8 @@ from __future__ import annotations
 import streamlit as st
 from datetime import datetime
 
+from dataclasses import asdict, fields
+
 from src.tracking.prediction_log import (
     PredictionLog,
     PredictionRecord,
@@ -133,11 +135,11 @@ def _render_pending_card(record: PredictionRecord, log: PredictionLog) -> None:
             try:
                 dt = datetime.fromisoformat(record.timestamp)
                 date_str = dt.strftime("%d/%m/%Y %H:%M")
-            except:
+            except Exception:
                 date_str = record.timestamp[:16]
 
             st.markdown(f"**{record.squadra_casa}** vs **{record.squadra_trasf}**")
-            st.caption(f"{record.lega} · {date_str}")
+            st.caption(f"{record.lega} · {date_str} · min {record.minuto}'")
 
             # Previsioni
             prev_str = f"1={record.p1*100:.0f}% X={record.px*100:.0f}% 2={record.p2*100:.0f}%"
@@ -146,32 +148,40 @@ def _render_pending_card(record: PredictionRecord, log: PredictionLog) -> None:
             if record.p_btts > 0:
                 prev_str += f" | BTTS={record.p_btts*100:.0f}%"
             st.caption(prev_str)
+            _q1 = (record.quota_1 or 0) > 1.0
+            _qx = (record.quota_x or 0) > 1.0
+            _q2 = (record.quota_2 or 0) > 1.0
+            if _q1 and _qx and _q2:
+                st.caption(
+                    f"Quote 1X2 salvate: {record.quota_1:.2f} / {record.quota_x:.2f} / {record.quota_2:.2f}"
+                )
+            else:
+                st.caption("Quote 1X2 non in log — edge/ROI 1X2 saranno vuoti; Brier sì.")
 
         with col_result:
-            # Input risultato
+            st.caption("Risultato finale")
             c1, c2 = st.columns(2)
             with c1:
                 gol_casa = st.number_input(
-                    "Gol Casa",
+                    "Casa",
                     min_value=0,
                     max_value=20,
+                    value=0,
                     key=f"gol_casa_{record.id}",
-                    label_visibility="collapsed",
-                    placeholder="Gol Casa",
                 )
             with c2:
                 gol_trasf = st.number_input(
-                    "Gol Trasf",
+                    "Trasferta",
                     min_value=0,
                     max_value=20,
+                    value=0,
                     key=f"gol_trasf_{record.id}",
-                    label_visibility="collapsed",
-                    placeholder="Gol Trasf",
                 )
 
         with col_action:
+            st.write("")  # allinea il bottone
             if st.button("✓ Conferma", key=f"confirm_{record.id}", type="primary"):
-                if log.complete(record.id, gol_casa, gol_trasf):
+                if log.complete(record.id, int(gol_casa), int(gol_trasf)):
                     st.success("Salvato!")
                     st.rerun()
                 else:
@@ -189,7 +199,7 @@ def _render_completed_tab(log: PredictionLog) -> None:
         return
 
     # Filtri
-    col_f1, col_f2 = st.columns(2)
+    col_f1, col_f2, col_f3 = st.columns(3)
     with col_f1:
         show_count = st.selectbox("Mostra", [10, 25, 50, 100], index=1)
     with col_f2:
@@ -197,18 +207,27 @@ def _render_completed_tab(log: PredictionLog) -> None:
             "Filtra per esito",
             ["Tutti", "Vittorie Casa (1)", "Pareggi (X)", "Vittorie Trasf (2)"],
         )
+    with col_f3:
+        team_q = st.text_input("Cerca squadra", placeholder="nome parziale")
 
     # Filtra
-    filtered = completed
+    filtered = PerformanceStats.sort_completed_newest_first(completed)
     if filter_market == "Vittorie Casa (1)":
-        filtered = [r for r in completed if r.risultato_1x2 == "1"]
+        filtered = [r for r in filtered if r.risultato_1x2 == "1"]
     elif filter_market == "Pareggi (X)":
-        filtered = [r for r in completed if r.risultato_1x2 == "X"]
+        filtered = [r for r in filtered if r.risultato_1x2 == "X"]
     elif filter_market == "Vittorie Trasf (2)":
-        filtered = [r for r in completed if r.risultato_1x2 == "2"]
+        filtered = [r for r in filtered if r.risultato_1x2 == "2"]
 
-    # Mostra le più recenti
-    filtered = sorted(filtered, key=lambda r: r.timestamp, reverse=True)[:show_count]
+    if team_q.strip():
+        q = team_q.strip().lower()
+        filtered = [
+            r
+            for r in filtered
+            if q in (r.squadra_casa or "").lower() or q in (r.squadra_trasf or "").lower()
+        ]
+
+    filtered = filtered[:show_count]
 
     # Tabella
     for record in filtered:
@@ -224,8 +243,11 @@ def _render_completed_row(record: PredictionRecord, log: PredictionLog) -> None:
         try:
             dt = datetime.fromisoformat(record.timestamp)
             st.caption(dt.strftime("%d/%m/%Y"))
-        except:
+        except Exception:
             pass
+        if record.completed_at:
+            ca = record.completed_at.replace("T", " ")[:16]
+            st.caption(f"Chiusa: {ca}")
 
     with col_result:
         result_color = {
@@ -260,8 +282,8 @@ def _render_stats_tab(log: PredictionLog) -> None:
 
     # Calcola statistiche
     stats = PerformanceStats.compute_all_stats(completed)
-    # Alert automatico quando la qualità recente peggiora.
-    recent = sorted(completed, key=lambda r: r.completed_at or r.timestamp, reverse=True)[:50]
+    # Alert: Brier peggiore sulle ultime partite (solo mercati con volume).
+    recent = PerformanceStats.sort_completed_newest_first(completed)[:50]
     if len(recent) >= 20:
         recent_stats = PerformanceStats.compute_all_stats(recent)
         valid_recent = [s for s in recent_stats.values() if s.total_predictions >= 8]
@@ -269,9 +291,16 @@ def _render_stats_tab(log: PredictionLog) -> None:
             worst_recent = max(valid_recent, key=lambda s: s.brier_score)
             if worst_recent.brier_score > 0.28:
                 st.warning(
-                    f"⚠️ Alert qualità: Brier alto ({worst_recent.brier_score:.3f}) su {worst_recent.market_name} "
-                    f"nelle ultime {len(recent)} partite."
+                    f"⚠️ Alert qualità: Brier alto ({worst_recent.brier_score:.3f}) su "
+                    f"{worst_recent.market_name} nelle ultime {len(recent)} partite."
                 )
+
+    roll = PerformanceStats.rolling_1x2_metrics(completed, last_n=30)
+    if roll:
+        st.caption(
+            f"Ultime {roll['n']} partite — Brier 1X2: **{roll['brier_1x2']:.4f}** · "
+            f"log-loss: **{roll['log_loss_1x2']:.4f}**"
+        )
 
     # Tabella statistiche
     st.subheader("📊 Performance per Mercato")
@@ -290,25 +319,33 @@ def _render_stats_tab(log: PredictionLog) -> None:
     data = []
     for key, s in stats.items():
         if s.total_predictions > 0:
+            qn = s.predictions_with_quote
+            tot = s.total_predictions
+            edge_s = f"{s.avg_edge*100:+.1f}%" if qn > 0 else "—"
+            roi_s = f"{s.roi*100:+.1f}%" if qn > 0 else "—"
             data.append({
                 "Mercato": market_names.get(key, key),
-                "Previsioni": s.total_predictions,
+                "Previsioni": tot,
+                "Con quota": f"{qn}/{tot}",
                 "Win Rate": f"{s.win_rate*100:.1f}%",
-                "Brier Score": f"{s.brier_score:.3f}",
-                "Edge Medio": f"{s.avg_edge*100:+.1f}%",
-                "ROI": f"{s.roi*100:+.1f}%",
+                "Brier": f"{s.brier_score:.3f}",
+                "Edge (su quota)": edge_s,
+                "ROI (su quota)": roi_s,
             })
 
     if data:
         import pandas as pd
         df = pd.DataFrame(data)
         st.dataframe(df, use_container_width=True, hide_index=True)
+        st.caption(
+            "Edge e ROI sono calcolati solo sulle partite in cui è stata salvata la quota per quel mercato."
+        )
 
     st.divider()
     st.subheader("Calibrazione 1X2 (multiclasse)")
     _mb = PerformanceStats.compute_multiclass_brier_1x2(completed)
     _ll = PerformanceStats.compute_log_loss_1x2(completed)
-    c_m1, c_m2 = st.columns(2)
+    c_m1, c_m2, c_m3 = st.columns(3)
     with c_m1:
         st.metric(
             "Brier 1X2 (vector)",
@@ -319,9 +356,45 @@ def _render_stats_tab(log: PredictionLog) -> None:
             "Log-loss 1X2",
             f"{_ll:.4f}" if _ll is not None else "—",
         )
+    with c_m3:
+        if roll:
+            st.metric(
+                "Rolling 30",
+                f"{roll['brier_1x2']:.4f}",
+                help="Brier 1X2 sulle ultime 30 partite chiuse",
+            )
+        else:
+            st.metric("Rolling 30", "—")
 
     _by_l = PerformanceStats.segment_by_league(completed)
     _by_t = PerformanceStats.segment_by_tot_band(completed)
+    prem, live = PerformanceStats.segment_by_prematch(completed)
+    with st.expander("Prematch vs live (1X2)", expanded=False):
+        rows_pm = []
+        if len(prem) >= 3:
+            b = PerformanceStats.compute_multiclass_brier_1x2(prem)
+            ll = PerformanceStats.compute_log_loss_1x2(prem)
+            rows_pm.append({
+                "Contesto": "Prematch",
+                "N": len(prem),
+                "Brier 1X2": f"{b:.4f}" if b is not None else "—",
+                "Log-loss": f"{ll:.4f}" if ll is not None else "—",
+            })
+        if len(live) >= 3:
+            b = PerformanceStats.compute_multiclass_brier_1x2(live)
+            ll = PerformanceStats.compute_log_loss_1x2(live)
+            rows_pm.append({
+                "Contesto": "Live",
+                "N": len(live),
+                "Brier 1X2": f"{b:.4f}" if b is not None else "—",
+                "Log-loss": f"{ll:.4f}" if ll is not None else "—",
+            })
+        if rows_pm:
+            import pandas as pd
+            st.dataframe(pd.DataFrame(rows_pm), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Servono almeno 3 partite per almeno una delle due categorie.")
+
     with st.expander("Per lega (N≥3)", expanded=False):
         rows_l = []
         for lega, sub in sorted(_by_l.items(), key=lambda x: -len(x[1])):
@@ -365,25 +438,45 @@ def _render_stats_tab(log: PredictionLog) -> None:
     col_best, col_worst = st.columns(2)
 
     with col_best:
-        best = PerformanceStats.get_best_market(stats)
+        best, how_b = PerformanceStats.pick_best_market(stats)
         if best:
             best_name = market_names.get(best.market_name, best.market_name)
-            st.metric(
-                "🏆 Miglior Mercato",
-                best_name,
-                delta=f"{best.avg_edge*100:+.1f}% edge",
-            )
+            if how_b == "edge":
+                st.metric(
+                    "🏆 Miglior mercato (edge)",
+                    best_name,
+                    delta=f"{best.avg_edge*100:+.1f}% su {best.predictions_with_quote} con quota",
+                )
+            else:
+                st.metric(
+                    "🏆 Miglior calibrazione (Brier)",
+                    best_name,
+                    delta=f"Brier {best.brier_score:.3f}",
+                    help="Poche quote salvate: classifica per Brier, non per edge.",
+                )
 
     with col_worst:
-        worst = PerformanceStats.get_worst_market(stats)
+        worst, how_w = PerformanceStats.pick_worst_market(stats)
         if worst:
             worst_name = market_names.get(worst.market_name, worst.market_name)
-            st.metric(
-                "⚠️ Da Migliorare",
-                worst_name,
-                delta=f"{worst.avg_edge*100:+.1f}% edge",
-                delta_color="inverse",
-            )
+            if how_w == "edge":
+                st.metric(
+                    "⚠️ Edge più basso",
+                    worst_name,
+                    delta=f"{worst.avg_edge*100:+.1f}% su {worst.predictions_with_quote} con quota",
+                    delta_color="inverse",
+                )
+            else:
+                st.metric(
+                    "⚠️ Brier più alto",
+                    worst_name,
+                    delta=f"Brier {worst.brier_score:.3f}",
+                    delta_color="inverse",
+                    help="Poche quote salvate: classifica per Brier.",
+                )
+
+    with st.expander("Riepilogo testuale (copia/incolla)", expanded=False):
+        st.code(PerformanceStats.format_summary(stats), language="text")
 
     # Export
     st.divider()
@@ -391,50 +484,51 @@ def _render_stats_tab(log: PredictionLog) -> None:
 
     col_exp1, col_exp2 = st.columns(2)
     with col_exp1:
-        if st.button("📥 Esporta CSV"):
-            csv_data = _export_to_csv(completed)
-            st.download_button(
-                "Scarica predictions.csv",
-                csv_data,
-                "predictions.csv",
-                "text/csv",
-            )
+        csv_data = _export_to_csv(log.get_all())
+        st.download_button(
+            "📥 Scarica predictions.csv (tutti i record)",
+            csv_data,
+            "predictions.csv",
+            "text/csv",
+            mime="text/csv",
+            key="dl_csv_predictions",
+        )
 
     with col_exp2:
-        if st.button("🗑️ Cancella Tutto", type="secondary"):
-            if st.checkbox("Confermo l'eliminazione di TUTTE le previsioni"):
-                log.clear_all()
-                st.success("Eliminato!")
-                st.rerun()
+        if st.button("🗑️ Cancella Tutto", type="secondary", key="btn_clear_all"):
+            st.session_state["_tracking_confirm_clear"] = True
+        if st.session_state.get("_tracking_confirm_clear", False):
+            c_y, c_n = st.columns(2)
+            with c_n:
+                if st.button("Annulla", key="btn_clear_cancel"):
+                    st.session_state["_tracking_confirm_clear"] = False
+                    st.rerun()
+            with c_y:
+                if st.checkbox("Confermo l'eliminazione di TUTTE le previsioni", key="cb_clear_all"):
+                    log.clear_all()
+                    st.session_state["_tracking_confirm_clear"] = False
+                    st.success("Eliminato!")
+                    st.rerun()
+
+
+def _csv_cell(v: object) -> str | float | int:
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return int(v)
+    return v
 
 
 def _export_to_csv(records: list[PredictionRecord]) -> str:
-    """Esporta le previsioni in CSV."""
+    """Esporta tutti i campi del record (include pending e completate)."""
     import io
     import csv
 
     output = io.StringIO()
     writer = csv.writer(output)
-
-    # Header
-    writer.writerow([
-        "id", "timestamp", "squadra_casa", "squadra_trasf", "lega",
-        "ah_op", "tot_op", "xg_h", "xg_a",
-        "p1", "px", "p2", "p_over_25", "p_btts",
-        "gol_casa", "gol_trasf", "risultato_1x2", "over_25_hit", "btts_hit",
-        "status",
-    ])
-
-    # Dati
+    col_names = [f.name for f in fields(PredictionRecord)]
+    writer.writerow(col_names)
     for r in records:
-        writer.writerow([
-            r.id, r.timestamp, r.squadra_casa, r.squadra_trasf, r.lega,
-            r.ah_op, r.tot_op, r.xg_h, r.xg_a,
-            r.p1, r.px, r.p2, r.p_over_25, r.p_btts,
-            r.gol_casa or "", r.gol_trasf or "", r.risultato_1x2,
-            r.over_25_hit if r.over_25_hit is not None else "",
-            r.btts_hit if r.btts_hit is not None else "",
-            r.status,
-        ])
-
+        row = asdict(r)
+        writer.writerow([_csv_cell(row.get(c)) for c in col_names])
     return output.getvalue()
