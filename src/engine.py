@@ -549,10 +549,6 @@ def analizza(
         _motivation_mult_a = 1.0
 
         if state.standings_total_teams > 0 and state.standings_rank_h > 0 and state.standings_rank_a > 0:
-            # Calcola posizione relativa (0 = prima, 1 = ultima)
-            _rel_pos_h = (state.standings_rank_h - 1) / max(1, state.standings_total_teams - 1)
-            _rel_pos_a = (state.standings_rank_a - 1) / max(1, state.standings_total_teams - 1)
-
             # Zona retrocessione (ultime N posizioni)
             if state.standings_rank_h > state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE:
                 _motivation_mult_h += FORM_ANALYSIS.RELEGATION_MOTIVATION_BONUS
@@ -811,10 +807,17 @@ def analizza(
                         f"Model {model_name} failed: {e}"
                     )
 
+    # 7b. Fallback modello: se una matrice è vuota (modello fallito),
+    # redistribuisci il suo peso ai modelli sopravvissuti.
+    _bp_ok = len(full_bp) > 0
+    _cop_ok = len(full_copula) > 0
+    _mk_ok = len(full_markov) > 0
+    _n_ok = int(_bp_ok) + int(_cop_ok) + int(_mk_ok)
+
+    if _n_ok == 0:
+        raise RuntimeError("Tutti e 3 i modelli hanno fallito — impossibile calcolare consensus")
+
     # 8. Consensus multi-modello: media pesata con pesi dinamici per 4 fasi di gioco.
-    # #1/#6: Premi la Markov chain nel tardo gioco (punteggio fisso → molto informativa)
-    # e il Bivariate Poisson in prematch/early (nessuno stato significativo).
-    # Fasi: prematch(0') → early(1-20') → mid(20-60') → late(>60')
     if state.minuto == 0:
         _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_PREMATCH, CONSENSUS.W_COP_PREMATCH, CONSENSUS.W_MK_PREMATCH
     elif state.minuto <= CONSENSUS.EARLY_GAME_MINUTE:
@@ -823,6 +826,23 @@ def analizza(
         _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID
     else:
         _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_LATE, CONSENSUS.W_COP_LATE, CONSENSUS.W_MK_LATE
+
+    if _n_ok < 3:
+        import logging as _log_mod
+        _log_mod.getLogger("exchange.engine").warning(
+            "Solo %d/3 modelli disponibili — redistribuzione pesi consensus", _n_ok
+        )
+        if not _bp_ok:
+            _w_bp = 0.0
+        if not _cop_ok:
+            _w_cop = 0.0
+        if not _mk_ok:
+            _w_mk = 0.0
+        _w_sum = _w_bp + _w_cop + _w_mk
+        if _w_sum > 0:
+            _w_bp /= _w_sum
+            _w_cop /= _w_sum
+            _w_mk /= _w_sum
 
     _w_bp, _w_cop, _w_mk = blend_consensus_weights_with_history(
         state.minuto, _w_bp, _w_cop, _w_mk

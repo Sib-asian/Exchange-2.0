@@ -211,8 +211,13 @@ def _calcola_ht_probs(
         else:
             p_ht1, p_htx, p_ht2 = h2h_p1, h2h_px, h2h_p2
 
-    if p_ht1 + p_htx + p_ht2 < 0.01:
+    _ht_sum = p_ht1 + p_htx + p_ht2
+    if _ht_sum < 0.01:
         return None
+
+    p_ht1 /= _ht_sum
+    p_htx /= _ht_sum
+    p_ht2 /= _ht_sum
 
     return p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate
 

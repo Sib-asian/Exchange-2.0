@@ -222,6 +222,7 @@ if _btn_prematch or _btn_live:
     _st_pts_a = int(getattr(_pa, "away_points", 0)) if _pa else 0
     _st_played_h = int(getattr(_pa, "home_matches", 0)) if _pa else 0
     _st_played_a = int(getattr(_pa, "away_matches", 0)) if _pa else 0
+    _st_total_teams = int(getattr(_pa, "standings_total_teams", 0)) if _pa else 0
     # Last 6: calcola punti (W=3, D=1, L=0)
     _l6w_h = int(getattr(_pa, "home_last6_win", 0)) if _pa else 0
     _l6d_h = int(getattr(_pa, "home_last6_draw", 0)) if _pa else 0
@@ -310,6 +311,15 @@ if _btn_prematch or _btn_live:
     _movement_quality = 1.0 + (_movement_quality - 1.0) * _global_w
     _ocr_conf_scale = 0.70 + (min(1.0, _coverage) * 0.30 * max(_global_w, _w_identity))
 
+    # OCR quotes: usa le quote 1X2 del mercato come prior bayesiano aggiuntivo.
+    # mkt_init_* sono le stesse quote consensus dei bookmaker → alimentano anche ocr_quota_*
+    _ocr_q1 = _mkt1 if _mkt1 > 1.0 else 0.0
+    _ocr_qx = _mktx if _mktx > 1.0 else 0.0
+    _ocr_q2 = _mkt2 if _mkt2 > 1.0 else 0.0
+    _ocr_qo = float(getattr(_pa, "total_over_odds_open", 0.0)) if _pa else 0.0
+    _ocr_qu = float(getattr(_pa, "total_under_odds_open", 0.0)) if _pa else 0.0
+    _ocr_imp = float(getattr(_pa, "total_line_open", 0.0)) if _pa else 0.0
+
     try:
         state = build_match_state(
             _match, lines, _lou, bankroll, comm_rate,
@@ -354,6 +364,7 @@ if _btn_prematch or _btn_live:
             standings_points_a=_st_pts_a,
             standings_played_h=_st_played_h,
             standings_played_a=_st_played_a,
+            standings_total_teams=_st_total_teams if _st_total_teams > 0 else 20,
             last6_points_h=_l6_pts_h,
             last6_points_a=_l6_pts_a,
             last6_gf_h=_l6_gf_h,
@@ -366,6 +377,12 @@ if _btn_prematch or _btn_live:
             home_ga_h=_h_ga,
             away_gf_a=_a_gf,
             away_ga_a=_a_ga,
+            ocr_quota_1=_ocr_q1,
+            ocr_quota_x=_ocr_qx,
+            ocr_quota_2=_ocr_q2,
+            ocr_quota_over=_ocr_qo,
+            ocr_quota_under=_ocr_qu,
+            ocr_imp_total=_ocr_imp,
         )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")
@@ -377,12 +394,22 @@ if _btn_prematch or _btn_live:
         from src.pipeline import run_analysis_pipeline
 
         _cov_pipe = float(_coverage) if (state.minuto == 0 and _pa) else 1.0
-        risultati, _cal_sig = run_analysis_pipeline(
-            state,
-            league=_lega,
-            apply_prematch_calibration=(state.minuto == 0),
-            extraction_coverage=_cov_pipe,
-        )
+        try:
+            risultati, _cal_sig = run_analysis_pipeline(
+                state,
+                league=_lega,
+                apply_prematch_calibration=(state.minuto == 0),
+                extraction_coverage=_cov_pipe,
+            )
+        except Exception as _pipe_err:
+            import traceback
+            st.error(
+                f"❌ Errore nel motore di analisi: {_pipe_err}\n\n"
+                "Controlla i dati inseriti e riprova."
+            )
+            st.code(traceback.format_exc())
+            st.stop()
+
         if state.minuto == 0:
             st.session_state["prematch_last_model_1x2"] = {
                 "p1": float(risultati.p1),
@@ -484,7 +511,6 @@ if _btn_prematch or _btn_live:
     from src.ui.outputs import (
         render_avvisi_affidabilita,
         render_avvisi_incoerenza,
-        render_lines_need_update,
         render_mercati_chiusi,
         render_pronostici_rapidi,
         render_analisi_dinamica,
@@ -496,8 +522,6 @@ if _btn_prematch or _btn_live:
     _gol_a   = state.gol_trasf
     _gol_tot = _gol_h + _gol_a
     _n_shots = state.sot_h + state.soff_h + state.sot_a + state.soff_a
-
-    render_lines_need_update(risultati)
 
     # Stop se fine partita
     if _minuto >= SIGNALS.GAME_END_THRESHOLD:
