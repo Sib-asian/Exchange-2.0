@@ -1276,8 +1276,10 @@ def _render_prematch_market_synthesis(data: PrematchAnalysisExtracted) -> None:
     st.markdown("##### Mercato (da estrazione URL/Live)")
     st.info(
         "Questi numeri **non** vengono dalle linee che inserisci sopra (Sbobet / modulo *Linee Asiatiche*). "
-        "Sono letti **solo** dalla pagina Nowgoal: tabella **consensus** multibook (dati JS `Vs_hOdds` nell'HTML) "
-        "e, se presente, dalla **pagina Live** letta da Jina. Book e definizione di “apertura” possono "
+        "Sono letti **solo** dalla pagina Nowgoal: JS `Vs_hOdds` (Asian/Total/BTTS dove presente) e, per il **1X2** "
+        "europeo, anche `Vs_eOdds` se `Vs_hOdds` non ha la tripla 1X2 classica; “apertura” = timestamp "
+        "minimo nel feed se manca ts=1. Se presente, anche dalla **pagina Live** letta da Jina. Book e definizione "
+        "di “apertura” possono "
         "differire da Sbobet — è normale vedere valori diversi dal tuo foglio."
     )
     manual = _session_manual_lines_summary()
