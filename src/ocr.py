@@ -1039,6 +1039,7 @@ class PrematchAnalysisExtracted:
     h2h_ht_home_win_pct: float = 0.0
     h2h_ht_draw_pct: float = 0.0
     h2h_ht_away_win_pct: float = 0.0
+    h2h_ht_matches_count: int = 0  # match H2H con punteggio HT valido (per pesare il blend)
 
     # Goal timing corrente stagione (gol per partita nel 1° e 2° tempo)
     home_goals_1h: float = 0.0
@@ -2559,6 +2560,7 @@ def _derive_h2h_from_score_table(
         result["h2h_ht_home_win_pct"] = round(ht_w / n_ht * 100, 1)
         result["h2h_ht_draw_pct"] = round(ht_d / n_ht * 100, 1)
         result["h2h_ht_away_win_pct"] = round(ht_l / n_ht * 100, 1)
+        result["h2h_ht_matches_count"] = n_ht
     return result
 
 
@@ -3152,6 +3154,7 @@ def _extract_all_with_regex(text: str) -> dict:
         "h2h_ht_home_win_pct": 0.0,
         "h2h_ht_draw_pct": 0.0,
         "h2h_ht_away_win_pct": 0.0,
+        "h2h_ht_matches_count": 0,
         # Strength
         "strength_home": 0,
         "strength_away": 0,
@@ -3322,6 +3325,8 @@ def _extract_all_with_regex(text: str) -> dict:
             result["h2h_ht_home_win_pct"] = derived_h2h["h2h_ht_home_win_pct"]
             result["h2h_ht_draw_pct"] = derived_h2h["h2h_ht_draw_pct"]
             result["h2h_ht_away_win_pct"] = derived_h2h["h2h_ht_away_win_pct"]
+            if "h2h_ht_matches_count" in derived_h2h:
+                result["h2h_ht_matches_count"] = int(derived_h2h["h2h_ht_matches_count"])
     elif parsed_h2h_rows:
         btts_hits = sum(1 for _th, _ta, gh, ga, *_ in parsed_h2h_rows if gh > 0 and ga > 0)
         result["h2h_btts_pct"] = round(btts_hits * 100.0 / len(parsed_h2h_rows), 1)
@@ -4286,6 +4291,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         h2h_ht_home_win_pct=regex_data["h2h_ht_home_win_pct"],
         h2h_ht_draw_pct=regex_data["h2h_ht_draw_pct"],
         h2h_ht_away_win_pct=regex_data["h2h_ht_away_win_pct"],
+        h2h_ht_matches_count=int(regex_data.get("h2h_ht_matches_count", 0)),
         # Strength
         strength_home=regex_data["strength_home"],
         strength_away=regex_data["strength_away"],

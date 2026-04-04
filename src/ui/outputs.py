@@ -76,29 +76,130 @@ def _q_fair(prob: float) -> float:
 # Pronostici Rapidi — solo percentuali, niente quote
 # ---------------------------------------------------------------------------
 
+def _poisson_ht_1x2(lam_h: float, lam_a: float) -> tuple[float, float, float, float]:
+    """1X2 al HT + P(over 0.5) da due Poisson indipendenti."""
+
+    def _pp(k: int, lam: float) -> float:
+        if lam <= 0:
+            return 1.0 if k == 0 else 0.0
+        return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+    p_ht1 = p_htx = p_ht2 = 0.0
+    for h in range(6):
+        for a in range(6):
+            p = _pp(h, lam_h) * _pp(a, lam_a)
+            if h > a:
+                p_ht1 += p
+            elif h == a:
+                p_htx += p
+            else:
+                p_ht2 += p
+    p_ht_over05 = 1.0 - _pp(0, lam_h) * _pp(0, lam_a)
+    return p_ht1, p_htx, p_ht2, p_ht_over05
+
+
+def _ht_goal_share_1h(g1h: float, g2h: float, *, default: float = 0.46) -> float:
+    """Quota dei gol di squadra segnati nel 1T rispetto al totale 1T+2T (stagione)."""
+    a = max(0.0, float(g1h or 0.0))
+    b = max(0.0, float(g2h or 0.0))
+    if a + b < 1e-6:
+        return default
+    return max(0.34, min(0.56, a / (a + b)))
+
+
 def _calcola_ht_probs(
     prematch: Any,
     xg_h_fallback: float = 0.0,
     xg_a_fallback: float = 0.0,
+    *,
+    p1_ft: float | None = None,
+    px_ft: float | None = None,
+    p2_ft: float | None = None,
+    risultati: ProbabilitaModello | None = None,
+    late_goals_pct_h: float = 0.0,
+    late_goals_pct_a: float = 0.0,
+    early_conceded_pct_h: float = 0.0,
+    early_conceded_pct_a: float = 0.0,
 ) -> tuple[float, float, float, float, bool] | None:
     """
-    Stima le probabilità del risultato al 1° tempo usando:
-    1. Gol medi 1T (se disponibili) → Poisson
-    2. Standings HT (home_ht_win/draw/lose) → blend diretto
-    3. H2H HT (se disponibili) → blend aggiuntivo
-    4. Fallback: scaling 46% da xG FT
+    Stima le probabilità del risultato al 1° tempo usando tutti i segnali disponibili:
+
+    - **λ 1T**: media gol 1T a partita (stagione) combinata con **xG FT × quota 1T/90′**
+      per squadra (`goals_1h / (goals_1h+goals_2h)`), non un fisso 46%.
+    - **Forma** (`forma_mult_*`) e **strength** Nowgoal: leggero tilt su λ.
+    - **Goal timing** (MatchState): chi segna tardi → λ 1T leggermente più basso; chi subisce
+      presto → λ avversario 1T leggermente più alto.
+    - **Standings HT** + **H2H HT** (peso ridotto con pochi match).
+    - **Ancoraggio 1X2 FT** del modello + **p_over_1.5** per calibrare Over 0.5 a HT.
 
     Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate) o None se nessun dato.
-    is_estimate=True quando usa solo lo scaling 46% da xG FT (nessun dato HT diretto).
+    is_estimate=True quando λ 1T deriva solo da xG FT (nessun dato HT diretto in tabella).
     """
-    # ── 1. Gol medi 1T (se disponibili) ──────────────────────────────────────────
-    lam_h_tot  = getattr(prematch, "home_goals_1h", 0.0) or 0.0
-    lam_a_tot  = getattr(prematch, "away_goals_1h", 0.0) or 0.0
-    hm         = max(1, getattr(prematch, "home_matches", 1) or 1)
-    am         = max(1, getattr(prematch, "away_matches", 1) or 1)
-    
-    lam_h = lam_h_tot / hm  # media gol 1T per partita - casa
-    lam_a = lam_a_tot / am  # media gol 1T per partita - trasf.
+    xg_h = max(0.0, float(xg_h_fallback or 0.0))
+    xg_a = max(0.0, float(xg_a_fallback or 0.0))
+
+    # ── 1. Dati gol per tempo (stagione) e partite ─────────────────────────────
+    g1h_h = getattr(prematch, "home_goals_1h", 0.0) or 0.0
+    g2h_h = getattr(prematch, "home_goals_2h", 0.0) or 0.0
+    g1h_a = getattr(prematch, "away_goals_1h", 0.0) or 0.0
+    g2h_a = getattr(prematch, "away_goals_2h", 0.0) or 0.0
+    hm = max(1, getattr(prematch, "home_matches", 1) or 1)
+    am = max(1, getattr(prematch, "away_matches", 1) or 1)
+
+    phi_h = _ht_goal_share_1h(g1h_h, g2h_h)
+    phi_a = _ht_goal_share_1h(g1h_a, g2h_a)
+
+    lam_s_h = float(g1h_h) / hm  # media gol segnati 1T / partita (casa)
+    lam_s_a = float(g1h_a) / am
+    lam_x_h = xg_h * phi_h
+    lam_x_a = xg_a * phi_a
+
+    def _blend_side(lam_s: float, lam_x: float, n_matches: int, xg_ok: bool) -> float:
+        if lam_s > 0.015 and xg_ok:
+            w = 0.48 * min(1.0, n_matches / 10.0)
+            return (1.0 - w) * lam_x + w * lam_s
+        if lam_s > 0.015:
+            return lam_s
+        if xg_ok:
+            return lam_x
+        return 0.0
+
+    xg_ok_h = xg_h > 0.008
+    xg_ok_a = xg_a > 0.008
+    lam_h = _blend_side(lam_s_h, lam_x_h, hm, xg_ok_h)
+    lam_a = _blend_side(lam_s_a, lam_x_a, am, xg_ok_a)
+
+    # Forma / strength estratti (Nowgoal)
+    fm_h = float(getattr(prematch, "forma_mult_h", 1.0) or 1.0)
+    fm_a = float(getattr(prematch, "forma_mult_a", 1.0) or 1.0)
+    lam_h *= max(0.82, min(1.18, fm_h**0.28))
+    lam_a *= max(0.82, min(1.18, fm_a**0.28))
+
+    sh = int(getattr(prematch, "strength_home", 0) or 0)
+    sa = int(getattr(prematch, "strength_away", 0) or 0)
+    if sh > 0 or sa > 0:
+        delta = max(-0.4, min(0.4, (sh - sa) / 160.0))
+        lam_h *= 1.0 + 0.11 * delta
+        lam_a *= 1.0 - 0.11 * delta
+
+    # Goal timing (effetto sul 1T)
+    if late_goals_pct_h > 18.0:
+        lam_h *= 1.0 - 0.065 * min(1.0, (late_goals_pct_h - 18.0) / 32.0)
+    if late_goals_pct_a > 18.0:
+        lam_a *= 1.0 - 0.065 * min(1.0, (late_goals_pct_a - 18.0) / 32.0)
+    if early_conceded_pct_h > 14.0:
+        lam_a *= 1.0 + 0.048 * min(1.0, (early_conceded_pct_h - 14.0) / 38.0)
+    if early_conceded_pct_a > 14.0:
+        lam_h *= 1.0 + 0.048 * min(1.0, (early_conceded_pct_a - 14.0) / 38.0)
+
+    # H2H basso scoring → intensità 1T leggermente più bassa
+    h2h_n = int(getattr(prematch, "h2h_matches_count", 0) or 0)
+    h2h_av = float(getattr(prematch, "h2h_avg_goals_home", 0.0) or 0.0)
+    h2h_av += float(getattr(prematch, "h2h_avg_goals_away", 0.0) or 0.0)
+    if h2h_n >= 2 and h2h_av > 0.1 and h2h_av < 2.15:
+        lam_h *= 0.94
+        lam_a *= 0.94
+
     has_xg = lam_h > 0.01 or lam_a > 0.01
 
     # ── 2. Standings HT (dati estratti da Nowgoal) ─────────────────────────────
@@ -110,23 +211,23 @@ def _calcola_ht_probs(
     away_ht_w = getattr(prematch, "away_ht_win", 0) or 0
     away_ht_d = getattr(prematch, "away_ht_draw", 0) or 0
     away_ht_l = getattr(prematch, "away_ht_lose", 0) or 0
-    
+
     # Calcola percentuali dai risultati HT
     home_ht_total = home_ht_w + home_ht_d + home_ht_l
     away_ht_total = away_ht_w + away_ht_d + away_ht_l
-    
+
     has_standings_ht = home_ht_total > 0 and away_ht_total > 0
-    
+
     if has_standings_ht:
         # % risultati al HT per ogni squadra
         home_w_pct = home_ht_w / home_ht_total  # Casa vince al HT
         home_d_pct = home_ht_d / home_ht_total  # Casa pareggia al HT
         home_l_pct = home_ht_l / home_ht_total  # Casa perde al HT
-        
+
         away_w_pct = away_ht_w / away_ht_total  # Trasferta vince al HT (nel suo stadio)
         away_d_pct = away_ht_d / away_ht_total  # Trasferta pareggia al HT
         away_l_pct = away_ht_l / away_ht_total  # Trasferta perde al HT
-        
+
         # Deriva probabilità HT per QUESTA partita:
         # - p_ht1 = prob che casa vince al HT = casa forte in casa + trasferta debole fuori
         # - p_ht2 = prob che trasferta vince al HT = trasferta forte fuori + casa debole in casa
@@ -134,28 +235,28 @@ def _calcola_ht_probs(
         standings_p1 = (home_w_pct + away_l_pct) / 2
         standings_px = (home_d_pct + away_d_pct) / 2
         standings_p2 = (home_l_pct + away_w_pct) / 2
-        
+
         # Normalizza
         _tot = standings_p1 + standings_px + standings_p2
         if _tot > 0:
             standings_p1 /= _tot
             standings_px /= _tot
             standings_p2 /= _tot
-    
+
     # ── 3. H2H HT (se disponibili) ─────────────────────────────────────────────
-    h2h_h_pct  = getattr(prematch, "h2h_ht_home_win_pct", 0.0) or 0.0
-    h2h_d_pct  = getattr(prematch, "h2h_ht_draw_pct", 0.0) or 0.0
-    h2h_a_pct  = getattr(prematch, "h2h_ht_away_win_pct", 0.0) or 0.0
+    h2h_h_pct = getattr(prematch, "h2h_ht_home_win_pct", 0.0) or 0.0
+    h2h_d_pct = getattr(prematch, "h2h_ht_draw_pct", 0.0) or 0.0
+    h2h_a_pct = getattr(prematch, "h2h_ht_away_win_pct", 0.0) or 0.0
     has_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct > 0.5  # in scala 0-100
 
     # ── 4. Determina se abbiamo dati HT diretti ─────────────────────────────────
     has_ht_direct = has_xg or has_standings_ht or has_h2h
-    
+
     if not has_ht_direct:
-        # Fallback: scala xG FT al 46% (proporzione tipica gol 1° tempo)
-        if xg_h_fallback > 0.01 or xg_a_fallback > 0.01:
-            lam_h = xg_h_fallback * 0.46
-            lam_a = xg_a_fallback * 0.46
+        # Solo xG FT: λ 1T = xG × quota gol in 1T per squadra (o default 46%)
+        if xg_h > 0.01 or xg_a > 0.01:
+            lam_h = xg_h * phi_h
+            lam_a = xg_a * phi_a
             has_xg = True
             is_estimate = True
         else:
@@ -165,29 +266,17 @@ def _calcola_ht_probs(
 
     # ── 5. Poisson indipendente (se abbiamo xG HT) ──────────────────────────────
     if has_xg:
-        def _pp(k: int, lam: float) -> float:
-            if lam <= 0:
-                return 1.0 if k == 0 else 0.0
-            return math.exp(-lam) * (lam ** k) / math.factorial(k)
-
-        p_ht1 = p_htx = p_ht2 = 0.0
-        for h in range(6):
-            for a in range(6):
-                p = _pp(h, lam_h) * _pp(a, lam_a)
-                if h > a:
-                    p_ht1 += p
-                elif h == a:
-                    p_htx += p
-                else:
-                    p_ht2 += p
-        p_ht_over05 = 1.0 - _pp(0, lam_h) * _pp(0, lam_a)
+        p_ht1, p_htx, p_ht2, p_ht_over05 = _poisson_ht_1x2(lam_h, lam_a)
     else:
         p_ht1 = p_htx = p_ht2 = p_ht_over05 = 0.0
 
     # ── 6. Blend con Standings HT ────────────────────────────────────────────────
     if has_standings_ht and has_xg:
-        # Blend 40% standings HT, 60% Poisson
-        alpha = 0.40
+        _conf = float(risultati.model_confidence) if risultati is not None else 0.5
+        alpha = 0.40 - (0.07 if _conf >= 0.63 else 0.0)
+        if lam_s_h < 0.04 and lam_s_a < 0.04:
+            alpha *= 0.88
+        alpha = max(0.28, min(0.44, alpha))
         p_ht1 = (1 - alpha) * p_ht1 + alpha * standings_p1
         p_htx = (1 - alpha) * p_htx + alpha * standings_px
         p_ht2 = (1 - alpha) * p_ht2 + alpha * standings_p2
@@ -197,19 +286,49 @@ def _calcola_ht_probs(
         # Stima over 0.5 basata su probabilità di 0-0
         p_ht_over05 = 1.0 - (p_htx * 0.7)  # Approssimazione: 0-0 è circa 70% dei pareggi
 
-    # ── 7. Blend con H2H HT ──────────────────────────────────────────────────────
+    # ── 7. Blend con H2H HT (peso ↓ se pochi match HT) ──────────────────────────
     if has_h2h:
         _tot_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct
         h2h_p1 = h2h_h_pct / _tot_h2h
         h2h_px = h2h_d_pct / _tot_h2h
         h2h_p2 = h2h_a_pct / _tot_h2h
+        _n_ht_m = int(getattr(prematch, "h2h_ht_matches_count", 0) or 0)
+        if _n_ht_m > 0:
+            h2h_scale = min(1.0, _n_ht_m / 5.0)
+        else:
+            # Conteggio sconosciuto: non dare pieno peso a percentuali H2H HT spesso rumorose
+            h2h_scale = 0.55
+        alpha_h2h = 0.20 * h2h_scale
         if has_xg or has_standings_ht:
-            alpha = 0.20  # 20% peso H2H HT
-            p_ht1 = (1 - alpha) * p_ht1 + alpha * h2h_p1
-            p_htx = (1 - alpha) * p_htx + alpha * h2h_px
-            p_ht2 = (1 - alpha) * p_ht2 + alpha * h2h_p2
+            p_ht1 = (1 - alpha_h2h) * p_ht1 + alpha_h2h * h2h_p1
+            p_htx = (1 - alpha_h2h) * p_htx + alpha_h2h * h2h_px
+            p_ht2 = (1 - alpha_h2h) * p_ht2 + alpha_h2h * h2h_p2
         else:
             p_ht1, p_htx, p_ht2 = h2h_p1, h2h_px, h2h_p2
+
+    # ── 8. Coerenza con 1X2 FT del modello (evita HT opposto al favorito FT) ───
+    if (
+        p1_ft is not None
+        and px_ft is not None
+        and p2_ft is not None
+        and (p1_ft + px_ft + p2_ft) > 0.01
+    ):
+        sft = p1_ft + px_ft + p2_ft
+        f1, fx, f2 = p1_ft / sft, px_ft / sft, p2_ft / sft
+        mix_ft = 0.38 if not is_estimate else 0.28
+        if risultati is not None:
+            mix_ft += 0.06 * max(0.0, min(1.0, (risultati.model_confidence - 0.52) / 0.38))
+        mix_ft = max(0.22, min(0.48, mix_ft))
+        p_ht1 = (1.0 - mix_ft) * p_ht1 + mix_ft * f1
+        p_htx = (1.0 - mix_ft) * p_htx + mix_ft * fx
+        p_ht2 = (1.0 - mix_ft) * p_ht2 + mix_ft * f2
+
+    # ── 9. Over 0.5 a HT: ancoraggio leggero a P(Over 1.5) FT (stesso motore) ───
+    if risultati is not None and risultati.p_over_15 > 0.02 and p_ht_over05 > 0.02:
+        o15 = float(risultati.p_over_15)
+        anchor_o = 0.26 + 0.58 * (o15**0.82)
+        anchor_o = max(0.30, min(0.92, anchor_o))
+        p_ht_over05 = 0.62 * p_ht_over05 + 0.38 * anchor_o
 
     _ht_sum = p_ht1 + p_htx + p_ht2
     if _ht_sum < 0.01:
@@ -230,9 +349,12 @@ def render_pronostici_rapidi(
     gol_trasf: int = 0,
     linea_ah: float = -0.25,
     prematch: Any = None,
+    match_state: Any = None,
 ) -> None:
     """
     Blocco pronostici completo: 1X2, AH, O/U, xG, Top CS, Primo Tempo.
+
+    match_state: opzionale (MatchState) per goal timing early/late nel calcolo 1T.
     """
     if minuto > 0:
         st.subheader(f"Pronostici — {minuto}' | {gol_casa}–{gol_trasf}")
@@ -341,10 +463,19 @@ def render_pronostici_rapidi(
 
     # ── Primo Tempo ──────────────────────────────────────────────────────────
     if prematch is not None and minuto == 0:
+        _ms = match_state
         ht = _calcola_ht_probs(
             prematch,
             xg_h_fallback=risultati.xg_h_final,
             xg_a_fallback=risultati.xg_a_final,
+            p1_ft=risultati.p1,
+            px_ft=risultati.px,
+            p2_ft=risultati.p2,
+            risultati=risultati,
+            late_goals_pct_h=float(getattr(_ms, "late_goals_pct_h", 0.0) or 0.0) if _ms else 0.0,
+            late_goals_pct_a=float(getattr(_ms, "late_goals_pct_a", 0.0) or 0.0) if _ms else 0.0,
+            early_conceded_pct_h=float(getattr(_ms, "early_conceded_pct_h", 0.0) or 0.0) if _ms else 0.0,
+            early_conceded_pct_a=float(getattr(_ms, "early_conceded_pct_a", 0.0) or 0.0) if _ms else 0.0,
         )
         if ht is not None:
             p_ht1, p_htx, p_ht2, p_ht_o05, ht_is_est = ht
@@ -357,8 +488,13 @@ def render_pronostici_rapidi(
             ch2.metric("1T Trasf.",   f"{p_ht2:.0%}")
             if p_ht_o05 > 0.01:
                 cho.metric("1T Over 0.5", f"{p_ht_o05:.0%}")
+            st.caption(
+                "1T: λ da **gol 1T stagionali** + **xG FT × quota gol 1T/(1T+2T)** per squadra, "
+                "timing (se disponibile), forma/strength, standings/H2H a HT, "
+                "ancoraggio 1X2 FT e **Over 1.5** per Over 0.5 a HT."
+            )
             if ht_is_est:
-                st.caption("_Nessun dato HT diretto — stima proporzionale da xG attesi FT_")
+                st.caption("_Nessuna tabella HT in estrazione — λ 1T solo da xG FT × quota 1T_")
 
     # ── Confidenza ───────────────────────────────────────────────────────────
     conf = risultati.model_confidence
