@@ -1017,6 +1017,8 @@ def build_match_state(
     h2h_matches_count: int = 0,
     late_goals_pct_h: float = 0.0,
     late_goals_pct_a: float = 0.0,
+    early_conceded_pct_h: float = 0.0,
+    early_conceded_pct_a: float = 0.0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -1124,6 +1126,8 @@ def build_match_state(
         h2h_matches_count=h2h_matches_count,
         late_goals_pct_h=late_goals_pct_h,
         late_goals_pct_a=late_goals_pct_a,
+        early_conceded_pct_h=early_conceded_pct_h,
+        early_conceded_pct_a=early_conceded_pct_a,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )

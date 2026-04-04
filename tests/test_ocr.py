@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pytest
 from unittest.mock import MagicMock, patch
 
 from src.ocr import (
@@ -11,6 +12,7 @@ from src.ocr import (
     _check_gemini_available,
     _check_openai_available,
     _check_zai_available,
+    _derive_h2h_from_score_table,
     _extract_h2h_with_regex,
     _extract_match_identity_from_text,
     _extract_identity_from_url,
@@ -28,10 +30,12 @@ from src.ocr import (
     _normalize_live_stats_keys,
     _parse_live_stats_response,
     _parse_vlm_response,
+    _parse_h2h_score_rows,
     _safe_float,
     _safe_int,
     _clean_team_name,
     _clean_league_name,
+    _teams_name_match,
     extract_from_base64,
     extract_from_bytes,
     extract_from_image_file,
@@ -1078,3 +1082,92 @@ class TestExtractH2HWithRegex:
         assert result["h2h_home_win_pct"] == 20.0
         assert result["h2h_draw_pct"] == 40.0
         assert result["h2h_away_win_pct"] == 40.0
+
+
+# ---- Test #1: 1X2 da Vs_hOdds ----
+
+class TestVsHodds1x2:
+    def test_1x2_from_vs_hodds(self):
+        """Vs_hOdds indices 5,6,7 → mkt_init_1/x/2."""
+        text = (
+            "Title: Foo FC vs Bar SC Live Score\n"
+            "Vs_hOdds = [[123, 1, '0.85', '0.5', '1.05', '1.50', '4.20', '6.00', '2.5', '', '0.90', '0.95']];\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_1"] == 1.50
+        assert parsed["mkt_init_x"] == 4.20
+        assert parsed["mkt_init_2"] == 6.00
+
+    def test_1x2_not_overridden_by_vs_hodds(self):
+        """Se le quote 1X2 sono già trovate dal testo, Vs_hOdds non le sovrascrive."""
+        text = (
+            "Title: Foo FC vs Bar SC Live Score\n"
+            "1 @2.10  X @3.25  2 @3.40\n"
+            "Vs_hOdds = [[123, 1, '0.85', '0.5', '1.05', '1.50', '4.20', '6.00', '2.5', '', '0.90', '0.95']];\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_1"] == 2.10
+        assert parsed["mkt_init_x"] == 3.25
+        assert parsed["mkt_init_2"] == 3.40
+
+
+# ---- Test #3: _teams_name_match con token overlap ----
+
+class TestTeamsNameMatchTokenOverlap:
+    def test_exact_match(self):
+        assert _teams_name_match("Inter Turku", "Inter Turku")
+
+    def test_substring_old_style(self):
+        """FC Inter Milan ↔ Inter Milan: condividono tutti i token significativi."""
+        assert _teams_name_match("Inter Milan", "FC Inter Milan")
+
+    def test_different_teams_sharing_fc(self):
+        """Alpha FC ≠ Epsilon FC: 'FC' è generico, 'Alpha' ≠ 'Epsilon'."""
+        assert not _teams_name_match("Alpha FC", "Epsilon FC")
+
+    def test_different_teams_same_prefix(self):
+        """Inter Turku ≠ Inter Milan."""
+        assert not _teams_name_match("Inter Turku", "Inter Milan")
+
+    def test_single_token_short_name(self):
+        """'Jaro' ↔ 'FC Jaro': token singolo in nome corto."""
+        assert _teams_name_match("Jaro", "FC Jaro")
+
+    def test_single_token_no_match(self):
+        """'Jaro' ≠ 'Inter Milan': nessun token in comune."""
+        assert not _teams_name_match("Jaro", "Inter Milan")
+
+
+# ---- Test #4: HT H2H dai punteggi primo tempo ----
+
+class TestH2HHalfTime:
+    def test_ht_derived_from_scores(self):
+        """_derive_h2h_from_score_table computa h2h_ht_home_win_pct dai punteggi HT."""
+        rows = [
+            ("Foo FC", "Bar SC", 2, 1, 1, 0),
+            ("Bar SC", "Foo FC", 0, 3, 0, 2),
+            ("Foo FC", "Bar SC", 1, 1, 0, 0),
+        ]
+        result = _derive_h2h_from_score_table(rows, "Foo FC", "Bar SC")
+        assert result is not None
+        assert result["h2h_ht_home_win_pct"] == pytest.approx(66.7, abs=0.1)
+        assert result["h2h_ht_draw_pct"] == pytest.approx(33.3, abs=0.1)
+        assert result["h2h_ht_away_win_pct"] == 0.0
+
+    def test_ht_missing_returns_no_ht_keys(self):
+        """Se i punteggi HT non sono disponibili (-1), le chiavi HT non appaiono."""
+        rows = [
+            ("Foo FC", "Bar SC", 2, 1, -1, -1),
+        ]
+        result = _derive_h2h_from_score_table(rows, "Foo FC", "Bar SC")
+        assert result is not None
+        assert "h2h_ht_home_win_pct" not in result
+
+    def test_parse_h2h_score_rows_extracts_ht(self):
+        """_parse_h2h_score_rows estrae i gol HT dal formato (X-Y)."""
+        text = "| ITA A | | Roma | 2-1(1-0) | Lazio |\n"
+        rows = _parse_h2h_score_rows(text)
+        assert len(rows) == 1
+        _, _, gh, ga, hth, hta = rows[0]
+        assert (gh, ga) == (2, 1)
+        assert (hth, hta) == (1, 0)
