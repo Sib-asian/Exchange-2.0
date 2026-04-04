@@ -2059,12 +2059,19 @@ def _is_valid_nowgoal_url(url: str) -> bool:
 
 
 def _fetch_jina_reader(url: str, timeout: int = 30) -> str:
-    """Recupera il testo di una pagina via Jina Reader (r.jina.ai)."""
+    """Recupera il testo di una pagina via Jina Reader (r.jina.ai).
+
+    Usa markdown completo: con ``Accept: text/plain`` Jina restituisce spesso una
+    versione tronca (~10kB) senza tutta la tabella H2H né i blocchi injury in markdown;
+    l'app aggiunge poi l'HTML grezzo e finiva per usare solo HTML infortuni (4/5 giocatori)
+    e 10 righe H2H invece di 20.
+    """
     jina_url = _JINA_BASE_URL + url
     req = urllib.request.Request(
         jina_url,
         headers={
-            "Accept": "text/plain",
+            "Accept": "text/markdown",
+            "X-Return-Format": "markdown",
             "User-Agent": "Mozilla/5.0 (compatible; Exchange-Bot/1.0)",
         },
     )
@@ -2968,18 +2975,51 @@ def _extract_absence_counts_fallback(text: str) -> tuple[int, int]:
     return max(0, min(8, home)), max(0, min(8, away))
 
 
+def _injury_line_name_key(line: str) -> str:
+    """Chiave dedup: parte prima di '(' es. 'Yangel Herrera (CM, injured)'."""
+    s = (line or "").strip()
+    if not s:
+        return ""
+    if "(" in s:
+        s = s.split("(", 1)[0].strip()
+    return re.sub(r"\s+", " ", s).lower()
+
+
+def _merge_injury_player_lists(*lists: list[str]) -> list[str]:
+    """Unione ordinata: prime liste hanno priorità; aggiunge righe con nome non visto."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for lst in lists:
+        for line in lst:
+            k = _injury_line_name_key(line)
+            if k and k not in seen:
+                seen.add(k)
+                out.append(line)
+    return out[:8]
+
+
 def _extract_absences_full(text: str) -> tuple[int, int, list[str], list[str]]:
     """
     Conteggi + liste giocatore per calcola_assenze_mult.
-    Ordine: HTML injuryH/G (RAW) → Nowgoal markdown → bullet Home/Away → fallback numeri.
+    Con RAW HTML: unisce colonne injuryH/G e markdown Jina per nome — l'HTML può
+    omettere una riga (es. senza numero maglia) mentre il markdown la ha completa.
     """
     marker = "=== RAW HTML ==="
-    if marker in text:
-        html_part = text.split(marker, 1)[1].strip()
+    jina_part = text.split(marker, 1)[0] if marker in text else text
+    html_part = text.split(marker, 1)[1].strip() if marker in text else ""
+
+    md_home, md_away = _extract_nowgoal_injury_player_lists(jina_part)
+
+    h_html: list[str] = []
+    a_html: list[str] = []
+    if html_part and ("injuryH" in html_part or "injuryG" in html_part):
         h_html, a_html = _extract_injury_player_lists_from_nowgoal_html(html_part)
-        if h_html or a_html:
-            h_html, a_html = h_html[:8], a_html[:8]
-            return len(h_html), len(a_html), h_html, a_html
+
+    if h_html or a_html or md_home or md_away:
+        home_l = _merge_injury_player_lists(h_html, md_home)
+        away_l = _merge_injury_player_lists(a_html, md_away)
+        home_l, away_l = home_l[:8], away_l[:8]
+        return len(home_l), len(away_l), home_l, away_l
 
     home_l, away_l = _extract_nowgoal_injury_player_lists(text)
     if home_l or away_l:

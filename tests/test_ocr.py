@@ -1204,3 +1204,20 @@ class TestH2HHalfTime:
         assert result["h2h_matches_count"] == 3
         assert result["h2h_btts_pct"] == pytest.approx(66.7, abs=0.1)
         assert result["h2h_ht_home_win_pct"] == pytest.approx(33.3, abs=0.1)
+
+
+class TestMergeInjuryPlayerLists:
+    """HTML injuryH/G può omettere righe presenti nel markdown Jina."""
+
+    def test_merge_adds_players_only_in_markdown(self):
+        from src.ocr import _merge_injury_player_lists
+
+        html_side = ["Yangel Herrera (CM, injured)", "Igor Zubeldia (CB, injured)"]
+        md_side = [
+            "Yangel Herrera (CM, injured)",
+            "Igor Zubeldia (CB, injured)",
+            "Inaki Ruperez (RB, injured)",
+        ]
+        out = _merge_injury_player_lists(html_side, md_side)
+        assert len(out) == 3
+        assert any("Ruperez" in x for x in out)
