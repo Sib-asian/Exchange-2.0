@@ -158,6 +158,11 @@ class MatchState:
     early_conceded_pct_h: float = 0.0  # % gol subiti nei minuti 0-30 casa
     early_conceded_pct_a: float = 0.0  # % gol subiti nei minuti 0-30 trasferta
 
+    # === H2H Half-Time (primo tempo negli scontri diretti) ===
+    h2h_ht_home_win_pct: float = 0.0   # % volte casa in vantaggio a HT nei H2H (0-100)
+    h2h_ht_draw_pct: float = 0.0       # % pareggi a HT nei H2H (0-100)
+    h2h_ht_away_win_pct: float = 0.0   # % volte trasferta in vantaggio a HT nei H2H (0-100)
+
     # === BTTS Calibration - Dati aggiuntivi ===
     h2h_btts_pct: float = 0.0          # % storica partite H2H con BTTS (0-100)
     h2h_matches_count: int = 0         # numero di H2H usati per stimare h2h_btts_pct

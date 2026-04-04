@@ -157,6 +157,9 @@ if _btn_prematch or _btn_live:
     # Nuovi parametri per miglioramenti
     _h2h_over = float(getattr(_pa, "h2h_over_pct", 0.0)) if _pa else 0.0
     _h2h_btts = float(getattr(_pa, "h2h_btts_pct", 0.0)) if _pa else 0.0
+    _h2h_ht_home = float(getattr(_pa, "h2h_ht_home_win_pct", 0.0)) if _pa else 0.0
+    _h2h_ht_draw = float(getattr(_pa, "h2h_ht_draw_pct", 0.0)) if _pa else 0.0
+    _h2h_ht_away = float(getattr(_pa, "h2h_ht_away_win_pct", 0.0)) if _pa else 0.0
     _str_home = int(getattr(_pa, "strength_home", 0)) if _pa else 0
     _str_away = int(getattr(_pa, "strength_away", 0)) if _pa else 0
     _weather_impact = float(getattr(_pa, "weather_impact", 0.0)) if _pa else 0.0
@@ -287,6 +290,9 @@ if _btn_prematch or _btn_live:
     _h2h_away *= _w_h2h
     _h2h_over *= _w_h2h
     _h2h_btts *= _w_h2h
+    _h2h_ht_home *= _w_h2h
+    _h2h_ht_draw *= _w_h2h
+    _h2h_ht_away *= _w_h2h
     _hist_tot *= _w_h2h
     _final_sc_h *= max(_w_prev, _w_stats)
     _final_co_h *= max(_w_prev, _w_stats)
@@ -330,6 +336,9 @@ if _btn_prematch or _btn_live:
             late_goals_pct_a=_late_pct_a,
             early_conceded_pct_h=_early_conc_h,
             early_conceded_pct_a=_early_conc_a,
+            h2h_ht_home_win_pct=_h2h_ht_home,
+            h2h_ht_draw_pct=_h2h_ht_draw,
+            h2h_ht_away_win_pct=_h2h_ht_away,
             movement_quality=_movement_quality,
             ocr_confidence_scale=_ocr_conf_scale,
             absence_mult_h=_absence_mult_h,
