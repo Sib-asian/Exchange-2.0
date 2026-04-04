@@ -1151,6 +1151,26 @@ class PrematchAnalysisExtracted:
     team_stats_away_yellows: float = 0.0
     team_stats_away_fouls: float = 0.0
     team_stats_away_possession: float = 0.0
+
+    # Team Statistics — Recent 3 Matches (stessa griglia della tabella live; prima coppia di colonne)
+    team_stats3_home_goals: float = 0.0
+    team_stats3_home_conceded: float = 0.0
+    team_stats3_home_shots: float = 0.0
+    team_stats3_home_corners: float = 0.0
+    team_stats3_home_yellows: float = 0.0
+    team_stats3_home_fouls: float = 0.0
+    team_stats3_home_possession: float = 0.0
+    team_stats3_away_goals: float = 0.0
+    team_stats3_away_conceded: float = 0.0
+    team_stats3_away_shots: float = 0.0
+    team_stats3_away_corners: float = 0.0
+    team_stats3_away_yellows: float = 0.0
+    team_stats3_away_fouls: float = 0.0
+    team_stats3_away_possession: float = 0.0
+
+    # Fixture (3 Matches): giorni alla prossima partita (0 = sconosciuto)
+    fixture_next_days_home: int = 0
+    fixture_next_days_away: int = 0
     
     # Quote LIVE (informativo, non sostituisce input manuale)
     live_ah_line: float = 0.0         # linea AH live
@@ -2926,6 +2946,44 @@ def _bullet_absence_player_lists(text: str) -> tuple[list[str], list[str]]:
     return hl, al
 
 
+def _extract_fixture_next_days(text: str) -> tuple[int, int]:
+    """
+    Sezione Nowgoal «Fixture (3 Matches)»: giorni alla prossima partita per casa / trasferta.
+
+    Euristica: nella finestra di testo dopo il titolo, si raccolgono i «N Days» in ordine;
+    i primi 3 riguardano il calendario della squadra casa, i successivi 3 la trasferta.
+    Si usa il minimo per squadra (prossima gara più vicina). 0 = non disponibile.
+    """
+    sec = re.search(
+        r"(?is)(?:^|\n)\s*#{0,3}\s*Fixture\s*\(\s*3\s*Matche?s?\s*\)\s*[^\n]*\n(.*?)(?=\n#{1,3}\s|\n\*\*(?:Team Statistics|HT/FT|Last Updated|Lineups)|\Z)",
+        text,
+    )
+    if not sec:
+        sec = re.search(
+            r"(?is)\*\*?\s*Fixture\s*\(\s*3\s*Matche?s?\s*\)\*\*?\s*\n(.*?)(?=\n\*\*(?:Team Statistics|HT/FT|Last Updated)|\n#{1,3}\s*Team Statistics|\Z)",
+            text,
+        )
+    if not sec:
+        # Titolo senza "(3 Matches)" o senza #
+        sec = re.search(
+            r"(?is)(?:^|\n)\s*#{0,3}\s*Fixture[^\n]*\n(.*?)(?=\n#{1,3}\s|\n\*\*Team Statistics\*\*|\nTeam Statistics\b|\n\*\*HT/FT|\Z)",
+            text,
+        )
+    if not sec:
+        return 0, 0
+    block = sec.group(1)
+    nums = [int(x) for x in re.findall(r"\b(\d+)\s*Days?\b", block, re.IGNORECASE)]
+    if len(nums) >= 6:
+        return min(nums[0:3]), min(nums[3:6])
+    if len(nums) == 3:
+        return min(nums), 0
+    if len(nums) == 2:
+        return nums[0], nums[1]
+    if len(nums) == 1:
+        return nums[0], 0
+    return 0, 0
+
+
 def _extract_absence_counts_fallback(text: str) -> tuple[int, int]:
     """Solo conteggi quando non ci sono liste strutturate (numeri espliciti o bullet count)."""
     section = re.search(
@@ -3214,6 +3272,22 @@ def _extract_all_with_regex(text: str) -> dict:
         "team_stats_away_yellows": 0.0,
         "team_stats_away_fouls": 0.0,
         "team_stats_away_possession": 0.0,
+        "team_stats3_home_goals": 0.0,
+        "team_stats3_home_conceded": 0.0,
+        "team_stats3_home_shots": 0.0,
+        "team_stats3_home_corners": 0.0,
+        "team_stats3_home_yellows": 0.0,
+        "team_stats3_home_fouls": 0.0,
+        "team_stats3_home_possession": 0.0,
+        "team_stats3_away_goals": 0.0,
+        "team_stats3_away_conceded": 0.0,
+        "team_stats3_away_shots": 0.0,
+        "team_stats3_away_corners": 0.0,
+        "team_stats3_away_yellows": 0.0,
+        "team_stats3_away_fouls": 0.0,
+        "team_stats3_away_possession": 0.0,
+        "fixture_next_days_home": 0,
+        "fixture_next_days_away": 0,
         # Qualita' estrazione
         "extraction_notes": [],
         "extraction_section_scores": {},
@@ -4056,6 +4130,10 @@ def _extract_all_with_regex(text: str) -> dict:
     result["home_absences_players"] = abs_h_players
     result["away_absences_players"] = abs_a_players
 
+    fx_h, fx_a = _extract_fixture_next_days(text)
+    result["fixture_next_days_home"] = fx_h
+    result["fixture_next_days_away"] = fx_a
+
     # === 6. TEAM STATISTICS (ultimi 10 match) ===
     # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
     # DEVO estrarre dall'ULTIMO gruppo (Recent 10 Matches) non dal primo!
@@ -4066,47 +4144,82 @@ def _extract_all_with_regex(text: str) -> dict:
     if team_stats_section:
         stats_text = team_stats_section.group(0)
 
-        # Estrai Goals
-        goals_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Goal\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        # Estrai Goals (\*\*? = markdown Jina sui nomi stat)
+        goals_matches = re.findall(
+            r'([\d.]+)\s*[\|]?\s*\*\*?Goal\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE
+        )
         if goals_matches:
             result["team_stats_home_goals"] = float(goals_matches[-1][0])
             result["team_stats_away_goals"] = float(goals_matches[-1][1])
+            if len(goals_matches) >= 2:
+                result["team_stats3_home_goals"] = float(goals_matches[0][0])
+                result["team_stats3_away_goals"] = float(goals_matches[0][1])
 
         # Estrai Loss (gol subiti)
-        loss_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Loss\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        loss_matches = re.findall(
+            r'([\d.]+)\s*[\|]?\s*\*\*?Loss\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE
+        )
         if loss_matches:
             result["team_stats_home_conceded"] = float(loss_matches[-1][0])
             result["team_stats_away_conceded"] = float(loss_matches[-1][1])
+            if len(loss_matches) >= 2:
+                result["team_stats3_home_conceded"] = float(loss_matches[0][0])
+                result["team_stats3_away_conceded"] = float(loss_matches[0][1])
 
         # Estrai Opponent Shots
-        shots_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Opponent Shots\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        shots_matches = re.findall(
+            r'([\d.]+)\s*[\|]?\s*\*\*?Opponent Shots\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE
+        )
         if shots_matches:
             result["team_stats_home_shots"] = float(shots_matches[-1][0])
             result["team_stats_away_shots"] = float(shots_matches[-1][1])
+            if len(shots_matches) >= 2:
+                result["team_stats3_home_shots"] = float(shots_matches[0][0])
+                result["team_stats3_away_shots"] = float(shots_matches[0][1])
 
         # Estrai Corners
-        corners_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Corners\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        corners_matches = re.findall(
+            r'([\d.]+)\s*[\|]?\s*\*\*?Corners\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE
+        )
         if corners_matches:
             result["team_stats_home_corners"] = float(corners_matches[-1][0])
             result["team_stats_away_corners"] = float(corners_matches[-1][1])
+            if len(corners_matches) >= 2:
+                result["team_stats3_home_corners"] = float(corners_matches[0][0])
+                result["team_stats3_away_corners"] = float(corners_matches[0][1])
 
         # Estrai Yellow Cards
-        yellows_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Yellow Cards\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        yellows_matches = re.findall(
+            r'([\d.]+)\s*[\|]?\s*\*\*?Yellow Cards\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE
+        )
         if yellows_matches:
             result["team_stats_home_yellows"] = float(yellows_matches[-1][0])
             result["team_stats_away_yellows"] = float(yellows_matches[-1][1])
+            if len(yellows_matches) >= 2:
+                result["team_stats3_home_yellows"] = float(yellows_matches[0][0])
+                result["team_stats3_away_yellows"] = float(yellows_matches[0][1])
 
         # Estrai Fouls
-        fouls_matches = re.findall(r'([\d.]+)\s*[\|]?\s*Fouls\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
+        fouls_matches = re.findall(
+            r'([\d.]+)\s*[\|]?\s*\*\*?Fouls\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE
+        )
         if fouls_matches:
             result["team_stats_home_fouls"] = float(fouls_matches[-1][0])
             result["team_stats_away_fouls"] = float(fouls_matches[-1][1])
+            if len(fouls_matches) >= 2:
+                result["team_stats3_home_fouls"] = float(fouls_matches[0][0])
+                result["team_stats3_away_fouls"] = float(fouls_matches[0][1])
 
         # Estrai Possession
-        poss_matches = re.findall(r'([\d.]+)%?\s*[\|]?\s*Possession\s*[\|]?\s*([\d.]+)%?', stats_text, re.IGNORECASE)
+        poss_matches = re.findall(
+            r'([\d.]+)%?\s*[\|]?\s*\*\*?Possession\*\*?\s*[\|]?\s*([\d.]+)%?', stats_text, re.IGNORECASE
+        )
         if poss_matches:
             result["team_stats_home_possession"] = float(poss_matches[-1][0])
             result["team_stats_away_possession"] = float(poss_matches[-1][1])
+            if len(poss_matches) >= 2:
+                result["team_stats3_home_possession"] = float(poss_matches[0][0])
+                result["team_stats3_away_possession"] = float(poss_matches[0][1])
 
     # Nomi da riga Title (Nowgoal / Jina) se il pattern "X vs Y" a inizio riga non li ha catturati
     if not (result.get("home_team") or "").strip() or not (result.get("away_team") or "").strip():
@@ -4132,6 +4245,7 @@ def _extract_all_with_regex(text: str) -> dict:
         "market_1x2": 1.0 if (result["mkt_init_1"] > 1.0 and result["mkt_init_x"] > 1.0 and result["mkt_init_2"] > 1.0) else 0.0,
         "team_stats": 1.0 if (result["team_stats_home_goals"] > 0 or result["team_stats_away_goals"] > 0) else 0.0,
         "injuries": 1.0 if (result["home_absences_count"] > 0 or result["away_absences_count"] > 0) else 0.0,
+        "fixture": 1.0 if (result["fixture_next_days_home"] > 0 or result["fixture_next_days_away"] > 0) else 0.0,
     }
 
     return result
@@ -4291,6 +4405,22 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         team_stats_away_yellows=regex_data["team_stats_away_yellows"],
         team_stats_away_fouls=regex_data["team_stats_away_fouls"],
         team_stats_away_possession=regex_data["team_stats_away_possession"],
+        team_stats3_home_goals=regex_data.get("team_stats3_home_goals", 0.0),
+        team_stats3_home_conceded=regex_data.get("team_stats3_home_conceded", 0.0),
+        team_stats3_home_shots=regex_data.get("team_stats3_home_shots", 0.0),
+        team_stats3_home_corners=regex_data.get("team_stats3_home_corners", 0.0),
+        team_stats3_home_yellows=regex_data.get("team_stats3_home_yellows", 0.0),
+        team_stats3_home_fouls=regex_data.get("team_stats3_home_fouls", 0.0),
+        team_stats3_home_possession=regex_data.get("team_stats3_home_possession", 0.0),
+        team_stats3_away_goals=regex_data.get("team_stats3_away_goals", 0.0),
+        team_stats3_away_conceded=regex_data.get("team_stats3_away_conceded", 0.0),
+        team_stats3_away_shots=regex_data.get("team_stats3_away_shots", 0.0),
+        team_stats3_away_corners=regex_data.get("team_stats3_away_corners", 0.0),
+        team_stats3_away_yellows=regex_data.get("team_stats3_away_yellows", 0.0),
+        team_stats3_away_fouls=regex_data.get("team_stats3_away_fouls", 0.0),
+        team_stats3_away_possession=regex_data.get("team_stats3_away_possession", 0.0),
+        fixture_next_days_home=int(regex_data.get("fixture_next_days_home", 0) or 0),
+        fixture_next_days_away=int(regex_data.get("fixture_next_days_away", 0) or 0),
         extraction_notes=list(regex_data.get("extraction_notes", [])),
         extraction_section_scores=dict(regex_data.get("extraction_section_scores", {})),
     )
@@ -4642,8 +4772,9 @@ def _extract_live_page_data(text: str) -> dict:
     Estrae:
     - Meteo (condizione, temperatura)
     - HT/FT Statistics
-    - Team Statistics (ultimi 10 match)
-    - Quote live (informativo)
+    - Team Statistics (Recent 3 + Recent 10, stessa tabella markdown)
+    - Fixture (3 Matches) — giorni alla prossima partita
+    - Quote live (solo se la riga | Live | è nel testo Jina; altrimenti vedi nota sotto)
     
     Returns:
         Dict con i dati estratti.
@@ -4688,6 +4819,22 @@ def _extract_live_page_data(text: str) -> dict:
         "team_stats_away_yellows": 0.0,
         "team_stats_away_fouls": 0.0,
         "team_stats_away_possession": 0.0,
+        "team_stats3_home_goals": 0.0,
+        "team_stats3_home_conceded": 0.0,
+        "team_stats3_home_shots": 0.0,
+        "team_stats3_home_corners": 0.0,
+        "team_stats3_home_yellows": 0.0,
+        "team_stats3_home_fouls": 0.0,
+        "team_stats3_home_possession": 0.0,
+        "team_stats3_away_goals": 0.0,
+        "team_stats3_away_conceded": 0.0,
+        "team_stats3_away_shots": 0.0,
+        "team_stats3_away_corners": 0.0,
+        "team_stats3_away_yellows": 0.0,
+        "team_stats3_away_fouls": 0.0,
+        "team_stats3_away_possession": 0.0,
+        "fixture_next_days_home": 0,
+        "fixture_next_days_away": 0,
         # Quote live
         "live_ah_line": 0.0,
         "live_ah_home_odds": 0.0,
@@ -4785,44 +4932,68 @@ def _extract_live_page_data(text: str) -> dict:
             # Prendi l'ULTIMO match (Recent 10 Matches)
             result["team_stats_home_goals"] = float(goals_matches[-1][0])
             result["team_stats_away_goals"] = float(goals_matches[-1][1])
+            if len(goals_matches) >= 2:
+                result["team_stats3_home_goals"] = float(goals_matches[0][0])
+                result["team_stats3_away_goals"] = float(goals_matches[0][1])
         
         # Riga Loss (gol subiti)
         loss_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Loss\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if loss_matches:
             result["team_stats_home_conceded"] = float(loss_matches[-1][0])
             result["team_stats_away_conceded"] = float(loss_matches[-1][1])
+            if len(loss_matches) >= 2:
+                result["team_stats3_home_conceded"] = float(loss_matches[0][0])
+                result["team_stats3_away_conceded"] = float(loss_matches[0][1])
         
         # Riga Shots (Opponent Shots)
         shots_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Opponent Shots\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if shots_matches:
             result["team_stats_home_shots"] = float(shots_matches[-1][0])
             result["team_stats_away_shots"] = float(shots_matches[-1][1])
+            if len(shots_matches) >= 2:
+                result["team_stats3_home_shots"] = float(shots_matches[0][0])
+                result["team_stats3_away_shots"] = float(shots_matches[0][1])
         
         # Riga Corners
         corners_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Corners\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if corners_matches:
             result["team_stats_home_corners"] = float(corners_matches[-1][0])
             result["team_stats_away_corners"] = float(corners_matches[-1][1])
+            if len(corners_matches) >= 2:
+                result["team_stats3_home_corners"] = float(corners_matches[0][0])
+                result["team_stats3_away_corners"] = float(corners_matches[0][1])
         
         # Riga Yellow Cards
         yellows_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Yellow Cards\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if yellows_matches:
             result["team_stats_home_yellows"] = float(yellows_matches[-1][0])
             result["team_stats_away_yellows"] = float(yellows_matches[-1][1])
+            if len(yellows_matches) >= 2:
+                result["team_stats3_home_yellows"] = float(yellows_matches[0][0])
+                result["team_stats3_away_yellows"] = float(yellows_matches[0][1])
         
         # Riga Fouls
         fouls_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Fouls\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if fouls_matches:
             result["team_stats_home_fouls"] = float(fouls_matches[-1][0])
             result["team_stats_away_fouls"] = float(fouls_matches[-1][1])
+            if len(fouls_matches) >= 2:
+                result["team_stats3_home_fouls"] = float(fouls_matches[0][0])
+                result["team_stats3_away_fouls"] = float(fouls_matches[0][1])
         
         # Riga Possession
         poss_matches = re.findall(r'([\d.]+)%?\s*[\|]?\s*\*\*?Possession\*\*?\s*[\|]?\s*([\d.]+)%?', stats_text, re.IGNORECASE)
         if poss_matches:
             result["team_stats_home_possession"] = float(poss_matches[-1][0])
             result["team_stats_away_possession"] = float(poss_matches[-1][1])
+            if len(poss_matches) >= 2:
+                result["team_stats3_home_possession"] = float(poss_matches[0][0])
+                result["team_stats3_away_possession"] = float(poss_matches[0][1])
     
     # === 4. QUOTE LIVE ===
+    # Fonte: tabella markdown prodotta da Jina se inclusa nella risposta (HTML server-side).
+    # Se manca, live_data_notes += live_odds_not_available_no_js (spesso i live odds sono JS).
+    # Storico 1X2/AH/OU: nell'HTML pagina h2h, variabili var Vs_hOdds / Vs_eOdds (parser principale).
     # Cerca la tabella Live Odds con righe "Live" (pre-kickoff, score vuoto)
     #
     # Formato reale da Jina Reader (20 colonne totali):
@@ -4862,6 +5033,11 @@ def _extract_live_page_data(text: str) -> dict:
     abs_h, abs_a = _extract_absence_counts(text)
     result["home_absences_count"] = abs_h
     result["away_absences_count"] = abs_a
+
+    # === 6. FIXTURE (stesso parser della pagina Analysis) ===
+    fx_h, fx_a = _extract_fixture_next_days(text)
+    result["fixture_next_days_home"] = fx_h
+    result["fixture_next_days_away"] = fx_a
     
     return result
 
@@ -4889,6 +5065,14 @@ _TEAM_STATS_DETAIL_KEYS: tuple[str, ...] = (
     "team_stats_home_yellows", "team_stats_away_yellows",
     "team_stats_home_fouls", "team_stats_away_fouls",
     "team_stats_home_possession", "team_stats_away_possession",
+)
+
+_TEAM_STATS3_LIVE_KEYS: tuple[str, ...] = (
+    "team_stats3_home_goals", "team_stats3_home_conceded", "team_stats3_home_shots",
+    "team_stats3_home_corners", "team_stats3_home_yellows", "team_stats3_home_fouls",
+    "team_stats3_home_possession", "team_stats3_away_goals", "team_stats3_away_conceded",
+    "team_stats3_away_shots", "team_stats3_away_corners", "team_stats3_away_yellows",
+    "team_stats3_away_fouls", "team_stats3_away_possession",
 )
 
 
@@ -4920,6 +5104,8 @@ def _refresh_prematch_quality_scores(result: PrematchAnalysisExtracted) -> None:
     d["weather"] = 1.0 if result.weather_condition else float(d.get("weather", 0.0))
     if result.home_absences_count > 0 or result.away_absences_count > 0:
         d["injuries"] = 1.0
+    if result.fixture_next_days_home > 0 or result.fixture_next_days_away > 0:
+        d["fixture"] = 1.0
     result.extraction_section_scores = d
     if d:
         result.extraction_coverage = sum(d.values()) / len(d)
@@ -4945,6 +5131,18 @@ def _merge_live_snapshot_into_result(result: PrematchAnalysisExtracted, live_dat
         if v > 0 and float(getattr(result, key, 0.0) or 0.0) == 0.0:
             setattr(result, key, v)
 
+    for key in _TEAM_STATS3_LIVE_KEYS:
+        v = float(live_data.get(key, 0.0) or 0.0)
+        if v > 0 and float(getattr(result, key, 0.0) or 0.0) == 0.0:
+            setattr(result, key, v)
+
+    fh = int(live_data.get("fixture_next_days_home", 0) or 0)
+    fa = int(live_data.get("fixture_next_days_away", 0) or 0)
+    if fh > 0 and result.fixture_next_days_home <= 0:
+        result.fixture_next_days_home = fh
+    if fa > 0 and result.fixture_next_days_away <= 0:
+        result.fixture_next_days_away = fa
+
     lah = float(live_data.get("live_ah_line", 0.0) or 0.0)
     ltl = float(live_data.get("live_total_line", 0.0) or 0.0)
     if lah != 0.0 and result.live_ah_line == 0.0:
@@ -4968,6 +5166,17 @@ def _merge_live_snapshot_into_result(result: PrematchAnalysisExtracted, live_dat
     for note in live_data.get("live_data_notes", []):
         if note not in result.extraction_notes:
             result.extraction_notes.append(note)
+
+    _strip_live_odds_note_if_filled(result)
+
+
+def _strip_live_odds_note_if_filled(result: PrematchAnalysisExtracted) -> None:
+    """Rimuove la nota H2H-first-pass se il merge successivo ha popolato AH/Total live."""
+    if result.live_ah_line == 0.0 and result.live_total_line == 0.0:
+        return
+    tag = "live_odds_not_available_no_js"
+    if tag in result.extraction_notes:
+        result.extraction_notes = [n for n in result.extraction_notes if n != tag]
 
 
 def _apply_live_data_to_result(result: PrematchAnalysisExtracted, live_data: dict) -> None:

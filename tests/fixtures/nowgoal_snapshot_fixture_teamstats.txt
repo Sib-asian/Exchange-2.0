@@ -1,0 +1,17 @@
+Title: Alpha FC vs Beta United | League: Test League
+
+## Fixture (3 Matches)
+
+| League | HA | Opponent | When | Countdown |
+| --- | --- | --- | --- | --- |
+| L1 | Home | X | Mon | 5 Days |
+| L1 | Away | Y | Tue | 8 Days |
+| CUP | Home | Z | Wed | 12 Days |
+| L1 | Home | A | Thu | 3 Days |
+| EUR | Away | B | Fri | 6 Days |
+| L1 | Away | C | Sat | 9 Days |
+
+**Team Statistics**
+
+| 0.5 | **Goal** | 0.5 | 2.1 | **Goal** | 1.8 |
+| 0.4 | **Loss** | 0.3 | 1.9 | **Loss** | 1.2 |
