@@ -146,6 +146,44 @@ class TestNowgoalRegexNotes:
         assert parsed["prev_away_avg_scored"] == 1.0
         assert parsed["prev_away_avg_conceded"] == 1.0
 
+    def test_h2h_markdown_pipe_table_derives_wdl_and_avgs(self):
+        """Come live5 Nowgoal/Jina: tabella H2H con celle | Home | Score | Away |."""
+        text = (
+            "Title: Gangwon FC vs Gwangju Football Club Live\n"
+            "Football> K League 1>\n"
+            "## Head to Head Statistics\n"
+            "| KOR D1 | | Gwangju Football Club | 0-1(0-1) | Gangwon FC | 2-3(0-1) | W |\n"
+            "| KOR D1 | | Gangwon FC | 1-0(1-0) | Gwangju Football Club | 5-5(1-5) | W |\n"
+            "## Previous Scores Statistics\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["h2h_matches_count"] == 2
+        assert parsed["h2h_home_win_pct"] == 100.0
+        assert parsed["h2h_draw_pct"] == 0.0
+        assert parsed["h2h_away_win_pct"] == 0.0
+        assert parsed["h2h_avg_goals_home"] == 1.0
+        assert parsed["h2h_avg_goals_away"] == 0.0
+        assert parsed["h2h_btts_pct"] == 0.0
+        # fixture_historical_total è valorizzato in PrematchAnalysisExtracted post-regex, non nel dict grezzo
+        assert parsed["h2h_avg_goals_home"] + parsed["h2h_avg_goals_away"] == 1.0
+
+    def test_prematch_from_text_sets_fixture_total_with_markdown_h2h(self):
+        from src.ocr import _extract_prematch_analysis_from_text
+
+        text = (
+            "Title: Gangwon FC vs Gwangju Football Club Live\n"
+            "Football> K League 1>\n"
+            "## Head to Head Statistics\n"
+            "| KOR D1 | | Gangwon FC | 1-1(0-0) | Gwangju Football Club | 2-2(1-1) | D |\n"
+            "## Previous Scores Statistics\n"
+        )
+        pa = _extract_prematch_analysis_from_text(text)
+        assert pa.extraction_success
+        assert pa.h2h_matches_count == 1
+        assert pa.h2h_draw_pct == 100.0
+        assert pa.fixture_historical_total == 2.0
+        assert pa.h2h_btts_pct == 100.0
+
     def test_extract_absence_counts_from_explicit_home_away_lines(self):
         text = (
             "Injuries and Suspensions\n"

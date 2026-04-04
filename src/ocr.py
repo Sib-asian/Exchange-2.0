@@ -367,8 +367,13 @@ def _get_gemini_api_key() -> str | None:
         return api_key
     try:
         import streamlit as st
-        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-            return st.secrets["GEMINI_API_KEY"]
+        if hasattr(st, "secrets"):
+            try:
+                if "GEMINI_API_KEY" in st.secrets:
+                    return st.secrets["GEMINI_API_KEY"]
+            except Exception:
+                # secrets.toml assente o non valido (es. pytest senza Streamlit)
+                pass
     except ImportError:
         pass
     return None
@@ -2347,13 +2352,25 @@ def _head_to_head_table_slice(text: str) -> str:
 
 def _parse_h2h_score_rows(table_slice: str) -> list[tuple[str, str, int, int]]:
     """
-    Righe stile Nowgoal: 'AUS D1 Auckland FC 2-1(1-1) Adelaide United'
-    -> (casa_storica, trasferta_storica, gol_casa, gol_trasferta).
+    Estrae righe di tabella H2H Nowgoal (Jina):
+
+    - Markdown: ``| KOR D1 | | HomeTeam | 1-0(0-0) | AwayTeam | ...``
+    - Compatto: ``KOR D1 Auckland FC 2-1(1-1) Adelaide United``
+
+    Ritorna (casa_storica, trasferta_storica, gol_casa, gol_trasferta).
     """
     rows: list[tuple[str, str, int, int]] = []
     for line in table_slice.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
+            continue
+        pr = _parse_previous_scores_table_line(line)
+        if pr:
+            th, ta, gh, ga = pr
+            th = _clean_team_name(th)
+            ta = _clean_team_name(ta)
+            if th and ta:
+                rows.append((th, ta, gh, ga))
             continue
         m = re.search(r"^(.+?)\s+(\d+)-(\d+)\(([^)]*)\)\s*(.+)$", line)
         if not m:
@@ -2362,6 +2379,8 @@ def _parse_h2h_score_rows(table_slice: str) -> list[tuple[str, str, int, int]]:
         gh, ga = int(gh_s), int(ga_s)
         th = _strip_league_code_prefix(left_raw)
         ta = right_raw.strip()
+        th = _clean_team_name(th)
+        ta = _clean_team_name(ta)
         if th and ta:
             rows.append((th, ta, gh, ga))
     return rows
@@ -4049,8 +4068,9 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
     
     # === PASSO 2: Se regex ha estratto dati sufficienti, termina qui ===
     has_data = (
-        result.h2h_home_win_pct > 0 or result.home_matches > 0 or 
-        result.strength_home > 0 or result.home_last6_win + result.home_last6_draw + result.home_last6_lose > 0
+        result.h2h_home_win_pct > 0 or result.h2h_matches_count > 0 or result.home_matches > 0
+        or result.strength_home > 0
+        or result.home_last6_win + result.home_last6_draw + result.home_last6_lose > 0
     )
     
     if has_data:
