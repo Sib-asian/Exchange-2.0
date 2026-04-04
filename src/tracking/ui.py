@@ -488,8 +488,7 @@ def _render_stats_tab(log: PredictionLog) -> None:
         st.download_button(
             "📥 Scarica predictions.csv (tutti i record)",
             csv_data,
-            "predictions.csv",
-            "text/csv",
+            file_name="predictions.csv",
             mime="text/csv",
             key="dl_csv_predictions",
         )
