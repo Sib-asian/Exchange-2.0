@@ -311,7 +311,16 @@ if _btn_prematch or _btn_live:
             st.warning(f"⚠️ Recovery time ({_minuto}'): previsioni meno affidabili.")
 
     st.divider()
-    render_pronostici_rapidi(risultati, _lou, _minuto, _gol_h, _gol_a, linea_ah=lines["ah_cur"], prematch=_pa)
+    render_pronostici_rapidi(
+        risultati,
+        _lou,
+        _minuto,
+        _gol_h,
+        _gol_a,
+        linea_ah=lines["ah_cur"],
+        prematch=_pa,
+        match_state=state,
+    )
 
     render_analisi_dinamica(risultati, state, _gol_tot, _scen_h, _scen_a)
 

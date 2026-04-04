@@ -1202,6 +1202,7 @@ class TestH2HHalfTime:
         assert result["h2h_ht_home_win_pct"] == pytest.approx(66.7, abs=0.1)
         assert result["h2h_ht_draw_pct"] == pytest.approx(33.3, abs=0.1)
         assert result["h2h_ht_away_win_pct"] == 0.0
+        assert result["h2h_ht_matches_count"] == 3
 
     def test_ht_missing_returns_no_ht_keys(self):
         """Se i punteggi HT non sono disponibili (-1), le chiavi HT non appaiono."""
@@ -1253,6 +1254,7 @@ class TestH2HHalfTime:
         assert result["h2h_matches_count"] == 3
         assert result["h2h_btts_pct"] == pytest.approx(66.7, abs=0.1)
         assert result["h2h_ht_home_win_pct"] == pytest.approx(33.3, abs=0.1)
+        assert result["h2h_ht_matches_count"] == 3
 
 
 class TestMergeInjuryPlayerLists:
