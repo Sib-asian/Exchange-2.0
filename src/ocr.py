@@ -1206,6 +1206,17 @@ def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
     if title:
         home = _clean_team_name(title.group(1))
         away = _clean_team_name(title.group(2))
+    if not home or not away:
+        heading = re.search(
+            r"^#\s*([A-Za-z][A-Za-z\s\.'\-]{1,40}?)\s+(?:VS|vs|Vs)\s+([A-Za-z][A-Za-z\s\.'\-]{1,40}?)(?:\s+-|\s+Live|\s+Match|\s+Analysis|$)",
+            text,
+            re.IGNORECASE | re.MULTILINE,
+        )
+        if heading:
+            if not home:
+                home = _clean_team_name(heading.group(1))
+            if not away:
+                away = _clean_team_name(heading.group(2))
     breadcrumb = re.search(r"Football>\s*([A-Za-z][A-Za-z0-9\s\-\.\(\)]+?)>\s*$", text, re.MULTILINE)
     if breadcrumb:
         league = _clean_league_name(breadcrumb.group(1))
@@ -2320,7 +2331,8 @@ def _parse_previous_scores_table_line(line: str) -> tuple[str, str, int, int] | 
     left_raw, gh_s, ga_s, right_raw = m.group(1), m.group(2), m.group(3), m.group(4).strip()
     gh, ga = int(gh_s), int(ga_s)
     th = _strip_league_code_prefix(left_raw)
-    ta = right_raw
+    th = re.sub(r"^\d{2}-\d{2}-\d{4}\s*", "", th).strip()
+    ta = re.sub(r"\s+(?:\d+-\d+|-?\d+\.\d+).*$", "", right_raw).strip()
     if not th or not ta:
         return None
     return th, ta, gh, ga
@@ -2452,7 +2464,8 @@ def _parse_h2h_score_rows(table_slice: str) -> list[tuple[str, str, int, int, in
         left_raw, gh_s, ga_s, right_raw = m.group(1), m.group(2), m.group(3), m.group(5)
         gh, ga = int(gh_s), int(ga_s)
         th = _strip_league_code_prefix(left_raw)
-        ta = right_raw.strip()
+        th = re.sub(r"^\d{2}-\d{2}-\d{4}\s*", "", th).strip()
+        ta = re.sub(r"\s+(?:\d+-\d+|-?\d+\.\d+).*$", "", right_raw.strip()).strip()
         th = _clean_team_name(th)
         ta = _clean_team_name(ta)
         if th and ta:
@@ -2754,7 +2767,7 @@ def _parse_nowgoal_injury_block(body: str) -> list[str]:
     out: list[str] = []
     for line in body.splitlines():
         s = line.strip()
-        m = re.match(r"^\*{0,2}([A-Z]{2,4})\*{0,2}\s+(?:\d+\s+)?(.+)$", s)
+        m = re.match(r"^\*{0,2}([A-Z]{2,4})\*{0,2}\s*(?:\d+\s+)?(.+)$", s)
         if not m:
             continue
         role, rest = m.group(1), m.group(2).strip()
@@ -3583,10 +3596,13 @@ def _extract_all_with_regex(text: str) -> dict:
     if date_match:
         result["match_date"] = date_match.group(1)
     
-    # Lega: "League: XXX" o dopo nome squadre
-    league_match = re.search(r"(?:League|Lega|Competition)\s*[:\-]?\s*([A-Za-z][A-Za-z\s0-9]{2,30})", text, re.IGNORECASE)
-    if league_match:
-        result["league_name"] = _clean_league_name(league_match.group(1))
+    # Lega: "League: XXX" o dopo nome squadre — sovrascrive solo se produce un valore valido
+    if not result["league_name"]:
+        league_match = re.search(r"(?:League|Lega|Competition)\s*[:\-]\s*([A-Za-z][A-Za-z\s0-9]{2,30})", text, re.IGNORECASE)
+        if league_match:
+            _candidate_league = _clean_league_name(league_match.group(1))
+            if _candidate_league:
+                result["league_name"] = _candidate_league
     
     # =====================================================
     # === NUOVI CAMPI: ESTRAZIONE AVANZATA ===
@@ -3815,7 +3831,7 @@ def _extract_all_with_regex(text: str) -> dict:
     # Pattern 3: Cerca "# Team A vs Team B" heading (markdown)
     if not result["home_team"] or not result["away_team"]:
         heading_match = re.search(
-            r'^#\s*([A-Za-z][A-Za-z\s\.]{1,30}?)\s+(?:vs|VS|Vs)\s+([A-Za-z][A-Za-z\s\.]{1,30}?)\s*$',
+            r'^#\s*([A-Za-z][A-Za-z\s\.]{1,30}?)\s+(?:vs|VS|Vs)\s+([A-Za-z][A-Za-z\s\.\'\-]{1,30}?)(?:\s+-|\s+Live|\s+Match|\s+Analysis|\s+Preview|\s+H2H|\s*$)',
             text, re.IGNORECASE | re.MULTILINE
         )
         if heading_match:
