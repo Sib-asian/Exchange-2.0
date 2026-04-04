@@ -291,10 +291,10 @@ def create_record_from_analysis(
         PredictionRecord pronto da salvare
     """
     now = datetime.now()
-    # Crea ID univoco
+    # ID univoco: data + orario con microsecondi (evita collisioni stesso giorno / stessa coppia).
     safe_home = squadra_casa.lower().replace(" ", "_")[:20]
     safe_away = squadra_trasf.lower().replace(" ", "_")[:20]
-    record_id = f"{now.strftime('%Y%m%d')}_{safe_home}_{safe_away}"
+    record_id = f"{now.strftime('%Y%m%d_%H%M%S_%f')}_{safe_home}_{safe_away}"
 
     quotes = market_quotes or {}
     meta = metadata or {}

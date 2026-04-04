@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.tracking.prediction_log import PredictionRecord
@@ -20,10 +20,16 @@ if TYPE_CHECKING:
 
 @dataclass
 class MarketStats:
-    """Statistiche per un singolo mercato."""
+    """
+    Statistiche per un singolo mercato.
+
+    total_predictions: partite con esito definito per quel mercato.
+    predictions_with_quote: sottoinsieme con quota > 1 (edge/ROI sensati solo lì).
+    """
 
     market_name: str
     total_predictions: int = 0
+    predictions_with_quote: int = 0
     wins: int = 0
     losses: int = 0
     win_rate: float = 0.0
@@ -93,6 +99,7 @@ class PerformanceStats:
 
             # Edge e ROI (solo se c'è quota mercato)
             if quote > 1.0:
+                stats.predictions_with_quote += 1
                 prob_market = 1.0 / quote
                 edge = prob_model - prob_market
                 stats._edge_sum += edge
@@ -108,7 +115,8 @@ class PerformanceStats:
         if stats.total_predictions > 0:
             stats.win_rate = stats.wins / stats.total_predictions
             stats.brier_score = stats._brier_sum / stats.total_predictions
-            stats.avg_edge = stats._edge_sum / stats.total_predictions
+            if stats.predictions_with_quote > 0:
+                stats.avg_edge = stats._edge_sum / stats.predictions_with_quote
 
         if stats._stake_sum > 0:
             stats.roi = stats._profit_sum / stats._stake_sum
@@ -188,20 +196,56 @@ class PerformanceStats:
         }
 
     @staticmethod
+    def pick_best_market(
+        stats: dict[str, MarketStats],
+        min_n: int = 5,
+        min_with_quote: int = 3,
+    ) -> tuple[MarketStats | None, str]:
+        """
+        Sceglie il mercato "migliore": prima per edge (se abbastanza quote),
+        altrimenti per Brier più basso (calibrazione).
+        """
+        edge_ok = [
+            s
+            for s in stats.values()
+            if s.total_predictions >= min_n and s.predictions_with_quote >= min_with_quote
+        ]
+        if edge_ok:
+            return max(edge_ok, key=lambda s: s.avg_edge), "edge"
+        brier_ok = [s for s in stats.values() if s.total_predictions >= min_n]
+        if not brier_ok:
+            return None, ""
+        return min(brier_ok, key=lambda s: s.brier_score), "brier"
+
+    @staticmethod
+    def pick_worst_market(
+        stats: dict[str, MarketStats],
+        min_n: int = 5,
+        min_with_quote: int = 3,
+    ) -> tuple[MarketStats | None, str]:
+        """Peggiore mercato: edge più basso se ci sono quote, altrimenti Brier più alto."""
+        edge_ok = [
+            s
+            for s in stats.values()
+            if s.total_predictions >= min_n and s.predictions_with_quote >= min_with_quote
+        ]
+        if edge_ok:
+            return min(edge_ok, key=lambda s: s.avg_edge), "edge"
+        brier_ok = [s for s in stats.values() if s.total_predictions >= min_n]
+        if not brier_ok:
+            return None, ""
+        return max(brier_ok, key=lambda s: s.brier_score), "brier"
+
+    @staticmethod
     def get_best_market(stats: dict[str, MarketStats]) -> MarketStats | None:
-        """Trova il mercato con miglior edge medio."""
-        valid = [s for s in stats.values() if s.total_predictions >= 5]
-        if not valid:
-            return None
-        return max(valid, key=lambda s: s.avg_edge)
+        """Retrocompatibile: stessa logica di pick_best_market (solo l'oggetto)."""
+        s, _ = PerformanceStats.pick_best_market(stats)
+        return s
 
     @staticmethod
     def get_worst_market(stats: dict[str, MarketStats]) -> MarketStats | None:
-        """Trova il mercato con peggiore edge medio."""
-        valid = [s for s in stats.values() if s.total_predictions >= 5]
-        if not valid:
-            return None
-        return min(valid, key=lambda s: s.avg_edge)
+        s, _ = PerformanceStats.pick_worst_market(stats)
+        return s
 
     @staticmethod
     def format_summary(stats: dict[str, MarketStats]) -> str:
@@ -233,30 +277,51 @@ class PerformanceStats:
         for market_key, market_stats in stats.items():
             name = market_names.get(market_key, market_key)
             win_pct = market_stats.win_rate * 100
-            edge_pct = market_stats.avg_edge * 100
-            roi_pct = market_stats.roi * 100
-
-            # Indicatori visivi
-            edge_icon = "✓" if edge_pct > 2 else ("⚠" if edge_pct < 0 else "")
+            qn = market_stats.predictions_with_quote
+            tot = market_stats.total_predictions
+            if qn > 0:
+                edge_pct = market_stats.avg_edge * 100
+                roi_pct = market_stats.roi * 100
+                edge_cell = f"{edge_pct:>+6.1f}%"
+                roi_cell = f"{roi_pct:>+6.1f}%"
+            else:
+                edge_cell = "   —  "
+                roi_cell = "   —  "
+            edge_icon = ""
+            if qn > 0:
+                edge_icon = "✓" if market_stats.avg_edge * 100 > 2 else (
+                    "⚠" if market_stats.avg_edge < 0 else ""
+                )
 
             lines.append(
-                f"│  {name:<12} │ {market_stats.total_predictions:>4} │ "
+                f"│  {name:<12} │ {tot:>4} │ "
                 f"{win_pct:>5.1f}% │ {market_stats.brier_score:.3f} │ "
-                f"{edge_pct:>+6.1f}% {edge_icon}│ {roi_pct:>+6.1f}% │"
+                f"{edge_cell} {edge_icon}│ {roi_cell} │"
             )
 
         lines.append("└─────────────────────────────────────────────────────────┘")
+        lines.append("  Edge/ROI: solo partite con quota salvata per quel mercato.")
 
         # Best/worst
-        best = PerformanceStats.get_best_market(stats)
-        worst = PerformanceStats.get_worst_market(stats)
+        best, best_how = PerformanceStats.pick_best_market(stats)
+        worst, worst_how = PerformanceStats.pick_worst_market(stats)
 
         if best:
             best_name = market_names.get(best.market_name, best.market_name)
-            lines.append(f"  🏆 MIGLIOR: {best_name} ({best.avg_edge*100:+.1f}% edge)")
+            if best_how == "edge":
+                lines.append(f"  🏆 MIGLIOR: {best_name} ({best.avg_edge*100:+.1f}% edge su quota)")
+            else:
+                lines.append(
+                    f"  🏆 MIGLIOR CALIBRAZIONE: {best_name} (Brier {best.brier_score:.3f})"
+                )
         if worst:
             worst_name = market_names.get(worst.market_name, worst.market_name)
-            lines.append(f"  ⚠️ DA RIVEDERE: {worst_name} ({worst.avg_edge*100:+.1f}% edge)")
+            if worst_how == "edge":
+                lines.append(f"  ⚠️ DA RIVEDERE: {worst_name} ({worst.avg_edge*100:+.1f}% edge su quota)")
+            else:
+                lines.append(
+                    f"  ⚠️ CALIBRAZIONE: {worst_name} (Brier {worst.brier_score:.3f})"
+                )
 
         return "\n".join(lines)
 
@@ -319,3 +384,38 @@ class PerformanceStats:
             key = (r.tot_band or "").strip() or tot_op_band(r.tot_op)
             out.setdefault(key, []).append(r)
         return out
+
+    @staticmethod
+    def sort_completed_newest_first(
+        records: list["PredictionRecord"],
+    ) -> list["PredictionRecord"]:
+        """Ordina le completate per data chiusura (o timestamp analisi) decrescente."""
+
+        def _key(r: "PredictionRecord") -> str:
+            return (r.completed_at or r.timestamp or "")
+
+        done = [r for r in records if r.is_completed()]
+        return sorted(done, key=_key, reverse=True)
+
+    @staticmethod
+    def segment_by_prematch(
+        records: list["PredictionRecord"],
+    ) -> tuple[list["PredictionRecord"], list["PredictionRecord"]]:
+        """(prematch, live) tra i record completati."""
+        done = [r for r in records if r.is_completed()]
+        prem = [r for r in done if r.is_prematch]
+        live = [r for r in done if not r.is_prematch]
+        return prem, live
+
+    @staticmethod
+    def rolling_1x2_metrics(
+        records: list["PredictionRecord"],
+        last_n: int = 30,
+    ) -> dict[str, Any] | None:
+        """Brier e log-loss 1X2 sulle ultime N partite chiuse (ordine cronologico inverso)."""
+        sub = PerformanceStats.sort_completed_newest_first(records)[: max(0, last_n)]
+        if len(sub) < 3:
+            return None
+        b = PerformanceStats.compute_multiclass_brier_1x2(sub)
+        ll = PerformanceStats.compute_log_loss_1x2(sub)
+        return {"n": len(sub), "brier_1x2": b, "log_loss_1x2": ll}

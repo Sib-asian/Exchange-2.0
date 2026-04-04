@@ -234,10 +234,19 @@ if _btn_prematch or _btn_live:
         "p_btts": risultati.p_btts,
         "model_confidence": risultati.model_confidence,
     }
+    # Quote nel log: da estrazione prematch / stato (nessun input manuale richiesto).
+    # 1X2: preferisci mkt_init_* (Nowgoal); se mancano, usa ocr_quota_* (form manuale).
+    _q1 = float(state.mkt_init_1) or float(state.ocr_quota_1)
+    _qx = float(state.mkt_init_x) or float(state.ocr_quota_x)
+    _q2 = float(state.mkt_init_2) or float(state.ocr_quota_2)
     _market_quotes = {
-        "quota_1": float(state.mkt_init_1),
-        "quota_x": float(state.mkt_init_x),
-        "quota_2": float(state.mkt_init_2),
+        "quota_1": _q1,
+        "quota_x": _qx,
+        "quota_2": _q2,
+        "quota_over": float(state.ocr_quota_over),
+        "quota_under": float(state.ocr_quota_under),
+        "quota_btts_si": float(state.ocr_quota_gg),
+        "quota_btts_no": float(state.ocr_quota_ng),
     }
 
     _tracking_meta = {
