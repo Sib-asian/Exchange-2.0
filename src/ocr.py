@@ -3206,19 +3206,21 @@ def _extract_all_with_regex(text: str) -> dict:
         away_end = team_markers[2].start() if len(team_markers) > 2 else len(text)
         away_team_text = text[away_start:away_end]
         
-        # Separa FT e HT per casa (HT inizia con "HT Matches" o "HT " seguito da tabella)
-        ht_split_home = re.split(r'\n\s*HT\s+Matches', home_team_text, flags=re.IGNORECASE)
+        # Separa FT e HT per casa (HT inizia con "HT Matches" o "| HT | Matches |")
+        ht_split_home = re.split(r'\n\s*\|?\s*HT[\s|]+Matches', home_team_text, flags=re.IGNORECASE)
         ft_home_section = ht_split_home[0] if len(ht_split_home) >= 1 else ""
         ht_home_section = "HT Matches" + ht_split_home[1] if len(ht_split_home) >= 2 else ""
         
         # Separa FT e HT per trasferta
-        ht_split_away = re.split(r'\n\s*HT\s+Matches', away_team_text, flags=re.IGNORECASE)
+        ht_split_away = re.split(r'\n\s*\|?\s*HT[\s|]+Matches', away_team_text, flags=re.IGNORECASE)
         ft_away_section = ht_split_away[0] if len(ht_split_away) >= 1 else ""
         ht_away_section = "HT Matches" + ht_split_away[1] if len(ht_split_away) >= 2 else ""
     
     # === FT DATA ===
+    # Separatore tollerante a pipe markdown: "| Total | 22 | 13 |" e "Total 22 13"
+    _S = r"[\s|]+"
     # Riga Total FT: Matches, Win, Draw, Lose, Scored, Conceded
-    total_pattern = r"Total\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    total_pattern = rf"Total{_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+)"
     
     # FT Casa
     ft_home_total = re.search(total_pattern, ft_home_section, re.IGNORECASE)
@@ -3265,7 +3267,7 @@ def _extract_all_with_regex(text: str) -> dict:
     # NOTA: la prima colonna è Matches, NON Win!
     # NOTA: ci sono DUE righe "Home" nel testo (una per ogni squadra).
     # La PRIMA è quella della squadra di casa che ci interessa!
-    home_pattern = r"(?:^|\n)\s*Home\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    home_pattern = rf"(?:^|\n)\s*\|?\s*Home{_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+)"
     home_matches = re.findall(home_pattern, text, re.IGNORECASE | re.MULTILINE)
     if home_matches:
         m = home_matches[0]  # Prima riga "Home" (squadra di casa)
@@ -3281,7 +3283,7 @@ def _extract_all_with_regex(text: str) -> dict:
     # NOTA: ci sono QUATTRO righe "Away" nel testo (FT e HT per entrambe le squadre).
     # L'ordine è: 1) FT casa, 2) HT casa, 3) FT trasferta, 4) HT trasferta
     # La TERZA è quella della squadra di trasferta che ci interessa!
-    away_pattern = r"(?:^|\n)\s*Away\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    away_pattern = rf"(?:^|\n)\s*\|?\s*Away{_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+)"
     away_matches = re.findall(away_pattern, text, re.IGNORECASE | re.MULTILINE)
     if away_matches:
         # Prendi la TERZA occorrenza (FT trasferta)
@@ -3301,7 +3303,7 @@ def _extract_all_with_regex(text: str) -> dict:
     # Riga Last 6 (solo blocco FT — vedi sezioni ft_home_section / ft_away_section)
     # Es. Nowgoal: Last 6 | 6 | 2 | 1 | 3 | 8 | 10 | 7 | 33.3%  → scored=8, conceded=10
     last6_re = re.compile(
-        r"Last\s*6\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+(\d+)\s+(\d+))?",
+        rf"Last\s*6{_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+)(?:{_S}(\d+){_S}(\d+))?",
         re.IGNORECASE,
     )
 
