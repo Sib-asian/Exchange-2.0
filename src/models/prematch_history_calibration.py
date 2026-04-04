@@ -96,10 +96,13 @@ def calibrate_prematch_probs(
     p_under: float,
     p_btts: float,
     league: str = "",
-) -> tuple[float, float, float, float, float, float, CalibrationSignals]:
+    *,
+    p_over_15: float | None = None,
+    p_under_15: float | None = None,
+) -> tuple[float, float, float, float, float, float, float | None, float | None, CalibrationSignals]:
     signals = estimate_calibration_signals(league=league)
     if signals.weight <= 0:
-        return p1, px, p2, p_over, p_under, p_btts, signals
+        return p1, px, p2, p_over, p_under, p_btts, p_over_15, p_under_15, signals
 
     p1_adj = (1.0 - signals.weight) * p1 + signals.weight * min(1.0, p1 * signals.p1_scale)
     px_adj = (1.0 - signals.weight) * px + signals.weight * min(1.0, px * signals.px_scale)
@@ -114,4 +117,10 @@ def calibrate_prematch_probs(
     btts_adj = (1.0 - signals.weight) * p_btts + signals.weight * min(1.0, p_btts * signals.btts_scale)
     btts_adj = max(0.0, min(1.0, btts_adj))
 
-    return p1_adj, px_adj, p2_adj, over_adj, under_adj, btts_adj, signals
+    o15, u15 = p_over_15, p_under_15
+    if p_over_15 is not None and p_under_15 is not None:
+        o15 = (1.0 - signals.weight) * p_over_15 + signals.weight * min(1.0, p_over_15 * signals.over_scale)
+        o15 = max(0.0, min(1.0, o15))
+        u15 = 1.0 - o15
+
+    return p1_adj, px_adj, p2_adj, over_adj, under_adj, btts_adj, o15, u15, signals

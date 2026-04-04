@@ -306,6 +306,10 @@ class ProbabilitaModello:
     joint_ind: dict[tuple[int, int], float] = field(default_factory=dict)
     full_matrix: dict[tuple[int, int], float] = field(default_factory=dict)
 
+    # Over/Under linea 1.5 (marginali; stessa pipeline shrink/calibrazione prematch della linea principale)
+    p_over_15: float = 0.0
+    p_under_15: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Helper functions per parallelizzazione
@@ -425,6 +429,7 @@ def analizza(
     from src.markets.result import calcola_correct_score
     from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
     from src.models.consensus import (
+        _logistic_sharpen,
         calibrate_probabilities,
         compute_consensus,
         compute_model_credible_intervals,
@@ -856,6 +861,19 @@ def analizza(
         state.gol_casa, state.gol_trasf, state.linea_ou,
         weights=(_w_bp, _w_cop, _w_mk),
     )
+    # O/U 1.5: stesso consensus (gol totali ≥2 vs ≤1). H2H "Over %" Nowgoal è tipicamente su 2.5 → non blendare qui.
+    consensus_probs_15 = compute_consensus(
+        full_bp, full_copula, full_markov,
+        state.gol_casa, state.gol_trasf, 1.5,
+        weights=(_w_bp, _w_cop, _w_mk),
+    )
+    _raw_o15 = consensus_probs_15["p_over"]
+    p_over_15 = (
+        _logistic_sharpen(_raw_o15, alpha=CONSENSUS.LOGISTIC_ALPHA_OVER)
+        if _raw_o15 not in (0.0, 1.0)
+        else _raw_o15
+    )
+    p_under_15 = 1.0 - p_over_15
 
     # 9. Calibrazione isotonica con draw shrinkage dinamico (#4).
     # Partite difensive (tot basso) → meno correzione sul pareggio.
@@ -1040,6 +1058,8 @@ def analizza(
         p1=p1, px=px, p2=p2,
         p_under=p_under, p_over=p_over,
         p_btts=p_btts,
+        p_over_15=p_over_15,
+        p_under_15=p_under_15,
         top_cs=top_cs,
         gol_tot_dist=gol_tot_dist,
         rho=rho,

@@ -38,11 +38,13 @@ def test_record_from_dict_ignores_unknown_keys():
 
 def test_shrink_moves_toward_uniform_when_weak_signal():
     p1, px, p2 = 0.7, 0.15, 0.15
-    q1, qx, q2, qo, qu, qb = shrink_outcome_probs(
+    q1, qx, q2, qo, qu, qb, qo15, qu15 = shrink_outcome_probs(
         p1, px, p2, 0.6, 0.4, 0.5,
         extraction_coverage=0.1,
         model_agreement=0.1,
     )
+    assert qo15 is None
+    assert qu15 is None
     assert abs((q1 + qx + q2) - 1.0) < 1e-6
     assert q1 < p1
     assert qx > px
@@ -71,6 +73,8 @@ def test_run_analysis_pipeline_prematch_runs():
     assert out.consensus_w_bp > 0
     assert out.p1_bp > 0.0
     assert sig is None
+    assert out.p_over_15 + out.p_under_15 == pytest.approx(1.0, abs=1e-3)
+    assert out.p_over_15 > out.p_over
 
 
 def test_multiclass_brier_and_segments():
