@@ -1462,6 +1462,20 @@ def _render_prematch_analysis_summary(
         fm1, fm2 = st.columns(2)
         fm1.metric("Forma mult. Casa", f"{data.forma_mult_h:.3f}")
         fm2.metric("Forma mult. Trasf.", f"{data.forma_mult_a:.3f}")
+        _fxh = int(getattr(data, "fixture_next_days_home", 0) or 0)
+        _fxa = int(getattr(data, "fixture_next_days_away", 0) or 0)
+        if _fxh > 0 or _fxa > 0:
+            st.caption(
+                f"**Fixture** — prossima gara tra **{_fxh}** / **{_fxa}** giorni (casa / trasf.); "
+                "nel motore modifica i moltiplicatori di forma in base al carico."
+            )
+        _ts3h = float(getattr(data, "team_stats3_home_goals", 0.0) or 0.0)
+        _ts3a = float(getattr(data, "team_stats3_away_goals", 0.0) or 0.0)
+        if _ts3h > 0 or _ts3a > 0:
+            st.caption(
+                f"**Recent 3** (media gol) — Casa {_ts3h:.2f} · Trasf. {_ts3a:.2f} "
+                "(blend 30% con fuse Previous/Recent10 nel calcolo xG)."
+            )
 
         nh = len(data.home_absences_players or [])
         na = len(data.away_absences_players or [])

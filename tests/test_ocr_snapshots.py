@@ -47,3 +47,14 @@ def test_snapshot_4_plain_code_and_injuries_section():
     assert parsed["home_absences_count"] == 2
     assert parsed["away_absences_count"] == 1
     assert parsed["extraction_section_scores"]["injuries"] == 1.0
+
+
+def test_snapshot_fixture_and_recent3_team_stats():
+    parsed = _extract_all_with_regex(_fixture("nowgoal_snapshot_fixture_teamstats.txt"))
+    assert parsed["fixture_next_days_home"] == 5  # min(5,8,12)
+    assert parsed["fixture_next_days_away"] == 3  # min(3,6,9)
+    assert parsed["team_stats_home_goals"] == 2.1
+    assert parsed["team_stats_away_goals"] == 1.8
+    assert parsed["team_stats3_home_goals"] == 0.5
+    assert parsed["team_stats3_away_goals"] == 0.5
+    assert parsed["extraction_section_scores"]["fixture"] == 1.0
