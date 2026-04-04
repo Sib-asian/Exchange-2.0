@@ -235,9 +235,9 @@ if _btn_prematch or _btn_live:
         "model_confidence": risultati.model_confidence,
     }
     _market_quotes = {
-        "quota_1": _mkt1,
-        "quota_x": _mktx,
-        "quota_2": _mkt2,
+        "quota_1": float(state.mkt_init_1),
+        "quota_x": float(state.mkt_init_x),
+        "quota_2": float(state.mkt_init_2),
     }
 
     _tracking_meta = {
