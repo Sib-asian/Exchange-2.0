@@ -1229,9 +1229,29 @@ def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
                 "ENG D2": "England Championship",
                 "ITA D1": "Italy Serie A",
                 "ESP D1": "Spain LaLiga",
+                "SPA D1": "Spain LaLiga",
                 "SPA D2": "Spain Segunda",
                 "GER D1": "Germany Bundesliga",
+                "GER D2": "Germany 2. Bundesliga",
                 "FRA D1": "France Ligue 1",
+                "FRA D2": "France Ligue 2",
+                "NED D1": "Netherlands Eredivisie",
+                "POR D1": "Portugal Primeira Liga",
+                "TUR D1": "Turkey Super Lig",
+                "BRA D1": "Brazil Serie A",
+                "ARG D1": "Argentina Primera Division",
+                "JPN D1": "Japan J1 League",
+                "KOR D1": "South Korea K League 1",
+                "SCO D1": "Scotland Premiership",
+                "BEL D1": "Belgium First Division A",
+                "USA D1": "USA MLS",
+                "MEX D1": "Mexico Liga MX",
+                "CHN D1": "China Super League",
+                "RUS D1": "Russia Premier League",
+                "FIN D1": "Finland Veikkausliiga",
+                "SWE D1": "Sweden Allsvenskan",
+                "NOR D1": "Norway Eliteserien",
+                "DEN D1": "Denmark Superliga",
             }
             league = map_code.get(code.group(1).strip(), "")
     # Fallback: codifica lega senza rank (es. "AUS D1")
@@ -1244,9 +1264,29 @@ def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
                 "ENG D2": "England Championship",
                 "ITA D1": "Italy Serie A",
                 "ESP D1": "Spain LaLiga",
+                "SPA D1": "Spain LaLiga",
                 "SPA D2": "Spain Segunda",
                 "GER D1": "Germany Bundesliga",
+                "GER D2": "Germany 2. Bundesliga",
                 "FRA D1": "France Ligue 1",
+                "FRA D2": "France Ligue 2",
+                "NED D1": "Netherlands Eredivisie",
+                "POR D1": "Portugal Primeira Liga",
+                "TUR D1": "Turkey Super Lig",
+                "BRA D1": "Brazil Serie A",
+                "ARG D1": "Argentina Primera Division",
+                "JPN D1": "Japan J1 League",
+                "KOR D1": "South Korea K League 1",
+                "SCO D1": "Scotland Premiership",
+                "BEL D1": "Belgium First Division A",
+                "USA D1": "USA MLS",
+                "MEX D1": "Mexico Liga MX",
+                "CHN D1": "China Super League",
+                "RUS D1": "Russia Premier League",
+                "FIN D1": "Finland Veikkausliiga",
+                "SWE D1": "Sweden Allsvenskan",
+                "NOR D1": "Norway Eliteserien",
+                "DEN D1": "Denmark Superliga",
             }
             league = map_code.get(code2.group(1).strip(), "")
     return home, away, league
@@ -2714,7 +2754,7 @@ def _parse_nowgoal_injury_block(body: str) -> list[str]:
     out: list[str] = []
     for line in body.splitlines():
         s = line.strip()
-        m = re.match(r"^\*{0,2}([A-Z]{2,4})\*{0,2}\s+\d+\s+(.+)$", s)
+        m = re.match(r"^\*{0,2}([A-Z]{2,4})\*{0,2}\s+(?:\d+\s+)?(.+)$", s)
         if not m:
             continue
         role, rest = m.group(1), m.group(2).strip()
@@ -2739,13 +2779,13 @@ def _parse_nowgoal_injury_column_html(fragment: str) -> list[str]:
     rows = re.findall(
         r'<div[^>]*\bclass\s*=\s*["\'][^"\']*player-row[^"\']*["\'][^>]*>\s*'
         r'<b>\s*([A-Z]{2,4})\s*</b>\s*'
-        r'<span>\s*(\d+)\s*</span>\s*'
+        r'(?:<span>\s*\d*\s*</span>\s*)?'
         r'<a[^>]*>\s*([^<]*?)\s*</a>',
         fragment,
         re.DOTALL | re.IGNORECASE,
     )
     out: list[str] = []
-    for role, _num, name in rows:
+    for role, name in rows:
         line = _format_absence_line_for_mult(role.strip().upper(), name.strip())
         if line:
             out.append(line)
@@ -3423,11 +3463,10 @@ def _extract_all_with_regex(text: str) -> dict:
     _hr = result["home_rank"]
     _ar = result["away_rank"]
     _max_rank = max(_hr, _ar)
-    if _hm > 0:
-        _est_teams = round(_hm / 2) + 1
-        result["standings_total_teams"] = max(_est_teams, _max_rank)
-    elif _max_rank > 0:
-        result["standings_total_teams"] = _max_rank
+    if _max_rank > 0:
+        result["standings_total_teams"] = max(round(_hm / 2) + 1, _max_rank + 1) if _hm > 0 else _max_rank + 1
+    elif _hm > 0:
+        result["standings_total_teams"] = round(_hm / 2) + 1
     
     # === PREVIOUS SCORES ===
     # FIX: Cerca nella sezione "Previous Scores Statistics" per evitare di
