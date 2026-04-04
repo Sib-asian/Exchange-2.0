@@ -1110,6 +1110,55 @@ class TestVsHodds1x2:
         assert parsed["mkt_init_x"] == 3.25
         assert parsed["mkt_init_2"] == 3.40
 
+    def test_btts_gg_ng_from_vs_hodds_extra_columns(self):
+        """Vs_hOdds con colonne 12–13 = quote BTTS sì/no (se presenti nell'HTML Nowgoal)."""
+        text = (
+            "Title: Foo FC vs Bar SC Live Score\n"
+            "Vs_hOdds = [[123, 1, '0.85', '0.5', '1.05', '1.50', '4.20', '6.00', '2.5', '', "
+            "'0.90', '0.95', '1.70', '2.10']];\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_gg"] == 1.70
+        assert parsed["mkt_init_ng"] == 2.10
+
+    def test_btts_not_parsed_when_two_way_overround_above_cap(self):
+        """Overround GG+NG oltre MAX_OVERROUND_2WAY: non salvare (stesso filtro del motore)."""
+        text = (
+            "Title: Foo FC vs Bar SC Live Score\n"
+            "Vs_hOdds = [[123, 1, '0.85', '0.5', '1.05', '1.50', '4.20', '6.00', '2.5', '', "
+            "'0.90', '0.95', '1.50', '1.50']];\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_gg"] == 0.0
+        assert parsed["mkt_init_ng"] == 0.0
+
+    def test_live5_no_ts1_uses_min_timestamp_and_vs_eodds_1x2(self):
+        """live5: nessun timestamp=1; apertura = min(ts); 1X2 da Vs_eOdds se 5–7 non sono 1X2."""
+        from pathlib import Path
+
+        p = Path(__file__).resolve().parent / "fixtures" / "nowgoal_live5_vs_odds_snippet.txt"
+        text = p.read_text(encoding="utf-8")
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_1"] == pytest.approx(4.17)
+        assert parsed["mkt_init_x"] == pytest.approx(4.29)
+        assert parsed["mkt_init_2"] == pytest.approx(1.54)
+        assert parsed["ah_line_open"] == pytest.approx(1.0)
+        assert parsed["total_line_open"] == pytest.approx(3.5)
+        # BTTS 1.5/1.5 → overround troppo alto: correttamente assente
+        assert parsed["mkt_init_gg"] == 0.0
+        assert parsed["mkt_init_ng"] == 0.0
+
+    def test_btts_extended_row_prefers_indices_16_17(self):
+        """Riga 18 colonne: GG/NG validi in 16–17; 12–13 sono quote altro mercato."""
+        text = (
+            "Title: Foo FC vs Bar SC Live Score\n"
+            "Vs_hOdds = [[99, 3, '0.85', '0.5', '1.05', '0.83', '-1', '0.87', '2.5', '', "
+            "'1.90', '-0.25', '0.72', '0.70', '-0.5', '1.00', '1.75', '2.05']];\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_gg"] == pytest.approx(1.75)
+        assert parsed["mkt_init_ng"] == pytest.approx(2.05)
+
 
 # ---- Test #3: _teams_name_match con token overlap ----
 

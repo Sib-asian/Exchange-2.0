@@ -305,6 +305,18 @@ def render_pronostici_rapidi(
     cu.metric(f"Under {linea_ou}", f"{risultati.p_under:.0%}")
     cgg.metric("GG (sì)",          f"{risultati.p_btts:.0%}")
     cng.metric("NG (no)",          f"{1 - risultati.p_btts:.0%}")
+    if minuto == 0 and prematch is not None:
+        _qgg = float(getattr(prematch, "mkt_init_gg", 0.0) or 0.0)
+        _qng = float(getattr(prematch, "mkt_init_ng", 0.0) or 0.0)
+        if _qgg > 1.01 and _qng > 1.01:
+            st.caption(
+                "GG/NG = P(BTTS) del modello, con leggero ancoraggio alle quote consensus Nowgoal (se valide)."
+            )
+        else:
+            st.caption(
+                "GG/NG = P(BTTS) del modello (entrambe segnano almeno una volta); "
+                "non è automaticamente la quota del bookmaker."
+            )
 
     xh = risultati.xg_h_final
     xa = risultati.xg_a_final

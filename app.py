@@ -319,6 +319,8 @@ if _btn_prematch or _btn_live:
     _ocr_qo = float(getattr(_pa, "total_over_odds_open", 0.0)) if _pa else 0.0
     _ocr_qu = float(getattr(_pa, "total_under_odds_open", 0.0)) if _pa else 0.0
     _ocr_imp = float(getattr(_pa, "total_line_open", 0.0)) if _pa else 0.0
+    _ocr_qgg = float(getattr(_pa, "mkt_init_gg", 0.0)) if _pa else 0.0
+    _ocr_qng = float(getattr(_pa, "mkt_init_ng", 0.0)) if _pa else 0.0
 
     try:
         state = build_match_state(
@@ -383,6 +385,8 @@ if _btn_prematch or _btn_live:
             ocr_quota_over=_ocr_qo,
             ocr_quota_under=_ocr_qu,
             ocr_imp_total=_ocr_imp,
+            ocr_quota_gg=_ocr_qgg,
+            ocr_quota_ng=_ocr_qng,
         )
     except (AssertionError, ValueError) as e:
         st.error(f"❌ Input non valido: {e}")

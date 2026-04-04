@@ -47,6 +47,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from src.config import OCR_QUOTES
+
 # Import modulo weather per API OpenWeather
 # Prova diversi modi di import per compatibilità con Streamlit
 WEATHER_MODULE_AVAILABLE = False
@@ -1029,6 +1031,9 @@ class PrematchAnalysisExtracted:
     mkt_init_1: float = 0.0   # quota 1 iniziale media
     mkt_init_x: float = 0.0   # quota X iniziale media
     mkt_init_2: float = 0.0   # quota 2 iniziale media
+    # BTTS (GG/NG) da Vs_hOdds quando la riga ha colonne extra (HTML Nowgoal)
+    mkt_init_gg: float = 0.0  # quota "entrambe segnano" (sì)
+    mkt_init_ng: float = 0.0  # quota "non entrambe segnano" (no)
 
     # HT statistics dai precedenti H2H
     h2h_ht_home_win_pct: float = 0.0
@@ -3152,6 +3157,8 @@ def _extract_all_with_regex(text: str) -> dict:
         "mkt_init_1": 0.0,
         "mkt_init_x": 0.0,
         "mkt_init_2": 0.0,
+        "mkt_init_gg": 0.0,
+        "mkt_init_ng": 0.0,
         # Info partita
         "home_team": "",
         "away_team": "",
@@ -3750,7 +3757,8 @@ def _extract_all_with_regex(text: str) -> dict:
             pass
     
     # === 2. Vs_hOdds: QUOTE MULTI-BOOKMAKER (da JavaScript Nowgoal) ===
-    # Formato: Vs_hOdds = [[bookmaker_id, timestamp, 'ah_home', 'ah_line', ...], ...]];
+    # Formato variabile: legacy ~12 colonne + ts=1 “apertura”; live5 spesso 18 colonne e ts 3,8,12,24
+    # (apertura = timestamp minimo). BTTS: indici 16–17 se len>=18, altrimenti 12–13 legacy.
     # I valori sono stringhe con apici singoli, JSON vuole doppi apici!
     
     # Pattern più robusto: trova tutto fino al punto e virgola
@@ -3762,22 +3770,27 @@ def _extract_all_with_regex(text: str) -> dict:
             # Attenzione: solo per i valori stringa, non per i numeri
             odds_str = re.sub(r"'([^']*)'", r'"\1"', odds_str)
             odds_data = json.loads(odds_str)
-            
-            # Trova opening (timestamp=1) e closing (timestamp più alto)
+
+            def _row_ts(r: list) -> int:
+                try:
+                    return int(r[1]) if len(r) > 1 and r[1] is not None else 0
+                except (TypeError, ValueError):
+                    return 0
+
+            eligible = [r for r in odds_data if len(r) >= 12]
+            # Closing = timestamp più alto (come prima).
+            closing_row = max(eligible, key=_row_ts) if eligible else None
+            # Opening: molte pagine live5 non hanno ts=1; usare la riga col timestamp minimo.
             opening_row = None
-            closing_row = None
-            max_timestamp = 0
-            
-            for row in odds_data:
-                if len(row) >= 12:
-                    ts = int(row[1]) if len(row) > 1 and row[1] else 0
-                    if ts == 1:
+            if eligible:
+                for row in eligible:
+                    if _row_ts(row) == 1:
                         opening_row = row
-                    if ts > max_timestamp:
-                        max_timestamp = ts
-                        closing_row = row
+                        break
+                if opening_row is None:
+                    opening_row = min(eligible, key=_row_ts)
             
-            # Estrai dati da opening (timestamp=1)
+            # Estrai dati da opening
             if opening_row and len(opening_row) >= 12:
                 # AH: index 2=home_odds, 3=line, 4=away_odds
                 # NOTA: Le linee Nowgoal hanno formato diverso e segno invertito!
@@ -3793,6 +3806,19 @@ def _extract_all_with_regex(text: str) -> dict:
                 total_line = convert_nowgoal_line_to_software(total_line_raw, invert_sign=False)
                 total_over = float(opening_row[10]) if len(opening_row) > 10 and opening_row[10] else 0.0
                 total_under = float(opening_row[11]) if len(opening_row) > 11 and opening_row[11] else 0.0
+                # Formato esteso (18+ colonne): [11] spesso è una linea (es. -0.25), non quota Under.
+                def _ok_ou(q: float) -> bool:
+                    return 1.01 < q < 100
+
+                if not (_ok_ou(total_over) and _ok_ou(total_under)):
+                    total_over = total_under = 0.0
+                    if len(opening_row) > 13:
+                        o1 = float(opening_row[10]) if opening_row[10] not in (None, "", "0", 0) else 0.0
+                        o2 = float(opening_row[13]) if opening_row[13] not in (None, "", "0", 0) else 0.0
+                        if _ok_ou(o1) and _ok_ou(o2):
+                            _ou_or = 1.0 / o1 + 1.0 / o2
+                            if 1.02 <= _ou_or <= OCR_QUOTES.MAX_OVERROUND_2WAY:
+                                total_over, total_under = o1, o2
                 
                 result["ah_line_open"] = ah_line
                 result["ah_home_odds_open"] = ah_home
@@ -3812,6 +3838,25 @@ def _extract_all_with_regex(text: str) -> dict:
                             result["mkt_init_2"] = q2
                     except (ValueError, TypeError):
                         pass
+                # BTTS Yes/No: formato lungo live5 → indici 16,17; legacy corto → 12,13
+                if result["mkt_init_gg"] <= 1.0:
+                    _btts_pairs: list[tuple[int, int]] = []
+                    if len(opening_row) > 17:
+                        _btts_pairs.append((16, 17))
+                    if len(opening_row) > 13:
+                        _btts_pairs.append((12, 13))
+                    for _i, _j in _btts_pairs:
+                        try:
+                            qgg = float(opening_row[_i]) if opening_row[_i] not in (None, "", "0", 0) else 0.0
+                            qng = float(opening_row[_j]) if opening_row[_j] not in (None, "", "0", 0) else 0.0
+                            if 1.01 < qgg < 100 and 1.01 < qng < 100:
+                                _or2 = 1.0 / qgg + 1.0 / qng
+                                if 1.02 <= _or2 <= OCR_QUOTES.MAX_OVERROUND_2WAY:
+                                    result["mkt_init_gg"] = qgg
+                                    result["mkt_init_ng"] = qng
+                                    break
+                        except (ValueError, TypeError, ZeroDivisionError):
+                            continue
             
             # Estrai dati da closing
             if closing_row and len(closing_row) >= 12:
@@ -3834,6 +3879,44 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["odds_sharp_signal"] = max(abs(result["line_movement_ah"]), abs(result["line_movement_total"]))
         except (json.JSONDecodeError, ValueError, IndexError):
             pass
+
+    # === 2b. Vs_eOdds: 1X2 in formato europeo (molte pagine live5) ===
+    # Vs_hOdds esteso ha spesso altri mercati al posto della triplette 1X2 in 5–7.
+    if result["mkt_init_1"] <= 1.0:
+        vs_e_match = re.search(r"Vs_eOdds\s*=\s*(\[[\s\S]+?\]\s*\])\s*;", text)
+        if vs_e_match:
+            try:
+                es = vs_e_match.group(1)
+                es = re.sub(r"'([^']*)'", r'"\1"', es)
+                edata = json.loads(es)
+
+                def _ets(r: list) -> int:
+                    try:
+                        return int(r[1]) if len(r) > 1 and r[1] is not None else 0
+                    except (TypeError, ValueError):
+                        return 0
+
+                e_elig = [r for r in edata if len(r) >= 5]
+                e_row = None
+                if e_elig:
+                    for r in e_elig:
+                        if _ets(r) == 1:
+                            e_row = r
+                            break
+                    if e_row is None:
+                        e_row = min(e_elig, key=_ets)
+                if e_row is not None:
+                    q1 = float(e_row[2]) if e_row[2] not in (None, "", "0", 0) else 0.0
+                    qx = float(e_row[3]) if e_row[3] not in (None, "", "0", 0) else 0.0
+                    q2 = float(e_row[4]) if e_row[4] not in (None, "", "0", 0) else 0.0
+                    _or3 = (1.0 / q1 + 1.0 / qx + 1.0 / q2) if q1 and qx and q2 else 99.0
+                    if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100:
+                        if _or3 <= OCR_QUOTES.MAX_OVERROUND_3WAY:
+                            result["mkt_init_1"] = q1
+                            result["mkt_init_x"] = qx
+                            result["mkt_init_2"] = q2
+            except (json.JSONDecodeError, ValueError, TypeError, IndexError, ZeroDivisionError):
+                pass
     
     # === 3. NOMI SQUADRE (da meta tags o title - più affidabile) ===
     # Pattern 1: Formato Jina Reader markdown "Title: Team A VS Team B Match..."
@@ -4150,6 +4233,8 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         mkt_init_1=regex_data["mkt_init_1"],
         mkt_init_x=regex_data["mkt_init_x"],
         mkt_init_2=regex_data["mkt_init_2"],
+        mkt_init_gg=regex_data.get("mkt_init_gg", 0.0),
+        mkt_init_ng=regex_data.get("mkt_init_ng", 0.0),
         # Info partita
         home_team=regex_data["home_team"],
         away_team=regex_data["away_team"],
