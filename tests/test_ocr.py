@@ -1171,3 +1171,36 @@ class TestH2HHalfTime:
         _, _, gh, ga, hth, hta = rows[0]
         assert (gh, ga) == (2, 1)
         assert (hth, hta) == (1, 0)
+
+    def test_parse_h2h_score_rows_jina_markdown_links(self):
+        """Jina rende le righe H2H con [Team](url)score(ht)[Team](url) senza spazi."""
+        text = (
+            "FIN D1 31-08-2025[Inter Turku](https://example.com)2-1(0-0)"
+            "[Vaasa VPS](https://example.com)17-5(9-1)1.36 4.60 7.00 W\n"
+            "FIN D1 19-04-2025[Vaasa VPS](https://example.com)0-2(0-1)"
+            "[Inter Turku](https://example.com)10-5(3-3)2.35 3.30 2.80 W\n"
+        )
+        rows = _parse_h2h_score_rows(text)
+        assert len(rows) == 2
+        th1, ta1, gh1, ga1, hth1, hta1 = rows[0]
+        assert gh1 == 2 and ga1 == 1
+        assert hth1 == 0 and hta1 == 0
+        assert "Inter Turku" in th1
+        th2, ta2, gh2, ga2, hth2, hta2 = rows[1]
+        assert gh2 == 0 and ga2 == 2
+        assert hth2 == 0 and hta2 == 1
+
+    def test_derive_h2h_with_markdown_links_full(self):
+        """Derivazione completa H2H da righe con link markdown Jina."""
+        text = (
+            "FIN D1 [TeamA](url)3-1(2-0)[TeamB](url)W\n"
+            "FIN D1 [TeamB](url)1-1(0-0)[TeamA](url)D\n"
+            "FIN D1 [TeamA](url)0-2(0-1)[TeamB](url)L\n"
+        )
+        rows = _parse_h2h_score_rows(text)
+        assert len(rows) == 3
+        result = _derive_h2h_from_score_table(rows, "TeamA", "TeamB")
+        assert result is not None
+        assert result["h2h_matches_count"] == 3
+        assert result["h2h_btts_pct"] == pytest.approx(66.7, abs=0.1)
+        assert result["h2h_ht_home_win_pct"] == pytest.approx(33.3, abs=0.1)

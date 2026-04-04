@@ -2222,12 +2222,17 @@ def _teams_name_match(a: str, b: str) -> bool:
     return meaningful_overlap >= len(meaningful)
 
 
+def _strip_markdown_links(text: str) -> str:
+    """Converte [text](url) → ' text ' per pulire il Jina markdown."""
+    return re.sub(r"\[([^\]]*)\]\([^)]*\)", r" \1 ", text)
+
+
 def _parse_previous_scores_table_line(line: str) -> tuple[str, str, int, int] | None:
     """
     Riga tabella Previous Scores (markdown | ... |) o riga compatta stile H2H.
     Ritorna (home_name, away_name, gol_casa, gol_trasferta) o None.
     """
-    line = line.strip()
+    line = _strip_markdown_links(line).strip()
     if not line or line.startswith("#"):
         return None
     if "|" in line:
