@@ -201,6 +201,62 @@ class TestNowgoalRegexNotes:
         assert pa.h2h_btts_pct == 100.0
         assert pa.h2h_over_pct == 0.0  # 1-1 = 2 gol → under 2.5
 
+    def test_standings_pipe_table_extracts_total_home_last6(self):
+        """Classifica Nowgoal in formato pipe Jina: Total, Home, Last 6."""
+        text = (
+            "Title: Inter Turku vs Vaasa VPS Live\n"
+            "Football> Finland Veikkausliga>\n"
+            "| [ [FIN D1-1] Inter Turku ](javascript:void) |\n"
+            "| FT | Matches | Win | Draw | Lose | Scored | Conceded | Pts | Rank | Rate |\n"
+            "| Total | 22 | 13 | 7 | 2 | 46 | 20 | 46 | 1 | 59.1% |\n"
+            "| Home | 11 | 7 | 4 | 0 | 26 | 9 | 25 | 3 | 63.6% |\n"
+            "| Away | 11 | 6 | 3 | 2 | 20 | 11 | 21 | 2 | 54.5% |\n"
+            "| Last 6 | 6 | 4 | 0 | 2 | 14 | 8 | 12 | 66.7% |\n"
+            "| HT | Matches | Win | Draw | Lose | Scored | Conceded |\n"
+            "| Total | 22 | 11 | 7 | 4 | 22 | 10 |\n"
+            "| [ [FIN D1-7] Vaasa VPS ](javascript:void) |\n"
+            "| FT | Matches | Win | Draw | Lose | Scored | Conceded | Pts | Rank | Rate |\n"
+            "| Total | 22 | 6 | 7 | 9 | 32 | 34 | 25 | 7 | 27.3% |\n"
+            "| Home | 11 | 3 | 4 | 4 | 12 | 15 | 13 | 7 | 27.3% |\n"
+            "| Away | 11 | 3 | 3 | 5 | 20 | 19 | 12 | 8 | 27.3% |\n"
+            "| Last 6 | 6 | 1 | 3 | 2 | 8 | 9 | 6 | 16.7% |\n"
+            "| HT | Matches | Win | Draw | Lose | Scored | Conceded |\n"
+            "| Total | 22 | 3 | 12 | 7 | 8 | 14 |\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        # FT Total casa
+        assert parsed["home_rank"] == 1
+        assert parsed["home_matches"] == 22
+        assert parsed["home_win"] == 13
+        assert parsed["home_draw"] == 7
+        assert parsed["home_lose"] == 2
+        assert parsed["home_scored"] == 46
+        assert parsed["home_conceded"] == 20
+        # FT Home row (performance in casa)
+        assert parsed["home_home_win"] == 7
+        assert parsed["home_home_scored"] == 26
+        # Last 6 casa
+        assert parsed["home_last6_win"] == 4
+        assert parsed["home_last6_draw"] == 0
+        assert parsed["home_last6_lose"] == 2
+        assert parsed["home_last6_scored"] == 14
+        assert parsed["home_last6_conceded"] == 8
+        # HT Total casa
+        assert parsed["home_ht_win"] == 11
+        assert parsed["home_ht_draw"] == 7
+        assert parsed["home_ht_lose"] == 4
+        # FT Total trasferta
+        assert parsed["away_rank"] == 7
+        assert parsed["away_matches"] == 22
+        assert parsed["away_win"] == 6
+        assert parsed["away_scored"] == 32
+        # HT Total trasferta
+        assert parsed["away_ht_win"] == 3
+        assert parsed["away_ht_draw"] == 12
+        # Last 6 trasferta
+        assert parsed["away_last6_win"] == 1
+        assert parsed["away_last6_scored"] == 8
+
     def test_extract_absence_counts_from_explicit_home_away_lines(self):
         text = (
             "Injuries and Suspensions\n"
