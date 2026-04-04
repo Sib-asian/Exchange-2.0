@@ -1087,6 +1087,9 @@ class PrematchAnalysisExtracted:
     line_movement_total: float = 0.0  # Movimento linea Total (close - open)
     odds_sharp_signal: float = 0.0    # Segnale sharp: |movement| * confidenza
 
+    # === Standings total teams (stima dal numero partite e rank) ===
+    standings_total_teams: int = 0    # 0 = non disponibile (engine userà default 20)
+
     # === NUOVI CAMPI: Punti classifica (motivazione) ===
     home_points: int = 0              # Punti in classifica casa
     away_points: int = 0              # Punti in classifica trasferta
@@ -2996,6 +2999,7 @@ def _extract_all_with_regex(text: str) -> dict:
         # Strength
         "strength_home": 0,
         "strength_away": 0,
+        "standings_total_teams": 0,
         # Standings casa
         "home_rank": 0,
         "home_matches": 0,
@@ -3413,6 +3417,17 @@ def _extract_all_with_regex(text: str) -> dict:
             result["home_rank"] = int(rank_matches[0])
         if len(rank_matches) >= 2:
             result["away_rank"] = int(rank_matches[1])
+
+    # === TOTAL TEAMS (stima) ===
+    _hm = result["home_matches"]
+    _hr = result["home_rank"]
+    _ar = result["away_rank"]
+    _max_rank = max(_hr, _ar)
+    if _hm > 0:
+        _est_teams = round(_hm / 2) + 1
+        result["standings_total_teams"] = max(_est_teams, _max_rank)
+    elif _max_rank > 0:
+        result["standings_total_teams"] = _max_rank
     
     # === PREVIOUS SCORES ===
     # FIX: Cerca nella sezione "Previous Scores Statistics" per evitare di
@@ -3839,19 +3854,16 @@ def _extract_all_with_regex(text: str) -> dict:
             result["away_points"] = int(_all_pts[1])
     
     # === 5. MOTIVAZIONE (basata su posizione classifica) ===
-    # Calcolata dopo aver estratto rank e matches
+    max_teams = result.get("standings_total_teams", 0) or 20
     if result["home_rank"] > 0 and result["home_matches"] > 0:
-        # Top 3 = lotta titolo (high), Zona salvezza (ultime 3) = high, Metà = normal
-        max_teams = 20  # Assumiamo massimo 20 squadre
         if result["home_rank"] <= 3:
             result["home_motivation"] = "high"
         elif result["home_rank"] >= max_teams - 2:
-            result["home_motivation"] = "high"  # Lotta salvezza
+            result["home_motivation"] = "high"
         elif result["home_rank"] > max_teams // 2 + 3 and result["home_rank"] < max_teams - 3:
-            result["home_motivation"] = "low"  # Salvo, senza obiettivi
+            result["home_motivation"] = "low"
     
     if result["away_rank"] > 0 and result["away_matches"] > 0:
-        max_teams = 20
         if result["away_rank"] <= 3:
             result["away_motivation"] = "high"
         elif result["away_rank"] >= max_teams - 2:
@@ -3985,6 +3997,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         # Strength
         strength_home=regex_data["strength_home"],
         strength_away=regex_data["strength_away"],
+        standings_total_teams=regex_data.get("standings_total_teams", 0),
         # Standings casa
         home_rank=regex_data["home_rank"],
         home_matches=regex_data["home_matches"],
