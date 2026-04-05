@@ -129,7 +129,8 @@ def _calcola_ht_probs(
     - **Forma** (`forma_mult_*`) e **strength** Nowgoal: leggero tilt su λ.
     - **Goal timing** (MatchState): chi segna tardi → λ 1T leggermente più basso; chi subisce
       presto → λ avversario 1T leggermente più alto.
-    - **Standings HT** + **H2H HT** (peso ridotto con pochi match).
+    - **Standings HT** + **matrice HT/FT** (stesso schema delle marginali standings) + **H2H HT**
+      (peso ridotto con pochi match).
     - **Ancoraggio 1X2 FT** del modello + **p_over_1.5** per calibrare Over 0.5 a HT.
 
     Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate) o None se nessun dato.
@@ -243,6 +244,38 @@ def _calcola_ht_probs(
             standings_px /= _tot
             standings_p2 /= _tot
 
+    # ── 2b. Matrice HT/FT (casa in casa / trasferta in trasferta) ───────────────
+    # Somma per esito al 1T indipendentemente dal FT (9 celle → marginali W/D/L a HT).
+    _sfx = ("ftw", "ftd", "ftl")
+    htft_w_h = sum(int(getattr(prematch, f"htft_home_htw_{s}", 0) or 0) for s in _sfx)
+    htft_d_h = sum(int(getattr(prematch, f"htft_home_htd_{s}", 0) or 0) for s in _sfx)
+    htft_l_h = sum(int(getattr(prematch, f"htft_home_htl_{s}", 0) or 0) for s in _sfx)
+    htft_w_a = sum(int(getattr(prematch, f"htft_away_htw_{s}", 0) or 0) for s in _sfx)
+    htft_d_a = sum(int(getattr(prematch, f"htft_away_htd_{s}", 0) or 0) for s in _sfx)
+    htft_l_a = sum(int(getattr(prematch, f"htft_away_htl_{s}", 0) or 0) for s in _sfx)
+    tot_htft_h = htft_w_h + htft_d_h + htft_l_h
+    tot_htft_a = htft_w_a + htft_d_a + htft_l_a
+    has_htft = tot_htft_h >= 2 and tot_htft_a >= 2
+    if has_htft:
+        _hw = htft_w_h / tot_htft_h
+        _hd = htft_d_h / tot_htft_h
+        _hl = htft_l_h / tot_htft_h
+        _aw = htft_w_a / tot_htft_a
+        _ad = htft_d_a / tot_htft_a
+        _al = htft_l_a / tot_htft_a
+        htft_p1 = (_hw + _al) / 2
+        htft_px = (_hd + _ad) / 2
+        htft_p2 = (_hl + _aw) / 2
+        _tft = htft_p1 + htft_px + htft_p2
+        if _tft > 0:
+            htft_p1 /= _tft
+            htft_px /= _tft
+            htft_p2 /= _tft
+        else:
+            has_htft = False
+    if not has_htft:
+        htft_p1 = htft_px = htft_p2 = 0.0
+
     # ── 3. H2H HT (se disponibili) ─────────────────────────────────────────────
     h2h_h_pct = getattr(prematch, "h2h_ht_home_win_pct", 0.0) or 0.0
     h2h_d_pct = getattr(prematch, "h2h_ht_draw_pct", 0.0) or 0.0
@@ -250,7 +283,7 @@ def _calcola_ht_probs(
     has_h2h = h2h_h_pct + h2h_d_pct + h2h_a_pct > 0.5  # in scala 0-100
 
     # ── 4. Determina se abbiamo dati HT diretti ─────────────────────────────────
-    has_ht_direct = has_xg or has_standings_ht or has_h2h
+    has_ht_direct = has_xg or has_standings_ht or has_h2h or has_htft
 
     if not has_ht_direct:
         # Solo xG FT: λ 1T = xG × quota gol in 1T per squadra (o default 46%)
@@ -285,6 +318,20 @@ def _calcola_ht_probs(
         p_ht1, p_htx, p_ht2 = standings_p1, standings_px, standings_p2
         # Stima over 0.5 basata su probabilità di 0-0
         p_ht_over05 = 1.0 - (p_htx * 0.7)  # Approssimazione: 0-0 è circa 70% dei pareggi
+    elif has_htft and not has_xg:
+        p_ht1, p_htx, p_ht2 = htft_p1, htft_px, htft_p2
+        p_ht_over05 = 1.0 - (p_htx * 0.7)
+
+    # ── 6b. Matrice HT/FT (nudge aggiuntivo se già abbiamo Poisson / standings) ───
+    if has_htft and (p_ht1 + p_htx + p_ht2) > 1e-9 and (has_xg or has_standings_ht):
+        n_eff = min(tot_htft_h, tot_htft_a)
+        alpha_htft = 0.11 * min(1.0, n_eff / 12.0)
+        if has_standings_ht and has_xg:
+            alpha_htft *= 0.82
+        alpha_htft = max(0.0, min(0.14, alpha_htft))
+        p_ht1 = (1.0 - alpha_htft) * p_ht1 + alpha_htft * htft_p1
+        p_htx = (1.0 - alpha_htft) * p_htx + alpha_htft * htft_px
+        p_ht2 = (1.0 - alpha_htft) * p_ht2 + alpha_htft * htft_p2
 
     # ── 7. Blend con H2H HT (peso ↓ se pochi match HT) ──────────────────────────
     if has_h2h:

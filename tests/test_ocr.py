@@ -31,6 +31,8 @@ from src.ocr import (
     _parse_live_stats_response,
     _parse_vlm_response,
     _parse_h2h_score_rows,
+    _extract_all_with_regex,
+    _extract_live_page_data,
     _safe_float,
     _safe_int,
     _clean_team_name,
@@ -1255,6 +1257,48 @@ class TestH2HHalfTime:
         assert result["h2h_btts_pct"] == pytest.approx(66.7, abs=0.1)
         assert result["h2h_ht_home_win_pct"] == pytest.approx(33.3, abs=0.1)
         assert result["h2h_ht_matches_count"] == 3
+
+
+class TestExtractLivePageHtft:
+    """Sezione HT/FT su live5.nowgoal26: titolo Half Time / Full Time + righe W/W … L/L."""
+
+    def test_half_time_full_time_header_parses_ww_rows(self):
+        md = """
+## Half Time / Full Time
+| W/W | 3 | 1 | 2 | 0 |
+| W/D | 1 | 0 | 0 | 1 |
+| W/L | 0 | 2 | 1 | 0 |
+| D/W | 2 | 0 | 1 | 1 |
+| D/D | 4 | 3 | 2 | 2 |
+| D/L | 1 | 1 | 0 | 2 |
+| L/W | 0 | 1 | 1 | 0 |
+| L/D | 2 | 0 | 0 | 1 |
+| L/L | 1 | 2 | 3 | 4 |
+"""
+        r = _extract_live_page_data(md)
+        assert r["htft_home_htw_ftw"] == 3
+        assert r["htft_away_htw_ftw"] == 0
+        assert r["htft_home_htd_ftd"] == 4
+        assert r["htft_away_htl_ftl"] == 4
+
+    def test_extract_all_with_regex_picks_same_htft(self):
+        md = """
+## Team Statistics
+| 1.0 | **Goal** | 1.0 |
+## Half Time / Full Time
+| W/W | 2 | 0 | 1 | 0 |
+| W/D | 0 | 1 | 0 | 1 |
+| W/L | 1 | 0 | 0 | 2 |
+| D/W | 0 | 0 | 1 | 0 |
+| D/D | 3 | 3 | 2 | 2 |
+| D/L | 0 | 0 | 0 | 1 |
+| L/W | 0 | 0 | 0 | 0 |
+| L/D | 1 | 0 | 0 | 0 |
+| L/L | 2 | 1 | 3 | 4 |
+"""
+        full = _extract_all_with_regex(md)
+        assert full["htft_home_htw_ftw"] == 2
+        assert full["htft_away_htl_ftl"] == 4
 
 
 class TestMergeInjuryPlayerLists:

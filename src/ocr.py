@@ -3129,6 +3129,83 @@ def _extract_identity_from_url(url: str) -> tuple[str, str, str]:
     return home, away, league
 
 
+_HTFT_LIVE_KEYS: tuple[str, ...] = (
+    "htft_home_htw_ftw",
+    "htft_home_htd_ftw",
+    "htft_home_htl_ftw",
+    "htft_home_htw_ftd",
+    "htft_home_htd_ftd",
+    "htft_home_htl_ftd",
+    "htft_home_htw_ftl",
+    "htft_home_htd_ftl",
+    "htft_home_htl_ftl",
+    "htft_away_htw_ftw",
+    "htft_away_htd_ftw",
+    "htft_away_htl_ftw",
+    "htft_away_htw_ftd",
+    "htft_away_htd_ftd",
+    "htft_away_htl_ftd",
+    "htft_away_htw_ftl",
+    "htft_away_htd_ftl",
+    "htft_away_htl_ftl",
+)
+
+
+def _parse_htft_matrix_from_text(text: str) -> dict[str, int]:
+    """
+    Tabella HT/FT Nowgoal / Jina: sezione «HT/FT Statistics» o «Half Time / Full Time»;
+    righe HT-W/FT-W oppure W/W … L/L (colonne: casa_home | … | trasferta_trasferta → gruppi 1 e 4).
+    """
+    out: dict[str, int] = {k: 0 for k in _HTFT_LIVE_KEYS}
+    htft_section = re.search(
+        r"(?:HT/FT\s+Statistics|Half\s+Time\s*/\s*Full\s+Time).*?(?=\*\*Last Updated|Goals Distribution|Historical Matches|## Fixture|$)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not htft_section:
+        return out
+    htft_text = htft_section.group(0)
+
+    def _apply_row(row_key: str, m: re.Match[str]) -> None:
+        out[f"htft_home_{row_key}"] = int(m.group(1))
+        out[f"htft_away_{row_key}"] = int(m.group(4))
+
+    htft_patterns = {
+        "htw_ftw": r"HT-W\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        "htd_ftw": r"HT-D\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        "htl_ftw": r"HT-L\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        "htw_ftd": r"HT-W\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        "htd_ftd": r"HT-D\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        "htl_ftd": r"HT-L\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        "htw_ftl": r"HT-W\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        "htd_ftl": r"HT-D\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        "htl_ftl": r"HT-L\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+    }
+    for key, pattern in htft_patterns.items():
+        match = re.search(pattern, htft_text, re.IGNORECASE)
+        if match:
+            _apply_row(key, match)
+
+    if sum(out.values()) == 0:
+        ww_patterns = {
+            "htw_ftw": r"(?:^|\n)\s*\|?\s*W/W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htd_ftw": r"(?:^|\n)\s*\|?\s*W/D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htl_ftw": r"(?:^|\n)\s*\|?\s*W/L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htw_ftd": r"(?:^|\n)\s*\|?\s*D/W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htd_ftd": r"(?:^|\n)\s*\|?\s*D/D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htl_ftd": r"(?:^|\n)\s*\|?\s*D/L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htw_ftl": r"(?:^|\n)\s*\|?\s*L/W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htd_ftl": r"(?:^|\n)\s*\|?\s*L/D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htl_ftl": r"(?:^|\n)\s*\|?\s*L/L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+        }
+        for key, pattern in ww_patterns.items():
+            match = re.search(pattern, htft_text, re.IGNORECASE)
+            if match:
+                _apply_row(key, match)
+
+    return out
+
+
 def _extract_all_with_regex(text: str) -> dict:
     """
     Estrae TUTTI i dati prematch dal testo usando solo regex.
@@ -3295,6 +3372,8 @@ def _extract_all_with_regex(text: str) -> dict:
         "extraction_notes": [],
         "extraction_section_scores": {},
     }
+    for _hk in _HTFT_LIVE_KEYS:
+        result[_hk] = 0
 
     # === H2H ===
     pre_ps = _text_before_previous_scores_statistics(text)
@@ -4143,8 +4222,9 @@ def _extract_all_with_regex(text: str) -> dict:
     # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
     # DEVO estrarre dall'ULTIMO gruppo (Recent 10 Matches) non dal primo!
     team_stats_section = re.search(
-        r'Team Statistics.*?(?=\*\*Last Updated|HT/FT Statistics|$)',
-        text, re.IGNORECASE | re.DOTALL
+        r"Team Statistics.*?(?=\*\*Last Updated|HT/FT Statistics|Half\s+Time\s*/\s*Full\s+Time|$)",
+        text,
+        re.IGNORECASE | re.DOTALL,
     )
     if team_stats_section:
         stats_text = team_stats_section.group(0)
@@ -4225,6 +4305,10 @@ def _extract_all_with_regex(text: str) -> dict:
             if len(poss_matches) >= 2:
                 result["team_stats3_home_possession"] = float(poss_matches[0][0])
                 result["team_stats3_away_possession"] = float(poss_matches[0][1])
+
+    _htft_from_text = _parse_htft_matrix_from_text(text)
+    for _hk in _HTFT_LIVE_KEYS:
+        result[_hk] = _htft_from_text[_hk]
 
     # Nomi da riga Title (Nowgoal / Jina) se il pattern "X vs Y" a inizio riga non li ha catturati
     if not (result.get("home_team") or "").strip() or not (result.get("away_team") or "").strip():
@@ -4430,7 +4514,9 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         extraction_notes=list(regex_data.get("extraction_notes", [])),
         extraction_section_scores=dict(regex_data.get("extraction_section_scores", {})),
     )
-    
+    for _hk in _HTFT_LIVE_KEYS:
+        setattr(result, _hk, int(regex_data.get(_hk, 0) or 0))
+
     # Calcola forma_mult
     result.forma_mult_h = _forma_mult_from_standings(
         result.home_win, result.home_draw, result.home_lose,
@@ -4882,38 +4968,10 @@ def _extract_live_page_data(text: str) -> dict:
         elif result["weather_temp"] >= 30:
             result["weather_impact"] = -0.02  # -2% xG per caldo eccessivo
     
-    # === 2. HT/FT STATISTICS ===
-    # La tabella HT/FT ha questo formato:
-    # | HT-W / FT-W | 4 | 2 | ...
-    # Cerca la sezione HT/FT
-    htft_section = re.search(
-        r'HT/FT Statistics.*?(?=\*\*Last Updated|$)',
-        text, re.IGNORECASE | re.DOTALL
-    )
-    if htft_section:
-        htft_text = htft_section.group(0)
-        
-        # Pattern per ogni riga: "| HT-W / FT-W | 4 | 2 |"
-        # Le colonne sono: tipo | casa_home | casa_away | trasf_home | trasf_away
-        htft_patterns = {
-            "htw_ftw": r'HT-W\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-            "htd_ftw": r'HT-D\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-            "htl_ftw": r'HT-L\s*/\s*FT-W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-            "htw_ftd": r'HT-W\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-            "htd_ftd": r'HT-D\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-            "htl_ftd": r'HT-L\s*/\s*FT-D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-            "htw_ftl": r'HT-W\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-            "htd_ftl": r'HT-D\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-            "htl_ftl": r'HT-L\s*/\s*FT-L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)',
-        }
-        
-        for key, pattern in htft_patterns.items():
-            match = re.search(pattern, htft_text, re.IGNORECASE)
-            if match:
-                # Gruppo 1 = casa_home, Gruppo 2 = casa_away, Gruppo 3 = trasf_home, Gruppo 4 = trasf_away
-                result[f"htft_home_{key}"] = int(match.group(1))  # casa in casa
-                result[f"htft_away_{key}"] = int(match.group(4))  # trasferta in trasferta
-    
+    # === 2. HT/FT (stesso parser del percorso regex prematch) ===
+    for _hk, _hv in _parse_htft_matrix_from_text(text).items():
+        result[_hk] = _hv
+
     # === 3. TEAM STATISTICS ===
     # La tabella ha DUE gruppi di colonne: "Recent 3 Matches" e "Recent 10 Matches"
     # Jina Reader converte HTML in markdown con **bold** attorno ai nomi delle stat:
@@ -4922,8 +4980,9 @@ def _extract_live_page_data(text: str) -> dict:
     # Prendi sempre l'ULTIMO match (Recent 10 Matches).
     
     team_stats_section = re.search(
-        r'Team Statistics.*?(?=\*\*Last Updated|HT/FT|$)',
-        text, re.IGNORECASE | re.DOTALL
+        r"Team Statistics.*?(?=\*\*Last Updated|HT/FT Statistics|Half\s+Time\s*/\s*Full\s+Time|$)",
+        text,
+        re.IGNORECASE | re.DOTALL,
     )
     if team_stats_section:
         stats_text = team_stats_section.group(0)
@@ -5047,15 +5106,6 @@ def _extract_live_page_data(text: str) -> dict:
     
     return result
 
-
-_HTFT_LIVE_KEYS: tuple[str, ...] = (
-    "htft_home_htw_ftw", "htft_home_htd_ftw", "htft_home_htl_ftw",
-    "htft_home_htw_ftd", "htft_home_htd_ftd", "htft_home_htl_ftd",
-    "htft_home_htw_ftl", "htft_home_htd_ftl", "htft_home_htl_ftl",
-    "htft_away_htw_ftw", "htft_away_htd_ftw", "htft_away_htl_ftw",
-    "htft_away_htw_ftd", "htft_away_htd_ftd", "htft_away_htl_ftd",
-    "htft_away_htw_ftl", "htft_away_htd_ftl", "htft_away_htl_ftl",
-)
 
 _TEAM_STATS_LIVE_KEYS: tuple[str, ...] = (
     "team_stats_home_goals", "team_stats_home_conceded", "team_stats_home_shots",
