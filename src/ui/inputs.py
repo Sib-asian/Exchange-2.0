@@ -1651,6 +1651,16 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
             help="Total corrente sull'exchange (full game). Aggiorna se il mercato si è mosso.",
         )
 
+    _ou_choices: list[float] = [1.5, 2.5, 3.0, 3.5]
+    linea_ou = st.selectbox(
+        "Linea Over/Under per l'analisi (quella su cui punti)",
+        options=_ou_choices,
+        index=1,
+        format_func=lambda x: f"{x:g} gol",
+        key="prematch_ou_line_select",
+        help="Il motore calcola Over/Under su questa linea; deve coincidere con la schedina.",
+    )
+
     # Conversione Full Game → gol rimanenti (automatica)
     gol_diff = gol_casa - gol_trasf
     gol_tot  = gol_casa + gol_trasf
@@ -1672,6 +1682,18 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
     if abs(ah_cur_raw - ah_op) < 0.01 and abs(tot_cur_raw - tot_op) < 0.01 and gol_tot > 0:
         validation_errors.append("Linee correnti uguali all'apertura con gol gia' segnati.")
 
+    from src.models.line_sanity import prematch_line_quality
+
+    for msg in prematch_line_quality(
+        ah_op=ah_op,
+        ah_cur_raw=ah_cur_raw,
+        tot_op=tot_op,
+        tot_cur_raw=tot_cur_raw,
+        linea_ou=float(linea_ou),
+        gol_tot=gol_tot,
+    ):
+        validation_errors.append(msg)
+
     for msg in blocking_errors:
         st.error(f"⛔ {msg}")
     for msg in validation_errors:
@@ -1683,6 +1705,7 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
         "ah_cur": ah_cur,
         "tot_cur": tot_cur,
         "tot_cur_raw": tot_cur_raw,
+        "linea_ou": float(linea_ou),
         "fullgame_mode": True,
         "validation_errors": validation_errors,
         "blocking_errors": blocking_errors,
