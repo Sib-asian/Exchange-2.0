@@ -83,6 +83,23 @@ class MatchState:
     # < 1.0 = movimento rumoroso (pubblico/liquidità) → w_cur diminuito.
     movement_quality: float = 1.0
 
+    # Movimento linee raw estratto da Nowgoal (full-game, apertura→chiusura).
+    # Usato in prematch come segnale secondario (peso basso) per evitare
+    # dipendenza totale dal solo movement_quality sintetico.
+    line_movement_ah_raw: float = 0.0
+    line_movement_total_raw: float = 0.0
+
+    # Copertura estrazione prematch [0,1] per gating dei micro-prior.
+    extraction_coverage: float = 0.0
+
+    # Team stats prematch (ultimi 10): usati con peso conservativo come micro-prior.
+    team_stats_home_shots: float = 0.0
+    team_stats_away_shots: float = 0.0
+    team_stats_home_corners: float = 0.0
+    team_stats_away_corners: float = 0.0
+    team_stats_home_possession: float = 0.0
+    team_stats_away_possession: float = 0.0
+
     # Scala di confidenza delle quote OCR (da validatore Gemini). Range [0.70, 1.0].
     # 1.0 = quote verificate concordi col mercato; < 1.0 = quote sospette/anomale.
     ocr_confidence_scale: float = 1.0
@@ -483,6 +500,15 @@ def analizza(
         fixture_historical_total=state.fixture_historical_total,
         movement_quality=state.movement_quality,
         ocr_confidence_scale=state.ocr_confidence_scale,
+        line_movement_ah_raw=state.line_movement_ah_raw,
+        line_movement_total_raw=state.line_movement_total_raw,
+        extraction_coverage=state.extraction_coverage,
+        team_stats_home_shots=state.team_stats_home_shots,
+        team_stats_away_shots=state.team_stats_away_shots,
+        team_stats_home_corners=state.team_stats_home_corners,
+        team_stats_away_corners=state.team_stats_away_corners,
+        team_stats_home_possession=state.team_stats_home_possession,
+        team_stats_away_possession=state.team_stats_away_possession,
     )
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)

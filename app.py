@@ -172,6 +172,22 @@ if _btn_prematch or _btn_live:
             st.code(traceback.format_exc())
             st.stop()
 
+        # Trasparenza pipeline prematch: mostra se e come ha agito la calibrazione storica.
+        if state.minuto == 0:
+            if _cal_sig is not None:
+                if _cal_sig.weight > 0:
+                    st.caption(
+                        f"Calibrazione prematch applicata: scope={_cal_sig.scope}, "
+                        f"campioni={_cal_sig.samples}, peso={_cal_sig.weight:.1%}"
+                    )
+                else:
+                    st.caption(
+                        f"Calibrazione prematch disponibile ma non attiva "
+                        f"(campioni={_cal_sig.samples}, soglia minima non raggiunta)."
+                    )
+            else:
+                st.caption("Calibrazione prematch non applicata (lega non disponibile).")
+
         if state.minuto == 0:
             st.session_state["prematch_last_model_1x2"] = {
                 "p1": float(risultati.p1),
@@ -283,7 +299,9 @@ if _btn_prematch or _btn_live:
     from src.ui.outputs import (
         render_avvisi_affidabilita,
         render_avvisi_incoerenza,
+        render_ocr_market_divergence,
         render_mercati_chiusi,
+        render_lines_need_update,
         render_pronostici_rapidi,
         render_analisi_dinamica,
         render_segnali_rapidi,
@@ -339,10 +357,19 @@ if _btn_prematch or _btn_live:
 
     render_segnali_rapidi(segnali)
     render_avvisi_affidabilita(risultati.flat_lines, _n_shots, _minuto)
+    render_lines_need_update(risultati)
     render_avvisi_incoerenza(
         risultati.p_btts, risultati.p_under, risultati.p_over,
         _lou, _gol_tot,
         btts_settled=_settled.get("btts_si_settled", False),
+    )
+    render_ocr_market_divergence(
+        risultati,
+        state.ocr_quota_1,
+        state.ocr_quota_x,
+        state.ocr_quota_2,
+        state.ocr_quota_over,
+        state.ocr_quota_under,
     )
 
     # ── Analisi avanzata ──────────────────────────────────────────────────────

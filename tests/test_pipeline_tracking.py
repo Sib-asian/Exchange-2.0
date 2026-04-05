@@ -73,7 +73,7 @@ def test_run_analysis_pipeline_prematch_runs():
     assert out.p1 + out.px + out.p2 == pytest.approx(1.0, abs=1e-3)
     assert out.consensus_w_bp > 0
     assert out.p1_bp > 0.0
-    assert sig is None
+    assert sig is None or hasattr(sig, "weight")
     assert out.p_over_15 + out.p_under_15 == pytest.approx(1.0, abs=1e-3)
     assert out.p_over_15 > out.p_over
 

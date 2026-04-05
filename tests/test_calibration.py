@@ -327,3 +327,85 @@ class TestCalcolaXGBayesianiOcrAntiDoubleCount:
         # Con target OCR identico (3.0), usare due segnali coerenti non deve
         # allontanarsi molto dal caso "solo linea OCR".
         assert abs(both_sum - line_sum) < 0.02
+
+
+class TestCalcolaXGBayesianiNewPrematchSignals:
+    def test_raw_line_movement_increases_current_line_weight(self):
+        """
+        A parità di linee manuali, un movimento raw prematch forte (Nowgoal)
+        deve aumentare la fiducia sulla linea corrente quando la copertura è alta.
+        """
+        # Setup non-flat: AH corrente già diverso da apertura.
+        xg_h_base, xg_a_base = calcola_xg_bayesiani(
+            -0.25, 2.5, -0.50, 2.5, 0,
+            extraction_coverage=0.80,
+        )
+        xg_h_raw, xg_a_raw = calcola_xg_bayesiani(
+            -0.25, 2.5, -0.50, 2.5, 0,
+            line_movement_ah_raw=-0.75,
+            line_movement_total_raw=0.25,
+            extraction_coverage=0.80,
+        )
+        # Maggior movimento verso casa => xG casa leggermente più alto.
+        assert xg_h_raw > xg_h_base
+        assert xg_a_raw < xg_a_base
+
+    def test_raw_line_movement_ignored_with_low_coverage(self):
+        """
+        Con coverage bassa il movimento raw non deve influenzare il blend.
+        """
+        xg_h_base, xg_a_base = calcola_xg_bayesiani(
+            -0.25, 2.5, -0.50, 2.5, 0,
+            extraction_coverage=0.40,
+        )
+        xg_h_raw, xg_a_raw = calcola_xg_bayesiani(
+            -0.25, 2.5, -0.50, 2.5, 0,
+            line_movement_ah_raw=-1.00,
+            line_movement_total_raw=0.50,
+            extraction_coverage=0.40,
+        )
+        assert abs(xg_h_raw - xg_h_base) < 1e-9
+        assert abs(xg_a_raw - xg_a_base) < 1e-9
+
+    def test_team_stats_micro_prior_tilts_premarket_xg(self):
+        """
+        Team stats prematch (shots/corners/possession) con coverage alta
+        devono produrre un micro-nudge conservativo sul total implicito.
+        """
+        # Baseline simmetrica.
+        xg_h0, xg_a0 = calcola_xg_bayesiani(
+            0.0, 2.5, 0.0, 2.5, 0,
+            extraction_coverage=0.80,
+        )
+        xg_h1, xg_a1 = calcola_xg_bayesiani(
+            0.0, 2.5, 0.0, 2.5, 0,
+            extraction_coverage=0.80,
+            team_stats_home_shots=14.0,
+            team_stats_away_shots=8.0,
+            team_stats_home_corners=6.0,
+            team_stats_away_corners=3.5,
+            team_stats_home_possession=56.0,
+            team_stats_away_possession=44.0,
+        )
+        # Con questi input il target team-stats è sopra 2.5, quindi il total sale leggermente.
+        assert (xg_h1 + xg_a1) > (xg_h0 + xg_a0)
+        # Effetto conservativo: non deve stravolgere il totale.
+        assert abs((xg_h1 + xg_a1) - (xg_h0 + xg_a0)) < 0.06
+
+    def test_team_stats_micro_prior_disabled_with_low_coverage(self):
+        xg_h0, xg_a0 = calcola_xg_bayesiani(
+            0.0, 2.5, 0.0, 2.5, 0,
+            extraction_coverage=0.30,
+        )
+        xg_h1, xg_a1 = calcola_xg_bayesiani(
+            0.0, 2.5, 0.0, 2.5, 0,
+            extraction_coverage=0.30,
+            team_stats_home_shots=16.0,
+            team_stats_away_shots=7.0,
+            team_stats_home_corners=7.0,
+            team_stats_away_corners=3.0,
+            team_stats_home_possession=58.0,
+            team_stats_away_possession=42.0,
+        )
+        assert abs(xg_h1 - xg_h0) < 1e-9
+        assert abs(xg_a1 - xg_a0) < 1e-9
