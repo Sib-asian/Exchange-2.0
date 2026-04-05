@@ -38,7 +38,7 @@ def test_warns_large_total_move() -> None:
     assert any("total" in m.lower() for m in msgs)
 
 
-def test_warns_ou_line_near_market_total() -> None:
+def test_no_warn_when_ou_line_equals_total() -> None:
     msgs = prematch_line_quality(
         ah_op=-0.25,
         ah_cur_raw=-0.25,
@@ -47,7 +47,19 @@ def test_warns_ou_line_near_market_total() -> None:
         linea_ou=2.5,
         gol_tot=0,
     )
-    assert any("Over/Under" in m for m in msgs)
+    assert not any("sopra" in m for m in msgs)
+
+
+def test_warns_ou_line_above_market_total() -> None:
+    msgs = prematch_line_quality(
+        ah_op=-0.25,
+        ah_cur_raw=-0.25,
+        tot_op=2.5,
+        tot_cur_raw=2.5,
+        linea_ou=3.0,
+        gol_tot=0,
+    )
+    assert any("sopra" in m for m in msgs)
 
 
 def test_prediction_record_ou_line_default_from_dict() -> None:
