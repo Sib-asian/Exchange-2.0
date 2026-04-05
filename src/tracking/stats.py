@@ -268,8 +268,8 @@ class PerformanceStats:
             "1X2_1": "1X2 Casa",
             "1X2_X": "1X2 X",
             "1X2_2": "1X2 Trasf",
-            "OVER_25": "Over 2.5",
-            "UNDER_25": "Under 2.5",
+            "OVER_25": "Over (linea salvata)",
+            "UNDER_25": "Under (linea salvata)",
             "BTTS_SI": "BTTS Sì",
             "BTTS_NO": "BTTS No",
         }
@@ -382,6 +382,18 @@ class PerformanceStats:
             if not r.is_completed():
                 continue
             key = (r.tot_band or "").strip() or tot_op_band(r.tot_op)
+            out.setdefault(key, []).append(r)
+        return out
+
+    @staticmethod
+    def segment_by_ou_line(records: list["PredictionRecord"]) -> dict[str, list["PredictionRecord"]]:
+        """Raggruppa le completate per linea Over/Under usata in analisi (``ou_line``)."""
+        out: dict[str, list] = {}
+        for r in records:
+            if not r.is_completed():
+                continue
+            ol = float(getattr(r, "ou_line", 2.5) or 2.5)
+            key = f"{ol:g}"
             out.setdefault(key, []).append(r)
         return out
 

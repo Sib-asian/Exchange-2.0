@@ -61,6 +61,7 @@ class PredictionRecord:
     # Input del modello
     ah_op: float = 0.0
     tot_op: float = 0.0
+    ou_line: float = 2.5  # linea O/U usata per p_over/p_under e per esito Over nel tracker
     xg_h: float = 0.0
     xg_a: float = 0.0
 
@@ -131,9 +132,9 @@ class PredictionRecord:
         else:
             self.risultato_1x2 = "X"
 
-        # Over 2.5
+        # Over/Under sulla linea salvata (tipicamente 1.5 o 2.5)
         total = self.gol_casa + self.gol_trasf
-        self.over_25_hit = total > 2.5
+        self.over_25_hit = total > float(self.ou_line)
 
         # BTTS
         self.btts_hit = self.gol_casa > 0 and self.gol_trasf > 0
@@ -308,6 +309,7 @@ def create_record_from_analysis(
         lega=lega,
         ah_op=input_data.get("ah_op", 0.0),
         tot_op=tot_op_val,
+        ou_line=float(input_data.get("linea_ou", 2.5)),
         xg_h=input_data.get("xg_h", 0.0),
         xg_a=input_data.get("xg_a", 0.0),
         minuto=int(input_data.get("minuto", 0)),

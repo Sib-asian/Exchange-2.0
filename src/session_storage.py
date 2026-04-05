@@ -122,6 +122,7 @@ def collect_widget_state(session_state: Any) -> dict[str, Any]:
         "lines_tot_op",
         "ah_cur_raw_input",
         "tot_cur_raw_input",
+        "prematch_ou_line_select",
         # Stato live
         "live_minuto",
         "live_gol_casa",

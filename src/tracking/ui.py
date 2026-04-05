@@ -144,7 +144,8 @@ def _render_pending_card(record: PredictionRecord, log: PredictionLog) -> None:
             # Previsioni
             prev_str = f"1={record.p1*100:.0f}% X={record.px*100:.0f}% 2={record.p2*100:.0f}%"
             if record.p_over_25 > 0:
-                prev_str += f" | O2.5={record.p_over_25*100:.0f}%"
+                _ol = getattr(record, "ou_line", 2.5) or 2.5
+                prev_str += f" | O{_ol:g}={record.p_over_25*100:.0f}%"
             if record.p_btts > 0:
                 prev_str += f" | BTTS={record.p_btts*100:.0f}%"
             st.caption(prev_str)
@@ -263,7 +264,8 @@ def _render_completed_row(record: PredictionRecord, log: PredictionLog) -> None:
         # Analisi esiti
         hits = []
         if record.over_25_hit is not None:
-            hits.append(f"O2.5: {'✓' if record.over_25_hit else '✗'}")
+            _ol = getattr(record, "ou_line", 2.5) or 2.5
+            hits.append(f"O{_ol:g}: {'✓' if record.over_25_hit else '✗'}")
         if record.btts_hit is not None:
             hits.append(f"BTTS: {'✓' if record.btts_hit else '✗'}")
         st.caption(" | ".join(hits))
@@ -310,8 +312,8 @@ def _render_stats_tab(log: PredictionLog) -> None:
         "1X2_1": "1X2 Casa",
         "1X2_X": "1X2 Pareggio",
         "1X2_2": "1X2 Trasferta",
-        "OVER_25": "Over 2.5",
-        "UNDER_25": "Under 2.5",
+        "OVER_25": "Over (linea salvata)",
+        "UNDER_25": "Under (linea salvata)",
         "BTTS_SI": "BTTS Sì",
         "BTTS_NO": "BTTS No",
     }
@@ -338,8 +340,14 @@ def _render_stats_tab(log: PredictionLog) -> None:
         df = pd.DataFrame(data)
         st.dataframe(df, use_container_width=True, hide_index=True)
         st.caption(
-            "Edge e ROI sono calcolati solo sulle partite in cui è stata salvata la quota per quel mercato."
+            "Edge e ROI sono calcolati solo sulle partite in cui è stata salvata la quota per quel mercato. "
+            "Over/Under: ogni riga usa la **linea O/U scelta** al momento dell'analisi (es. 1.5 o 2.5)."
         )
+
+    with st.expander("📉 Report per linea O/U e lega (Brier / log-loss)", expanded=False):
+        from src.tracking.deep_report import render_deep_report_streamlit
+
+        render_deep_report_streamlit(completed, min_n=3)
 
     st.divider()
     st.subheader("Calibrazione 1X2 (multiclasse)")

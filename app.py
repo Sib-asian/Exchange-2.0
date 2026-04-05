@@ -71,11 +71,6 @@ lines = render_linee_semplici(gol_casa=_live_gh, gol_trasf=_live_ga)
 if lines.get("blocking_errors"):
     st.stop()
 
-# Linea O/U: sempre 2.5 (standard per pronostici)
-def _linea_ou(tot_raw: float) -> float:
-    # Sempre 2.5 come richiesto dall'utente
-    return 2.5
-
 st.divider()
 
 # ── Bankroll ──────────────────────────────────────────────────────────────────
@@ -139,7 +134,7 @@ if _btn_prematch or _btn_live:
     else:
         _match = _match_live
 
-    _lou = _linea_ou(lines["tot_cur_raw"])
+    _lou = float(lines["linea_ou"])
 
     _pa = st.session_state.get("prematch_analysis")
     try:
@@ -221,6 +216,7 @@ if _btn_prematch or _btn_live:
     _input_data = {
         "ah_op": lines["ah_op"],
         "tot_op": lines["tot_op"],
+        "linea_ou": _lou,
         "minuto": state.minuto,
         "xg_h": risultati.xg_h_final,
         "xg_a": risultati.xg_a_final,
