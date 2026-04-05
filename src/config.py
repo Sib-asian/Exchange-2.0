@@ -319,6 +319,15 @@ class BayesianConfig:
     MOVEMENT_QUALITY_MIN: float = 0.80
     MOVEMENT_QUALITY_MAX: float = 1.30
 
+    # --- Potenziamento uso movimento apertura → corrente (linee manuali / live) ---
+    # Dopo i pesi tempo+movement_quality, se il mercato si è mosso abbastanza in
+    # spazio full-game, aumenta w_cur (fino a W_CUR_MAX) così la bisection AH
+    # ancori gli xG alla linea corrente, non solo al blend statico.
+    LINE_MOVE_TOT_SCALE: float = 0.50   # stessa scala del Total nel momentum (½ peso vs AH)
+    LINE_MOVE_BOOST_THRESHOLD: float = 0.10  # sotto ~un quarto di linea: nessun boost extra
+    LINE_MOVE_W_CUR_BOOST_RATE: float = 0.22  # incremento w_cur per unità di movimento oltre soglia
+    LINE_MOVE_W_CUR_BOOST_MAX: float = 0.14   # tetto incremento (evita di ignorare del tutto l'apertura)
+
 
 @dataclass(frozen=True)
 class MomentumConfig:
