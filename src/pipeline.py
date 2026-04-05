@@ -7,10 +7,14 @@ Isolata per test e per evitare duplicazione tra pagine Streamlit.
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from src.engine import MatchState, ProbabilitaModello, analizza
 from src.models.prematch_history_calibration import calibrate_prematch_probs
 from src.models.uncertainty_shrink import shrink_outcome_probs
+
+if TYPE_CHECKING:
+    from src.models.prematch_history_calibration import CalibrationSignals
 
 
 def run_analysis_pipeline(
@@ -19,15 +23,15 @@ def run_analysis_pipeline(
     league: str = "",
     apply_prematch_calibration: bool = True,
     extraction_coverage: float = 1.0,
-) -> tuple[ProbabilitaModello, str | None]:
+) -> tuple[ProbabilitaModello, CalibrationSignals | None]:
     """
     Esegue analizza → (opz.) calibrazione prematch per lega → shrink probabilità.
 
     Returns:
-        (risultati, calibration_signature o None)
+        (risultati, segnali_calibrazione o None)
     """
     risultati = analizza(state)
-    cal_sig: str | None = None
+    cal_sig: CalibrationSignals | None = None
 
     if apply_prematch_calibration and state.minuto == 0 and league.strip():
         p1, px, p2, p_over, p_under, p_btts, o15, u15, cal_sig = calibrate_prematch_probs(
