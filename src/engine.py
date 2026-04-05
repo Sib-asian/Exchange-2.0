@@ -454,10 +454,13 @@ def analizza(
     _ocr_overround_ou = 0.0
     _ocr_overround_1x2 = 0.0
     if state.minuto == 0:
+        # Se disponibile, usa la linea O/U estratta dalla stessa fonte delle quote OCR
+        # (Nowgoal open line) per evitare mismatch con la linea analisi selezionata.
+        _ou_line_for_ocr = state.ocr_imp_total if state.ocr_imp_total > 0.0 else state.linea_ou
         _ocr_total_quotes, _ocr_delta_quotes = estrai_segnali_ocr_da_quote(
             state.ocr_quota_1, state.ocr_quota_x, state.ocr_quota_2,
             state.ocr_quota_over, state.ocr_quota_under,
-            state.linea_ou,
+            _ou_line_for_ocr,
         )
         # #3: Calcola overround per quality-aware blending in calcola_xg_bayesiani()
         if state.ocr_quota_over > 1.0 and state.ocr_quota_under > 1.0:
@@ -762,7 +765,8 @@ def analizza(
                 xg_h_final, xg_a_final, state.minuto, tot_cur_eff,
                 shot_dom, gol_totali, _rho_dc_shared
             ),
-            "bivariate", xg_h_final, xg_a_final, state.minuto, tot_cur_eff, gol_totali
+            "bivariate", xg_h_final, xg_a_final, state.minuto, tot_cur_eff, gol_totali,
+            shot_dom, _rho_dc_shared,
         )
         full_copula = cache.get_or_compute(
             lambda: _compute_copula_model(xg_h_final, xg_a_final, copula_theta, nu_dynamic),
@@ -773,7 +777,8 @@ def analizza(
                 xg_h_final, xg_a_final, state.minuto,
                 state.gol_casa, state.gol_trasf, _rho_dc_shared
             ),
-            "markov", xg_h_final, xg_a_final, state.minuto, state.gol_casa, state.gol_trasf
+            "markov", xg_h_final, xg_a_final, state.minuto, state.gol_casa, state.gol_trasf,
+            _rho_dc_shared,
         )
     else:
         # Esecuzione parallela senza cache
@@ -970,9 +975,9 @@ def analizza(
             p2 = _p2_adj / _sum_1x2
 
     # 9d. H2H Over % blend (solo prematch) - Miglioramento #3.
-    # Se abbiamo dati H2H sull'Over, li usiamo per calibrare p_over.
-    # Peso conservativo: 15% del segnale H2H.
-    if state.minuto == 0 and state.h2h_over_pct > 0:
+    # Il dato H2H Over% è in genere riferito alla soglia 2.5: applichiamo il blend
+    # solo quando la linea analizzata è 2.5 per evitare mismatch di mercato.
+    if state.minuto == 0 and state.h2h_over_pct > 0 and abs(state.linea_ou - 2.5) < 1e-6:
         _alpha_over_h2h = 0.15
         _p_over_h2h = state.h2h_over_pct / 100.0  # Converti da % a proporzione
         p_over = (1.0 - _alpha_over_h2h) * p_over + _alpha_over_h2h * _p_over_h2h

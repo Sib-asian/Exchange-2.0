@@ -299,3 +299,31 @@ class TestEstraiSegnaliOcrDaQuote:
             "OCR total non ha aumentato la somma xG"
         assert xg_h_ocr > xg_a_ocr, \
             "OCR delta positivo non ha favorito la casa"
+
+
+class TestCalcolaXGBayesianiOcrAntiDoubleCount:
+    def test_dual_ocr_total_signals_do_not_overweight_sum(self):
+        """
+        Con due segnali OCR sul total (linea + quote), il nuovo blend anti-double-count
+        deve evitare una spinta eccessiva rispetto a usare un solo segnale.
+        """
+        base_h, base_a = calcola_xg_bayesiani(0.0, 2.5, 0.0, 2.5, 0)
+        line_h, line_a = calcola_xg_bayesiani(
+            0.0, 2.5, 0.0, 2.5, 0,
+            ocr_imp_total=3.0,
+        )
+        both_h, both_a = calcola_xg_bayesiani(
+            0.0, 2.5, 0.0, 2.5, 0,
+            ocr_imp_total=3.0,
+            ocr_total_quotes=3.0,
+            ocr_overround_ou=1.04,
+        )
+
+        base_sum = base_h + base_a
+        line_sum = line_h + line_a
+        both_sum = both_h + both_a
+
+        assert line_sum > base_sum
+        # Con target OCR identico (3.0), usare due segnali coerenti non deve
+        # allontanarsi molto dal caso "solo linea OCR".
+        assert abs(both_sum - line_sum) < 0.02
