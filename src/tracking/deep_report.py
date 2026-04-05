@@ -37,11 +37,15 @@ def build_segment_rows(
         b1 = PerformanceStats.compute_multiclass_brier_1x2(recs)
         ll = PerformanceStats.compute_log_loss_1x2(recs)
         over = PerformanceStats.compute_market_stats(recs, "OVER_25")
+        ece = PerformanceStats.compute_multiclass_ece_1x2(recs)
+        clv = PerformanceStats.compute_clv_proxy_1x2(recs)
         rows.append({
             "Segmento": name,
             "N": len(recs),
             "Brier 1X2": b1,
             "Log-loss 1X2": ll,
+            "ECE 1X2": ece,
+            "CLV 1X2": clv,
             "Brier Over": over.brier_score if over.total_predictions else None,
             "WR Over": over.win_rate if over.total_predictions else None,
         })
@@ -65,6 +69,8 @@ def print_deep_report(completed: list[PredictionRecord], *, min_n: int = 3) -> N
             f"  O/U {row['Segmento']}: N={row['N']}  "
             f"Brier1X2={_fmt_float(row['Brier 1X2'])}  "
             f"log-loss={_fmt_float(row['Log-loss 1X2'])}  "
+            f"ECE={_fmt_float(row['ECE 1X2'])}  "
+            f"CLV={_fmt_float(row['CLV 1X2'])}  "
             f"BrierOver={_fmt_float(row['Brier Over'], 3)}{wr_s}"
         )
 
@@ -77,6 +83,8 @@ def print_deep_report(completed: list[PredictionRecord], *, min_n: int = 3) -> N
             f"  {row['Segmento']}: N={row['N']}  "
             f"Brier1X2={_fmt_float(row['Brier 1X2'])}  "
             f"log-loss={_fmt_float(row['Log-loss 1X2'])}  "
+            f"ECE={_fmt_float(row['ECE 1X2'])}  "
+            f"CLV={_fmt_float(row['CLV 1X2'])}  "
             f"BrierOver={_fmt_float(row['Brier Over'], 3)}{wr_s}"
         )
 
@@ -105,6 +113,8 @@ def render_deep_report_streamlit(completed: list[PredictionRecord], *, min_n: in
                 "N": r["N"],
                 "Brier 1X2": r["Brier 1X2"],
                 "Log-loss 1X2": r["Log-loss 1X2"],
+                "ECE 1X2": r["ECE 1X2"],
+                "CLV 1X2": r["CLV 1X2"],
                 "Brier Over": r["Brier Over"],
                 "Win rate Over": r["WR Over"],
             })
@@ -126,12 +136,16 @@ def render_deep_report_streamlit(completed: list[PredictionRecord], *, min_n: in
                 "N": r["N"],
                 "Brier 1X2": r["Brier 1X2"],
                 "Log-loss 1X2": r["Log-loss 1X2"],
+                "ECE 1X2": r["ECE 1X2"],
+                "CLV 1X2": r["CLV 1X2"],
                 "Brier Over": r["Brier Over"],
                 "Win rate Over": r["WR Over"],
             })
         st.dataframe(pd.DataFrame(disp), use_container_width=True, hide_index=True)
 
     st.caption(
-        "Brier/log-loss 1X2 = vettore 1-X-2. Brier Over = calibrazione probabilità Over sulla linea salvata. "
+        "Brier/log-loss/ECE 1X2 = qualità probabilità multiclasse 1-X-2. "
+        "CLV 1X2 = proxy open->close sulle quote salvate. "
+        "Brier Over = calibrazione probabilità Over sulla linea salvata. "
         f"Solo segmenti con N≥{min_n}."
     )

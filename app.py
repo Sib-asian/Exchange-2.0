@@ -265,6 +265,9 @@ if _btn_prematch or _btn_live:
         "extraction_coverage": float(_coverage),
         "league_source": str(getattr(_pa, "league_source", "")) if _pa else "",
         "model_agreement": float(risultati.model_agreement),
+        "quality_score": float(getattr(risultati, "quality_score", 0.0)),
+        "signals_blocked": bool(getattr(risultati, "signals_blocked", False)),
+        "signals_block_reason": str(getattr(risultati, "signals_block_reason", "")),
         "tot_band": tot_op_band(float(lines["tot_op"])),
         "software_version": str(UI.VERSION),
         "consensus_w_bp": float(risultati.consensus_w_bp),
@@ -349,6 +352,7 @@ if _btn_prematch or _btn_live:
         gol_casa=_gol_h,
         gol_trasf=_gol_a,
         top_cs=risultati.top_cs,
+        signals_blocked=bool(getattr(risultati, "signals_blocked", False)),
     )
     if _settled.get("ou_vinto"):
         segnali = [s for s in segnali if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]
@@ -356,6 +360,12 @@ if _btn_prematch or _btn_live:
         segnali = [s for s in segnali if "BTTS" not in s.mercato.upper()]
 
     render_segnali_rapidi(segnali)
+    if getattr(risultati, "signals_blocked", False):
+        _reason = getattr(risultati, "signals_block_reason", "")
+        st.warning(
+            "No-Bet firewall attivo: qualità operativa insufficiente."
+            + (f" Motivo: {_reason}." if _reason else "")
+        )
     render_avvisi_affidabilita(risultati.flat_lines, _n_shots, _minuto)
     render_lines_need_update(risultati)
     render_avvisi_incoerenza(
@@ -418,6 +428,7 @@ if _btn_prematch or _btn_live:
             model_agreement=risultati.model_agreement,
             gol_casa=_gol_h,
             gol_trasf=_gol_a,
+            signals_blocked=bool(getattr(risultati, "signals_blocked", False)),
         )
         if _settled.get("ou_vinto"):
             segnali_av = [s for s in segnali_av if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]

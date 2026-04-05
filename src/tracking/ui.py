@@ -301,7 +301,8 @@ def _render_stats_tab(log: PredictionLog) -> None:
     if roll:
         st.caption(
             f"Ultime {roll['n']} partite — Brier 1X2: **{roll['brier_1x2']:.4f}** · "
-            f"log-loss: **{roll['log_loss_1x2']:.4f}**"
+            f"log-loss: **{roll['log_loss_1x2']:.4f}** · "
+            f"ECE: **{roll['ece_1x2']:.4f}**"
         )
 
     # Tabella statistiche
@@ -331,6 +332,8 @@ def _render_stats_tab(log: PredictionLog) -> None:
                 "Con quota": f"{qn}/{tot}",
                 "Win Rate": f"{s.win_rate*100:.1f}%",
                 "Brier": f"{s.brier_score:.3f}",
+                "ECE": f"{s.ece_score:.3f}",
+                "CLV": f"{s.avg_clv*100:+.2f}%" if s._clv_n > 0 else "—",
                 "Edge (su quota)": edge_s,
                 "ROI (su quota)": roi_s,
             })
@@ -341,6 +344,7 @@ def _render_stats_tab(log: PredictionLog) -> None:
         st.dataframe(df, use_container_width=True, hide_index=True)
         st.caption(
             "Edge e ROI sono calcolati solo sulle partite in cui è stata salvata la quota per quel mercato. "
+            "CLV usa anche la quota closing se disponibile. "
             "Over/Under: ogni riga usa la **linea O/U scelta** al momento dell'analisi (es. 1.5 o 2.5)."
         )
 
@@ -353,7 +357,9 @@ def _render_stats_tab(log: PredictionLog) -> None:
     st.subheader("Calibrazione 1X2 (multiclasse)")
     _mb = PerformanceStats.compute_multiclass_brier_1x2(completed)
     _ll = PerformanceStats.compute_log_loss_1x2(completed)
-    c_m1, c_m2, c_m3 = st.columns(3)
+    _ece = PerformanceStats.compute_multiclass_ece_1x2(completed)
+    _clv = PerformanceStats.compute_clv_proxy_1x2(completed)
+    c_m1, c_m2, c_m3, c_m4 = st.columns(4)
     with c_m1:
         st.metric(
             "Brier 1X2 (vector)",
@@ -373,6 +379,14 @@ def _render_stats_tab(log: PredictionLog) -> None:
             )
         else:
             st.metric("Rolling 30", "—")
+    with c_m4:
+        st.metric(
+            "ECE 1X2",
+            f"{_ece:.4f}" if _ece is not None else "—",
+            help="Expected Calibration Error multiclasse (più basso è meglio).",
+        )
+    if _clv is not None:
+        st.caption(f"CLV proxy 1X2 medio (open→close): **{_clv*100:+.2f}%**")
 
     _by_l = PerformanceStats.segment_by_league(completed)
     _by_t = PerformanceStats.segment_by_tot_band(completed)
@@ -382,20 +396,24 @@ def _render_stats_tab(log: PredictionLog) -> None:
         if len(prem) >= 3:
             b = PerformanceStats.compute_multiclass_brier_1x2(prem)
             ll = PerformanceStats.compute_log_loss_1x2(prem)
+            ece = PerformanceStats.compute_multiclass_ece_1x2(prem)
             rows_pm.append({
                 "Contesto": "Prematch",
                 "N": len(prem),
                 "Brier 1X2": f"{b:.4f}" if b is not None else "—",
                 "Log-loss": f"{ll:.4f}" if ll is not None else "—",
+                "ECE": f"{ece:.4f}" if ece is not None else "—",
             })
         if len(live) >= 3:
             b = PerformanceStats.compute_multiclass_brier_1x2(live)
             ll = PerformanceStats.compute_log_loss_1x2(live)
+            ece = PerformanceStats.compute_multiclass_ece_1x2(live)
             rows_pm.append({
                 "Contesto": "Live",
                 "N": len(live),
                 "Brier 1X2": f"{b:.4f}" if b is not None else "—",
                 "Log-loss": f"{ll:.4f}" if ll is not None else "—",
+                "ECE": f"{ece:.4f}" if ece is not None else "—",
             })
         if rows_pm:
             import pandas as pd
@@ -410,11 +428,13 @@ def _render_stats_tab(log: PredictionLog) -> None:
                 continue
             b = PerformanceStats.compute_multiclass_brier_1x2(sub)
             ll = PerformanceStats.compute_log_loss_1x2(sub)
+            ece = PerformanceStats.compute_multiclass_ece_1x2(sub)
             rows_l.append({
                 "Lega": lega[:48],
                 "N": len(sub),
                 "Brier 1X2": f"{b:.4f}" if b is not None else "—",
                 "Log-loss": f"{ll:.4f}" if ll is not None else "—",
+                "ECE": f"{ece:.4f}" if ece is not None else "—",
             })
         if rows_l:
             import pandas as pd
@@ -429,11 +449,13 @@ def _render_stats_tab(log: PredictionLog) -> None:
                 continue
             b = PerformanceStats.compute_multiclass_brier_1x2(sub)
             ll = PerformanceStats.compute_log_loss_1x2(sub)
+            ece = PerformanceStats.compute_multiclass_ece_1x2(sub)
             rows_t.append({
                 "Fascia total": band,
                 "N": len(sub),
                 "Brier 1X2": f"{b:.4f}" if b is not None else "—",
                 "Log-loss": f"{ll:.4f}" if ll is not None else "—",
+                "ECE": f"{ece:.4f}" if ece is not None else "—",
             })
         if rows_t:
             import pandas as pd

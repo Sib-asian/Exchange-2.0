@@ -1043,6 +1043,42 @@ class BTTSCalibrationConfig:
     BTTS_MAX: float = 0.85   # BTTS non può salire sopra 85%
 
 
+@dataclass(frozen=True)
+class PrecisionConfig:
+    """
+    Guardrail di precisione operativa (No-Bet + Quality Firewall + promotion).
+    """
+
+    # === Fase 4/5: No-Bet + Data Quality Firewall ===
+    # Score minimo complessivo per consentire segnali operativi.
+    QUALITY_SCORE_MIN: float = 0.50
+    # Confidenza minima del modello (oltre al gate già presente nei segnali).
+    MODEL_CONFIDENCE_MIN: float = 0.45
+    # Accordo minimo tra modelli consensus.
+    MODEL_AGREEMENT_MIN: float = 0.45
+    # Divergenza modello-mercato oltre la quale conviene sospendere.
+    MARKET_DIVERGENCE_MAX: float = 0.26
+    # In prematch con estrazione scarsa i segnali diventano rumorosi.
+    PREMATCH_COVERAGE_MIN: float = 0.55
+    # In live linee stantie + scoreline non aggiornato = blocco operativo.
+    STALE_LINE_MINUTE_BLOCK: int = 20
+    # Se True, nessun segnale operativo quando il firewall blocca.
+    HARD_BLOCK_ON_FIREWALL: bool = True
+
+    # === Fase 6: Champion/Challenger gates ===
+    # Campione minimo per valutazione promozione.
+    CHAMPION_MIN_SAMPLES: int = 30
+    # Miglioramenti minimi richiesti (valori negativi = riduzione metrica).
+    CHAMPION_MAX_DELTA_BRIER: float = -0.003
+    CHAMPION_MAX_DELTA_LOGLOSS: float = -0.004
+    CHAMPION_MAX_DELTA_ECE: float = -0.010
+    # CLV proxy non deve peggiorare oltre questa tolleranza.
+    CHAMPION_MIN_DELTA_CLV: float = -0.010
+
+    # ECE: numero bin per report/valutazione
+    ECE_BINS: int = 10
+
+
 # Istanze globali immutabili — importare da qui
 POISSON   = PoissonConfig()
 DC        = DixonColesConfig()
@@ -1068,3 +1104,4 @@ OCR_QUOTES = OcrQuotesConfig()
 AI_ADJ = AIAdjConfig()
 FORM_ANALYSIS = FormAnalysisConfig()
 BTTS_CALIBRATION = BTTSCalibrationConfig()
+PRECISION = PrecisionConfig()
