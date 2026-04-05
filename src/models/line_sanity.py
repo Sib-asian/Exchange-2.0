@@ -38,10 +38,12 @@ def prematch_line_quality(
             "siano coerenti con il mercato che stai guardando."
         )
 
-    if tot_op > 0 and linea_ou >= tot_op - 0.25:
+    # Solo se la linea O/U scelta è *sopra* il total inserito (es. total 2.5 ma analisi 3.0):
+    # se sono uguali (es. 2.5 e 2.5) è il caso normale — nessun avviso.
+    if tot_op > 0 and linea_ou > tot_op + 1e-6:
         out.append(
-            f"Stai analizzando Over/Under **{linea_ou:g}** con total di mercato **{tot_op:.2f}**: "
-            "di solito le quote O/U sono su linee più basse del total — controlla."
+            f"La linea Over/Under **{linea_ou:g}** è **sopra** il total di mercato **{tot_op:.2f}** "
+            "che hai inserito: controlla che entrambi si riferiscano allo stesso listino (full game, stesso book)."
         )
 
     if linea_ou <= 1.0:
