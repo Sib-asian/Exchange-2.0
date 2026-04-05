@@ -51,6 +51,8 @@ def test_build_segment_rows_respects_min_n() -> None:
     rows2 = build_segment_rows([a, b], seg, min_n=2)
     assert len(rows2) == 1
     assert rows2[0]["N"] == 2
+    assert "ECE 1X2" in rows2[0]
+    assert "CLV 1X2" in rows2[0]
 
 
 def test_print_deep_report_no_crash(capsys: object) -> None:

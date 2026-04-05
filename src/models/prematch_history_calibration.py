@@ -88,6 +88,98 @@ def estimate_calibration_signals(league: str = "") -> CalibrationSignals:
     )
 
 
+def estimate_calibration_signals_segmented(
+    *,
+    league: str = "",
+    tot_band: str = "",
+) -> CalibrationSignals:
+    """
+    Calibrazione gerarchica:
+    1) league + tot_band
+    2) league
+    3) global
+    """
+    records = _prematch_completed_records()
+    target_league = _normalize_league(league)
+    target_band = (tot_band or "").strip()
+
+    league_records = [
+        r for r in records if _normalize_league(getattr(r, "lega", "")) == target_league
+    ] if target_league else []
+
+    league_band_records = [
+        r for r in league_records if str(getattr(r, "tot_band", "")).strip() == target_band
+    ] if target_band else []
+
+    if len(league_band_records) >= max(10, _MIN_SAMPLES // 2):
+        base = _estimate_from_records(league_band_records)
+        return CalibrationSignals(
+            p1_scale=base.p1_scale,
+            px_scale=base.px_scale,
+            p2_scale=base.p2_scale,
+            over_scale=base.over_scale,
+            btts_scale=base.btts_scale,
+            weight=base.weight,
+            samples=base.samples,
+            scope=f"league+band:{target_league}|{target_band}",
+        )
+
+    if len(league_records) >= max(12, _MIN_SAMPLES // 2):
+        base = _estimate_from_records(league_records)
+        return CalibrationSignals(
+            p1_scale=base.p1_scale,
+            px_scale=base.px_scale,
+            p2_scale=base.p2_scale,
+            over_scale=base.over_scale,
+            btts_scale=base.btts_scale,
+            weight=base.weight,
+            samples=base.samples,
+            scope=f"league:{target_league}",
+        )
+
+    base = _estimate_from_records(records)
+    return CalibrationSignals(
+        p1_scale=base.p1_scale,
+        px_scale=base.px_scale,
+        p2_scale=base.p2_scale,
+        over_scale=base.over_scale,
+        btts_scale=base.btts_scale,
+        weight=base.weight,
+        samples=base.samples,
+        scope="global",
+    )
+
+
+def _estimate_from_records(records: list[PredictionRecord]) -> CalibrationSignals:
+    n = len(records)
+    if n < _MIN_SAMPLES:
+        return CalibrationSignals(samples=n, scope="global")
+
+    avg_p1 = sum(r.p1 for r in records) / n
+    avg_px = sum(r.px for r in records) / n
+    avg_p2 = sum(r.p2 for r in records) / n
+    avg_over = sum(r.p_over_25 for r in records) / n
+    avg_btts = sum(r.p_btts for r in records) / n
+
+    avg_o1 = sum(1.0 for r in records if r.risultato_1x2 == "1") / n
+    avg_ox = sum(1.0 for r in records if r.risultato_1x2 == "X") / n
+    avg_o2 = sum(1.0 for r in records if r.risultato_1x2 == "2") / n
+    avg_over_hit = sum(1.0 for r in records if bool(r.over_25_hit)) / n
+    avg_btts_hit = sum(1.0 for r in records if bool(r.btts_hit)) / n
+
+    weight = min(_MAX_WEIGHT, (n - _MIN_SAMPLES) / 100.0 * _MAX_WEIGHT)
+    return CalibrationSignals(
+        p1_scale=_safe_scale(avg_p1, avg_o1),
+        px_scale=_safe_scale(avg_px, avg_ox),
+        p2_scale=_safe_scale(avg_p2, avg_o2),
+        over_scale=_safe_scale(avg_over, avg_over_hit),
+        btts_scale=_safe_scale(avg_btts, avg_btts_hit),
+        weight=max(0.0, weight),
+        samples=n,
+        scope="global",
+    )
+
+
 def calibrate_prematch_probs(
     p1: float,
     px: float,
@@ -96,11 +188,12 @@ def calibrate_prematch_probs(
     p_under: float,
     p_btts: float,
     league: str = "",
+    tot_band: str = "",
     *,
     p_over_15: float | None = None,
     p_under_15: float | None = None,
 ) -> tuple[float, float, float, float, float, float, float | None, float | None, CalibrationSignals]:
-    signals = estimate_calibration_signals(league=league)
+    signals = estimate_calibration_signals_segmented(league=league, tot_band=tot_band)
     if signals.weight <= 0:
         return p1, px, p2, p_over, p_under, p_btts, p_over_15, p_under_15, signals
 

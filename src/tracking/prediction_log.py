@@ -89,6 +89,9 @@ class PredictionRecord:
     extraction_coverage: float = 0.0
     league_source: str = ""
     model_agreement: float = 0.0
+    quality_score: float = 0.0
+    signals_blocked: bool = False
+    signals_block_reason: str = ""
     tot_band: str = ""
     software_version: str = ""
     consensus_w_bp: float = 0.0
@@ -104,6 +107,14 @@ class PredictionRecord:
     p1_mk: float = 0.0
     px_mk: float = 0.0
     p2_mk: float = 0.0
+    # Optional closing market snapshots (for CLV proxy)
+    quota_1_close: float = 0.0
+    quota_x_close: float = 0.0
+    quota_2_close: float = 0.0
+    quota_over_close: float = 0.0
+    quota_under_close: float = 0.0
+    quota_btts_si_close: float = 0.0
+    quota_btts_no_close: float = 0.0
 
     # Risultato (vuoto fino a fine partita)
     gol_casa: int | None = None
@@ -331,6 +342,9 @@ def create_record_from_analysis(
         extraction_coverage=float(meta.get("extraction_coverage", 0.0)),
         league_source=str(meta.get("league_source", "")),
         model_agreement=float(meta.get("model_agreement", 0.0)),
+        quality_score=float(meta.get("quality_score", 0.0)),
+        signals_blocked=bool(meta.get("signals_blocked", False)),
+        signals_block_reason=str(meta.get("signals_block_reason", "")),
         tot_band=str(meta.get("tot_band", tot_op_band(tot_op_val))),
         software_version=str(meta.get("software_version", "")),
         consensus_w_bp=float(meta.get("consensus_w_bp", 0.0)),
@@ -345,4 +359,11 @@ def create_record_from_analysis(
         p1_mk=float(meta.get("p1_mk", 0.0)),
         px_mk=float(meta.get("px_mk", 0.0)),
         p2_mk=float(meta.get("p2_mk", 0.0)),
+        quota_1_close=float(quotes.get("quota_1_close", 0.0)),
+        quota_x_close=float(quotes.get("quota_x_close", 0.0)),
+        quota_2_close=float(quotes.get("quota_2_close", 0.0)),
+        quota_over_close=float(quotes.get("quota_over_close", 0.0)),
+        quota_under_close=float(quotes.get("quota_under_close", 0.0)),
+        quota_btts_si_close=float(quotes.get("quota_btts_si_close", 0.0)),
+        quota_btts_no_close=float(quotes.get("quota_btts_no_close", 0.0)),
     )

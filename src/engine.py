@@ -296,6 +296,12 @@ class ProbabilitaModello:
     # FIX: Campo per indicare linee probabilmente non aggiornate
     # True se ci sono gol ma le linee sembrano ancora quelle d'apertura
     lines_need_update: bool = False
+    # Quality firewall score [0,1]: misura sintetica di affidabilità operativa.
+    quality_score: float = 1.0
+    # Se True, blocca segnali operativi (No-Bet engine / quality firewall).
+    signals_blocked: bool = False
+    # Motivo sintetico del blocco operativo (utile in UI e tracking).
+    signals_block_reason: str = ""
 
     # Market shock: True se il momentum supera la soglia di "movimento anomalo".
     # Indica che le linee si sono mosse molto rispetto al tempo giocato →

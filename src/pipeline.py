@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from src.config import PRECISION
 from src.engine import MatchState, ProbabilitaModello, analizza
 from src.models.prematch_history_calibration import calibrate_prematch_probs
 from src.models.uncertainty_shrink import shrink_outcome_probs
@@ -42,6 +43,7 @@ def run_analysis_pipeline(
             risultati.p_under,
             risultati.p_btts,
             league=league,
+            tot_band=f"{float(state.linea_ou):g}",
             p_over_15=risultati.p_over_15,
             p_under_15=risultati.p_under_15,
         )
@@ -80,6 +82,55 @@ def run_analysis_pipeline(
         p_over_15=qo15 if qo15 is not None else risultati.p_over_15,
         p_under_15=qu15 if qu15 is not None else risultati.p_under_15,
     )
+
+    # Fase 4/5: No-Bet + Data Quality Firewall.
+    # Blocca i segnali operativi in condizioni di bassa affidabilità strutturale.
+    _signals_blocked = False
+    _block_reasons: list[str] = []
+
+    _quality_score = max(
+        0.0,
+        min(
+            1.0,
+            0.45 * float(risultati.model_confidence)
+            + 0.35 * float(risultati.model_agreement)
+            + 0.20 * float(max(0.0, 1.0 - risultati.market_divergence)),
+        ),
+    )
+
+    if _quality_score < PRECISION.QUALITY_SCORE_MIN:
+        _signals_blocked = True
+        _block_reasons.append(f"quality<{PRECISION.QUALITY_SCORE_MIN:.2f}")
+    if float(risultati.model_confidence) < PRECISION.MODEL_CONFIDENCE_MIN:
+        _signals_blocked = True
+        _block_reasons.append(f"conf<{PRECISION.MODEL_CONFIDENCE_MIN:.2f}")
+    if float(risultati.model_agreement) < PRECISION.MODEL_AGREEMENT_MIN:
+        _signals_blocked = True
+        _block_reasons.append(f"agreement<{PRECISION.MODEL_AGREEMENT_MIN:.2f}")
+    if float(risultati.market_divergence) > PRECISION.MARKET_DIVERGENCE_MAX:
+        _signals_blocked = True
+        _block_reasons.append(f"divergence>{PRECISION.MARKET_DIVERGENCE_MAX:.2f}")
+    if state.minuto == 0 and float(extraction_coverage) < PRECISION.PREMATCH_COVERAGE_MIN:
+        _signals_blocked = True
+        _block_reasons.append(f"coverage<{PRECISION.PREMATCH_COVERAGE_MIN:.2f}")
+    if state.minuto >= PRECISION.STALE_LINE_MINUTE_BLOCK and bool(risultati.stale_line):
+        _signals_blocked = True
+        _block_reasons.append("stale_line")
+
+    if PRECISION.HARD_BLOCK_ON_FIREWALL and _signals_blocked:
+        risultati = replace(
+            risultati,
+            quality_score=_quality_score,
+            signals_blocked=True,
+            signals_block_reason=", ".join(_block_reasons),
+        )
+    else:
+        risultati = replace(
+            risultati,
+            quality_score=_quality_score,
+            signals_blocked=False,
+            signals_block_reason="",
+        )
 
     return risultati, cal_sig
 

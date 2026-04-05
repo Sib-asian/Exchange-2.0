@@ -148,6 +148,7 @@ def genera_segnali_rapidi(
     gol_casa: int = 0,
     gol_trasf: int = 0,
     top_cs: list[tuple[tuple[int, int], float]] | None = None,
+    signals_blocked: bool = False,
 ) -> list[Signal]:
     """
     Genera segnali rapidi basati sulle probabilità del modello, senza quote exchange.
@@ -169,6 +170,10 @@ def genera_segnali_rapidi(
         Lista di Signal di tipo INFO_BACK o INFO_LAY. Lista vuota se la
         confidenza del modello è sotto soglia (linee stantie, dati mancanti, ecc.).
     """
+    # Quality firewall: blocco operativo deciso dalla pipeline.
+    if signals_blocked:
+        return []
+
     # Gate confidenza: se il modello non è affidabile, non emettere segnali.
     # Con linee stantie, assenza di dati sui tiri o modelli in forte disaccordo,
     # qualsiasi segnale sarebbe rumore — meglio il silenzio di un consiglio errato.
@@ -654,6 +659,7 @@ def genera_segnali_avanzati(
     model_agreement: float = 1.0,
     gol_casa: int = 0,
     gol_trasf: int = 0,
+    signals_blocked: bool = False,
 ) -> list[Signal]:
     """
     Genera segnali avanzati con quote exchange, Kelly criterion e EV.
@@ -673,6 +679,9 @@ def genera_segnali_avanzati(
     Returns:
         Lista di Signal con calcoli Kelly/EV completi.
     """
+    if signals_blocked:
+        return []
+
     # Gate confidenza: sopprimi segnali avanzati se il modello non è affidabile.
     # Stessa soglia dei rapidi: linee stantie, dati assenti, modelli discordi
     # rendono anche l'edge misurato non affidabile (il modello è fuori calibrazione).
