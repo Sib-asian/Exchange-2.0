@@ -338,6 +338,15 @@ def calcola_xg_bayesiani(
     fixture_historical_total: float = 0.0,
     movement_quality: float = 1.0,
     ocr_confidence_scale: float = 1.0,
+    line_movement_ah_raw: float = 0.0,
+    line_movement_total_raw: float = 0.0,
+    extraction_coverage: float = 0.0,
+    team_stats_home_shots: float = 0.0,
+    team_stats_away_shots: float = 0.0,
+    team_stats_home_corners: float = 0.0,
+    team_stats_away_corners: float = 0.0,
+    team_stats_home_possession: float = 0.0,
+    team_stats_away_possession: float = 0.0,
 ) -> tuple[float, float]:
     """
     Estrae gli xG impliciti dal blend Bayesiano delle linee di mercato.
@@ -441,6 +450,40 @@ def calcola_xg_bayesiani(
         _hist_total = max(1.0, min(6.0, fixture_historical_total))
         tot_op = (1.0 - BAYES.FIXTURE_PRIOR_WEIGHT) * tot_op + BAYES.FIXTURE_PRIOR_WEIGHT * _hist_total
 
+    # Prematch micro-prior da team stats (shots/corners/possesso) con gate coverage.
+    # Obiettivo: nudge leggero sull'intensità totale senza sostituire il mercato.
+    if minuto == 0 and extraction_coverage >= 0.65:
+        _cov_gate = min(1.0, (extraction_coverage - 0.65) / 0.35)
+        _micro_target = 0.0
+        _micro_weight = 0.0
+
+        # Micro-segnali aggiuntivi (weight ultra-conservativo).
+        if team_stats_home_shots > 0.0 and team_stats_away_shots > 0.0:
+            _shots_sum = team_stats_home_shots + team_stats_away_shots
+            # ~20 tiri totali = baseline 2.6 goals; slope moderata.
+            _shots_target = max(1.4, min(4.0, 2.6 + (_shots_sum - 20.0) * 0.04))
+            _micro_target += 0.03 * _shots_target
+            _micro_weight += 0.03
+
+        if team_stats_home_corners > 0.0 and team_stats_away_corners > 0.0:
+            _corners_sum = team_stats_home_corners + team_stats_away_corners
+            # 9 corner totali = baseline 2.5, impatto piccolo.
+            _corners_target = max(1.5, min(3.8, 2.5 + (_corners_sum - 9.0) * 0.03))
+            _micro_target += 0.02 * _corners_target
+            _micro_weight += 0.02
+
+        if team_stats_home_possession > 0.0 and team_stats_away_possession > 0.0:
+            _poss_gap = abs(team_stats_home_possession - team_stats_away_possession)
+            # Gap possesso alto tende a partite meno "equilibrate", spesso ritmo leggermente più basso.
+            _poss_target = max(1.6, min(3.6, 2.5 - (_poss_gap - 5.0) * 0.01))
+            _micro_target += 0.02 * _poss_target
+            _micro_weight += 0.02
+
+        if _micro_weight > 0.0:
+            _micro_total = _micro_target / _micro_weight
+            _w_eff = _micro_weight * _cov_gate
+            tot_op = (1.0 - _w_eff) * tot_op + _w_eff * _micro_total
+
     # Pesi time-varying (esponenziali) — dopo ah_op/tot_op effettivi (URL/OCR/fixture).
     # t=0: w_op≈0.35, w_cur≈0.65 prima di mq e boost movimento.
     w_op_raw = (1.0 - BAYES.W_CUR_MIN) * math.exp(-BAYES.W_OP_EXP_RATE * frac_giocata ** 2) \
@@ -455,6 +498,13 @@ def calcola_xg_bayesiani(
     ah_cur_fg = float(ah_cur) - float(gol_diff)
     tot_cur_fg = float(tot_cur) + float(gol_tot)
     _move_mag = abs(ah_cur_fg - float(ah_op)) + BAYES.LINE_MOVE_TOT_SCALE * abs(tot_cur_fg - float(tot_op))
+    # Prematch: integra in modo conservativo anche il movimento raw estratto da Nowgoal
+    # (quando la copertura è buona), così il boost su w_cur non dipende solo dalle linee
+    # manuali inserite ma anche dal movimento osservato nel feed.
+    if minuto == 0 and extraction_coverage >= 0.65:
+        _cov_gate = min(1.0, (extraction_coverage - 0.65) / 0.35)
+        _raw_move = abs(line_movement_ah_raw) + BAYES.LINE_MOVE_TOT_SCALE * abs(line_movement_total_raw)
+        _move_mag += 0.35 * _cov_gate * _raw_move
     if _move_mag >= BAYES.LINE_MOVE_BOOST_THRESHOLD:
         _exc = _move_mag - BAYES.LINE_MOVE_BOOST_THRESHOLD
         _bump = min(

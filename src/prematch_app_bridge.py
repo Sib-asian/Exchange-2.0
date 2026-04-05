@@ -215,6 +215,14 @@ def build_match_state_from_prematch_analysis(
     _ocr_imp = float(getattr(pa, "total_line_open", 0.0)) if pa else 0.0
     _ocr_qgg = float(getattr(pa, "mkt_init_gg", 0.0)) if pa else 0.0
     _ocr_qng = float(getattr(pa, "mkt_init_ng", 0.0)) if pa else 0.0
+    _line_move_ah_raw = float(getattr(pa, "line_movement_ah", 0.0)) if pa else 0.0
+    _line_move_total_raw = float(getattr(pa, "line_movement_total", 0.0)) if pa else 0.0
+    _ts_sh_h = float(getattr(pa, "team_stats_home_shots", 0.0)) if pa else 0.0
+    _ts_sh_a = float(getattr(pa, "team_stats_away_shots", 0.0)) if pa else 0.0
+    _ts_cor_h = float(getattr(pa, "team_stats_home_corners", 0.0)) if pa else 0.0
+    _ts_cor_a = float(getattr(pa, "team_stats_away_corners", 0.0)) if pa else 0.0
+    _ts_pos_h = float(getattr(pa, "team_stats_home_possession", 0.0)) if pa else 0.0
+    _ts_pos_a = float(getattr(pa, "team_stats_away_possession", 0.0)) if pa else 0.0
 
     state = build_match_state(
         match, lines, linea_ou, bankroll, comm_rate,
@@ -279,5 +287,14 @@ def build_match_state_from_prematch_analysis(
         ocr_imp_total=_ocr_imp,
         ocr_quota_gg=_ocr_qgg,
         ocr_quota_ng=_ocr_qng,
+        line_movement_ah_raw=_line_move_ah_raw,
+        line_movement_total_raw=_line_move_total_raw,
+        extraction_coverage=_coverage,
+        team_stats_home_shots=_ts_sh_h,
+        team_stats_away_shots=_ts_sh_a,
+        team_stats_home_corners=_ts_cor_h,
+        team_stats_away_corners=_ts_cor_a,
+        team_stats_home_possession=_ts_pos_h,
+        team_stats_away_possession=_ts_pos_a,
     )
     return state, _lega, _coverage

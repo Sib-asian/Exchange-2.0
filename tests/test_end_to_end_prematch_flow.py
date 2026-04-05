@@ -31,7 +31,15 @@ def _fake_pa(**kwargs):
         extraction_coverage=0.80,
         extraction_section_scores={},
         odds_sharp_signal=0.4,
+        line_movement_ah=-0.50,
+        line_movement_total=0.25,
         weather_impact=0.0,
+        team_stats_home_shots=13.0,
+        team_stats_away_shots=9.0,
+        team_stats_home_corners=6.0,
+        team_stats_away_corners=4.0,
+        team_stats_home_possession=55.0,
+        team_stats_away_possession=45.0,
         # Empty absences list with zero counts should stay neutral
         home_absences_count=0,
         away_absences_count=0,
@@ -82,6 +90,8 @@ def test_full_prematch_flow_returns_normalized_probabilities() -> None:
     assert 0.0 <= out.p_btts <= 1.0
     assert out.xg_h_final > 0.0 and out.xg_a_final > 0.0
     assert cal is not None
+    assert state.line_movement_ah_raw == -0.50
+    assert state.team_stats_home_shots == 13.0
 
 
 def test_bridge_absence_multiplier_neutral_without_player_details() -> None:

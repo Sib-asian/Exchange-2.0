@@ -112,3 +112,50 @@ def test_engine_cache_key_contains_shot_dom_and_rho_dc(monkeypatch) -> None:
     assert bivariate[-2] > 0.0
     # markov: (..., gol_h, gol_a, rho_dc)
     assert isinstance(markov[-1], float)
+
+
+def test_engine_new_premarket_fields_reach_calibration(monkeypatch) -> None:
+    """Engine should forward new prematch signals to calcola_xg_bayesiani."""
+    captured: dict[str, float] = {}
+
+    def _fake_calcola_xg_bayesiani(
+        ah_op: float,
+        tot_op: float,
+        ah_cur: float,
+        tot_cur: float,
+        minuto: int,
+        gol_diff: int = 0,
+        gol_tot: int = 0,
+        **kwargs,
+    ) -> tuple[float, float]:
+        captured.update(kwargs)
+        return 1.20, 1.10
+
+    monkeypatch.setattr("src.models.calibration.calcola_xg_bayesiani", _fake_calcola_xg_bayesiani)
+
+    state = MatchState(
+        minuto=0,
+        gol_casa=0,
+        gol_trasf=0,
+        rossi_casa=0,
+        rossi_trasf=0,
+        ah_op=-0.25,
+        tot_op=2.5,
+        ah_cur=-0.25,
+        tot_cur=2.5,
+        linea_ou=2.5,
+        extraction_coverage=0.82,
+        line_movement_ah_raw=-0.50,
+        line_movement_total_raw=0.25,
+        team_stats_home_shots=13.0,
+        team_stats_away_shots=9.0,
+        team_stats_home_corners=6.0,
+        team_stats_away_corners=4.0,
+        team_stats_home_possession=55.0,
+        team_stats_away_possession=45.0,
+    )
+
+    analizza(state)
+    assert captured["extraction_coverage"] == 0.82
+    assert captured["line_movement_ah_raw"] == -0.50
+    assert captured["line_movement_total_raw"] == 0.25
