@@ -78,10 +78,8 @@ def build_match_state_from_prematch_analysis(
     _a_matches = int(getattr(pa, "away_matches", 0)) if pa else 0
     _early_conc_h = round(_h_ht_lose / _h_matches * 100, 1) if _h_matches > 0 else 0.0
     _early_conc_a = round(_a_ht_lose / _a_matches * 100, 1) if _a_matches > 0 else 0.0
-    if not _abs_h_list and _abs_h > 0:
-        _abs_h_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_h))
-    if not _abs_a_list and _abs_a > 0:
-        _abs_a_list = ["Unknown (MID, PROBABLE)"] * max(0, min(8, _abs_a))
+    # Se abbiamo solo il conteggio assenze ma non i dettagli ruolo/status,
+    # non applicare impatti sintetici: meglio restare neutri (1.0) che introdurre bias.
     _absence_mult_h = calcola_assenze_mult(_abs_h_list) * calcola_assenze_mult(_abs_a_list, per_avversario=True)
     _absence_mult_a = calcola_assenze_mult(_abs_a_list) * calcola_assenze_mult(_abs_h_list, per_avversario=True)
 

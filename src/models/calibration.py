@@ -380,24 +380,45 @@ def calcola_xg_bayesiani(
     # Clamp ocr_confidence_scale: riduce i pesi OCR se le quote appaiono anomale (da validatore Gemini).
     _ocr_cs = max(0.70, min(1.0, ocr_confidence_scale))
 
-    # #1: Se quote OCR disponibili e siamo in prematch, blenda tot_op con la linea OCR.
-    # Peso conservativo 15%: l'OCR potrebbe aver letto un mercato leggermente diverso
-    # (es. Asian Total vs European O/U) o avere margine incorporato.
-    # Disabilitato in live (minuto > 0): i tiri diventano la fonte primaria.
-    if ocr_imp_total > 0.5 and minuto == 0:
-        tot_op = (1.0 - BAYES.OCR_PRIOR_WEIGHT * _ocr_cs) * tot_op + BAYES.OCR_PRIOR_WEIGHT * _ocr_cs * ocr_imp_total
+    # OCR Total integration (prematch): evita double-counting quando sono disponibili
+    # sia la linea OCR grezza sia il total implicito dalle quote O/U.
+    #
+    # Prima i due segnali venivano applicati in sequenza su tot_op (somma implicita dei pesi):
+    # in pratica era possibile "contare due volte" lo stesso mercato bookmaker.
+    # Ora:
+    #   - se c'è un solo segnale, comportamento invariato;
+    #   - se ci sono entrambi, si fa una media pesata dei target OCR ma con peso effettivo
+    #     pari al massimo dei due pesi singoli (non alla somma).
+    _w_ocr_line = 0.0
+    _w_ocr_quotes = 0.0
+    _target_ocr_line = 0.0
+    _target_ocr_quotes = 0.0
 
-    # Blend con total implicito dalle quote O/U bookmaker (più preciso della linea grezza).
-    # #3: Peso scalato per qualità: overround basso → più informativo → peso maggiore.
-    if ocr_total_quotes > 0.5 and minuto == 0:
+    if minuto == 0 and ocr_imp_total > 0.5:
+        _w_ocr_line = BAYES.OCR_PRIOR_WEIGHT * _ocr_cs
+        _target_ocr_line = ocr_imp_total
+
+    if minuto == 0 and ocr_total_quotes > 0.5:
         from src.config import OCR_QUOTES
         if ocr_overround_ou > 1.0:
-            _quality_ou = 1.0 - min(OCR_QUOTES.TOTAL_QUALITY_MAX_PENALTY,
-                                    max(0.0, (ocr_overround_ou - 1.0) * OCR_QUOTES.TOTAL_QUALITY_OVERROUND_RATE))
-            _total_w = OCR_QUOTES.TOTAL_WEIGHT * _quality_ou * _ocr_cs
+            _quality_ou = 1.0 - min(
+                OCR_QUOTES.TOTAL_QUALITY_MAX_PENALTY,
+                max(0.0, (ocr_overround_ou - 1.0) * OCR_QUOTES.TOTAL_QUALITY_OVERROUND_RATE),
+            )
+            _w_ocr_quotes = OCR_QUOTES.TOTAL_WEIGHT * _quality_ou * _ocr_cs
         else:
-            _total_w = OCR_QUOTES.TOTAL_WEIGHT * _ocr_cs
-        tot_op = (1.0 - _total_w) * tot_op + _total_w * ocr_total_quotes
+            _w_ocr_quotes = OCR_QUOTES.TOTAL_WEIGHT * _ocr_cs
+        _target_ocr_quotes = ocr_total_quotes
+
+    if _w_ocr_line > 0.0 and _w_ocr_quotes > 0.0:
+        _w_sum = _w_ocr_line + _w_ocr_quotes
+        _ocr_target = (_w_ocr_line * _target_ocr_line + _w_ocr_quotes * _target_ocr_quotes) / _w_sum
+        _w_eff = max(_w_ocr_line, _w_ocr_quotes)
+        tot_op = (1.0 - _w_eff) * tot_op + _w_eff * _ocr_target
+    elif _w_ocr_line > 0.0:
+        tot_op = (1.0 - _w_ocr_line) * tot_op + _w_ocr_line * _target_ocr_line
+    elif _w_ocr_quotes > 0.0:
+        tot_op = (1.0 - _w_ocr_quotes) * tot_op + _w_ocr_quotes * _target_ocr_quotes
 
     # Blend con delta implicito dalle quote 1X2 → aggiusta ah_op.
     # ocr_delta > 0: casa favorita. Convenzione AH: fair_ah ≈ -delta.
