@@ -343,13 +343,11 @@ def calcola_xg_bayesiani(
     Estrae gli xG impliciti dal blend Bayesiano delle linee di mercato.
 
     Pipeline:
-    1. Calcola i pesi time-varying: w_cur cresce da 65% (t=0) a 90% (t=90').
-    2. Blend linea apertura (scalata al tempo rimanente) + linea corrente.
-    3. Bisection su delta = mu_h - mu_a per trovare il punto dove AH EV = 0.
+    1. (Prematch) Blend su ah_op/tot_op da URL/OCR/fixture — stessa "apertura" usata dopo.
+    2. Pesi time-varying w_op/w_cur, movement_quality, boost movimento apertura→corrente.
+    3. Flat check, blend apertura/corrente (scalati al tempo), bisection AH EV = 0.
 
-    Pesi time-varying (Brechot & Flepp 2020):
-        w_cur = min(0.90, 0.65 + 0.20 * frac_giocata)
-        w_op  = 1 - w_cur
+    Pesi time-varying (esponenziali in BAYES): w_op decade con il tempo; w_cur cresce.
 
     Motivazione: la linea live incorpora progressivamente più informazione
     (eventi accaduti, condizioni di gioco, liquidità del mercato).
@@ -378,32 +376,6 @@ def calcola_xg_bayesiani(
     # Rho DC dinamico: coerente con build_bivariate_matrix (Fix #1).
     # Elimina il bias sistematico 3-5% dalla calibrazione con rho statico.
     rho_dc_val = rho_dc_dinamico(tot_cur, minuto, gol_tot)
-
-    # Pesi time-varying (esponenziali):
-    # w_op decade più velocemente early game (eventi compound) ma mantiene un residuo.
-    # t=0: w_op=0.35, t=30': ~0.22, t=60': ~0.14, t=90': ~0.10
-    w_op_raw = (1.0 - BAYES.W_CUR_MIN) * math.exp(-BAYES.W_OP_EXP_RATE * frac_giocata ** 2) \
-        + (1.0 - BAYES.W_CUR_MAX) * (1.0 - frac_giocata)
-    w_op = max(1.0 - BAYES.W_CUR_MAX, min(1.0 - BAYES.W_CUR_MIN, w_op_raw))
-    w_cur = 1.0 - w_op
-
-    # Qualità movimento linee (da Gemini): scala w_cur verso la linea corrente se il
-    # movimento è "sharp" (notizie/sharp money) o lo riduce se è rumore/pubblico.
-    # Applicato solo se le linee si sono mosse (altrimenti w_cur non cambia il blend).
-    _mq_clamped = max(BAYES.MOVEMENT_QUALITY_MIN, min(BAYES.MOVEMENT_QUALITY_MAX, movement_quality))
-    w_cur = max(1.0 - BAYES.W_CUR_MAX, min(BAYES.W_CUR_MAX, w_cur * _mq_clamped))
-    w_op = 1.0 - w_cur
-
-    # Rilevamento linee flat: confronto in full-game space per non confondere il
-    # movimento del mercato con l'effetto meccanico del punteggio.
-    # Se il mercato non si è mosso e il punteggio è gol_diff/gol_tot:
-    #   ah_cur  = ah_op  + gol_diff   (puro effetto punteggio)
-    #   tot_cur = tot_op - gol_tot    (puro effetto punteggio)
-    expected_ah_cur = ah_op + gol_diff
-    expected_tot_cur = max(0.0, tot_op - gol_tot)  # i gol rimanenti non possono essere negativi
-    delta_ah_inner = abs(ah_cur - expected_ah_cur)
-    delta_tot_inner = abs(tot_cur - expected_tot_cur)
-    flat = delta_ah_inner < BAYES.FLAT_LINE_THRESHOLD and delta_tot_inner < BAYES.FLAT_LINE_THRESHOLD
 
     # Clamp ocr_confidence_scale: riduce i pesi OCR se le quote appaiono anomale (da validatore Gemini).
     _ocr_cs = max(0.70, min(1.0, ocr_confidence_scale))
@@ -447,6 +419,35 @@ def calcola_xg_bayesiani(
     if fixture_historical_total > 1.0 and minuto == 0:
         _hist_total = max(1.0, min(6.0, fixture_historical_total))
         tot_op = (1.0 - BAYES.FIXTURE_PRIOR_WEIGHT) * tot_op + BAYES.FIXTURE_PRIOR_WEIGHT * _hist_total
+
+    # Pesi time-varying (esponenziali) — dopo ah_op/tot_op effettivi (URL/OCR/fixture).
+    # t=0: w_op≈0.35, w_cur≈0.65 prima di mq e boost movimento.
+    w_op_raw = (1.0 - BAYES.W_CUR_MIN) * math.exp(-BAYES.W_OP_EXP_RATE * frac_giocata ** 2) \
+        + (1.0 - BAYES.W_CUR_MAX) * (1.0 - frac_giocata)
+    w_op = max(1.0 - BAYES.W_CUR_MAX, min(1.0 - BAYES.W_CUR_MIN, w_op_raw))
+    w_cur = 1.0 - w_op
+
+    _mq_clamped = max(BAYES.MOVEMENT_QUALITY_MIN, min(BAYES.MOVEMENT_QUALITY_MAX, movement_quality))
+    w_cur = max(1.0 - BAYES.W_CUR_MAX, min(BAYES.W_CUR_MAX, w_cur * _mq_clamped))
+    w_op = 1.0 - w_cur
+
+    ah_cur_fg = float(ah_cur) - float(gol_diff)
+    tot_cur_fg = float(tot_cur) + float(gol_tot)
+    _move_mag = abs(ah_cur_fg - float(ah_op)) + BAYES.LINE_MOVE_TOT_SCALE * abs(tot_cur_fg - float(tot_op))
+    if _move_mag >= BAYES.LINE_MOVE_BOOST_THRESHOLD:
+        _exc = _move_mag - BAYES.LINE_MOVE_BOOST_THRESHOLD
+        _bump = min(
+            BAYES.LINE_MOVE_W_CUR_BOOST_MAX,
+            BAYES.LINE_MOVE_W_CUR_BOOST_RATE * _exc,
+        )
+        w_cur = min(BAYES.W_CUR_MAX, w_cur + _bump)
+        w_op = 1.0 - w_cur
+
+    expected_ah_cur = ah_op + gol_diff
+    expected_tot_cur = max(0.0, tot_op - gol_tot)
+    delta_ah_inner = abs(ah_cur - expected_ah_cur)
+    delta_tot_inner = abs(tot_cur - expected_tot_cur)
+    flat = delta_ah_inner < BAYES.FLAT_LINE_THRESHOLD and delta_tot_inner < BAYES.FLAT_LINE_THRESHOLD
 
     # FIX: Cap temporale SEMPRE applicato per evitare xG insensati a fine partita.
     # I gol rimanenti non possono superare ~(90-minuto)/90 * TOT_TEMPORAL_MAX.

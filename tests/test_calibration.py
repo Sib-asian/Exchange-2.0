@@ -80,6 +80,21 @@ class TestCalcolaXGBayesiani:
         xg_h_moved, _ = calcola_xg_bayesiani(-0.25, 2.5, -1.25, 2.5, 30)
         assert xg_h_moved > xg_h_start, "Movimento verso casa non aumenta xg_h"
 
+    def test_premarket_big_line_move_trusts_current_more(self):
+        """A minuto 0, un grande scostamento apertura→corrente spinge gli xG verso la linea live."""
+        xg_h_flat, xg_a_flat = calcola_xg_bayesiani(-0.25, 2.5, -0.25, 2.5, 0)
+        xg_h_mv, xg_a_mv = calcola_xg_bayesiani(-0.25, 2.5, -1.0, 2.5, 0)
+        assert xg_h_mv > xg_h_flat and xg_a_mv < xg_a_flat, (
+            "AH più negativo in chiusura dovrebbe aumentare xG casa vs linee flat a t=0"
+        )
+
+    def test_total_move_also_boosts_cur_weight(self):
+        """Movimento sul total (con AH flat) modifica la somma xG verso la nuova linea."""
+        xg_h0, xg_a0 = calcola_xg_bayesiani(-0.25, 2.5, -0.25, 2.5, 0)
+        xg_h1, xg_a1 = calcola_xg_bayesiani(-0.25, 2.5, -0.25, 3.25, 0)
+        s0, s1 = xg_h0 + xg_a0, xg_h1 + xg_a1
+        assert s1 > s0 + 0.15, "Total più alto in chiusura dovrebbe alzare la somma xG a t=0"
+
     def test_xg_sum_bounded(self):
         """La somma degli xG non deve superare valori impossibili."""
         xg_h, xg_a = calcola_xg_bayesiani(-0.25, 2.5, -0.75, 2.75, 45)
