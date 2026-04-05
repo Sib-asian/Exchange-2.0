@@ -1651,14 +1651,21 @@ def render_linee_semplici(gol_casa: int = 0, gol_trasf: int = 0) -> dict:
             help="Total corrente sull'exchange (full game). Aggiorna se il mercato si è mosso.",
         )
 
-    _ou_choices: list[float] = [1.5, 2.5, 3.0, 3.5]
+    # Usa lo stesso set di linee supportate dal motore (incluse quarter lines).
+    # Default: linea più vicina al Total corrente inserito nel modulo.
+    _ou_choices: list[float] = list(UI.LINEE_OU)
+    _target_line = float(tot_cur_raw if tot_cur_raw > 0 else (tot_op if tot_op > 0 else 2.5))
+    _default_idx = min(range(len(_ou_choices)), key=lambda i: abs(_ou_choices[i] - _target_line))
     linea_ou = st.selectbox(
         "Linea Over/Under per l'analisi (quella su cui punti)",
         options=_ou_choices,
-        index=1,
+        index=_default_idx,
         format_func=lambda x: f"{x:g} gol",
         key="prematch_ou_line_select",
-        help="Il motore calcola Over/Under su questa linea; deve coincidere con la schedina.",
+        help=(
+            "Il motore calcola Over/Under su questa linea; deve coincidere con la schedina. "
+            "Supporta anche linee Asian quarter (es. 2.25, 2.75)."
+        ),
     )
 
     # Conversione Full Game → gol rimanenti (automatica)

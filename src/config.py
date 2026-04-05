@@ -591,8 +591,9 @@ class UIConfig:
     VERSION: str = "2.0.0"
     LAYOUT: str = "centered"
 
-    # Linee U/O disponibili nel selectbox (solo linee .5, niente .0 per evitare confusioni)
-    LINEE_OU: tuple = (0.5, 1.5, 2.5, 3.5, 4.5, 5.5)
+    # Linee U/O disponibili nel selectbox (step 0.25 per coprire Asian quarter lines).
+    # Include quindi X.00, X.25, X.50, X.75 (es. 2.25 / 2.75) fino a 5.5.
+    LINEE_OU: tuple = tuple(round(0.5 + 0.25 * i, 2) for i in range(21))
 
     # Tiri attesi per minuto (entrambe le squadre) — soglia warning input
     TIRI_PER_MINUTO: float = 0.65
