@@ -24,6 +24,9 @@ _WARMUP_MIN_SAMPLES = 12
 _WARMUP_MAX_WEIGHT = 0.03
 _WARMUP_SCALE_MIN = 0.95
 _WARMUP_SCALE_MAX = 1.05
+_TRUSTED_FACTOR = 1.00
+_UNTRUSTED_FACTOR = 0.55
+_UNKNOWN_FACTOR = 0.70
 
 
 @dataclass(frozen=True)
@@ -73,9 +76,23 @@ def _weighted_mean(values: list[float], weights: list[float]) -> float:
     return sum(v * w for v, w in zip(values, weights, strict=False)) / denom
 
 
-def _recency_weights(n: int) -> list[float]:
+def _record_quality_factor(r: PredictionRecord) -> float:
+    q = str(getattr(r, "quote_quality", "") or "").strip().lower()
+    if q == "trusted":
+        return _TRUSTED_FACTOR
+    if q == "untrusted":
+        return _UNTRUSTED_FACTOR
+    return _UNKNOWN_FACTOR
+
+
+def _recency_weights(records: list[PredictionRecord]) -> list[float]:
     # records arrivano in ordine cronologico; più recente = peso maggiore.
-    return [math.exp(-(n - 1 - i) / _RECENCY_TAU_MATCHES) for i in range(n)]
+    n = len(records)
+    out: list[float] = []
+    for i, r in enumerate(records):
+        w_time = math.exp(-(n - 1 - i) / _RECENCY_TAU_MATCHES)
+        out.append(w_time * _record_quality_factor(r))
+    return out
 
 
 def _prematch_completed_records() -> list[PredictionRecord]:
@@ -179,7 +196,7 @@ def _estimate_from_records(records: list[PredictionRecord]) -> CalibrationSignal
     if n < _WARMUP_MIN_SAMPLES:
         return CalibrationSignals(samples=n, scope="global")
 
-    ws = _recency_weights(n)
+    ws = _recency_weights(records)
     avg_p1 = _weighted_mean([float(r.p1) for r in records], ws)
     avg_px = _weighted_mean([float(r.px) for r in records], ws)
     avg_p2 = _weighted_mean([float(r.p2) for r in records], ws)

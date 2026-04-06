@@ -193,3 +193,56 @@ def test_calibration_warmup_learning_at_18_samples(monkeypatch):
     assert sig.samples == 18
     assert 0.0 < sig.weight <= 0.03
     assert 0.95 <= sig.p1_scale <= 1.05
+
+
+def test_calibration_weights_trusted_records_more(monkeypatch):
+    class _FakeLog:
+        def get_completed(self):
+            records = []
+            # trusted: modello sottostima home win (esiti spesso 1)
+            for i in range(12):
+                records.append(
+                    PredictionRecord(
+                        id=f"tr{i}",
+                        timestamp="2026-01-01T00:00:00",
+                        lega="Serie A",
+                        is_prematch=True,
+                        p1=0.40,
+                        px=0.30,
+                        p2=0.30,
+                        quote_quality="trusted",
+                        risultato_1x2="1",
+                        over_25_hit=True,
+                        btts_hit=True,
+                        status="COMPLETED",
+                        gol_casa=2,
+                        gol_trasf=1,
+                    )
+                )
+            # untrusted: rumore opposto (esiti spesso 2) ma deve pesare meno
+            for i in range(12):
+                records.append(
+                    PredictionRecord(
+                        id=f"ut{i}",
+                        timestamp="2026-01-01T00:00:00",
+                        lega="Serie A",
+                        is_prematch=True,
+                        p1=0.40,
+                        px=0.30,
+                        p2=0.30,
+                        quote_quality="untrusted",
+                        risultato_1x2="2",
+                        over_25_hit=False,
+                        btts_hit=False,
+                        status="COMPLETED",
+                        gol_casa=0,
+                        gol_trasf=1,
+                    )
+                )
+            return records
+
+    monkeypatch.setattr("src.models.prematch_history_calibration.get_prediction_log", lambda: _FakeLog())
+    sig = estimate_calibration_signals(league="Serie A")
+    # Con peso trusted maggiore, non deve collassare verso p1_scale troppo basso.
+    assert sig.samples == 24
+    assert sig.p1_scale >= 0.95
