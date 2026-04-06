@@ -1265,6 +1265,21 @@ def _implied_probs_1x2(o1: float, ox: float, o2: float) -> tuple[float, float, f
     return i1 / s, ix / s, i2 / s
 
 
+def _select_ui_1x2_quotes(data: PrematchAnalysisExtracted) -> tuple[float, float, float, str] | None:
+    """Sceglie la terna 1X2 da mostrare in UI: initial, altrimenti live fallback."""
+    i1 = float(getattr(data, "mkt_init_1", 0.0) or 0.0)
+    ix = float(getattr(data, "mkt_init_x", 0.0) or 0.0)
+    i2 = float(getattr(data, "mkt_init_2", 0.0) or 0.0)
+    if i1 > 1.0 and ix > 1.0 and i2 > 1.0:
+        return i1, ix, i2, "initial"
+    l1 = float(getattr(data, "mkt_live_1", 0.0) or 0.0)
+    lx = float(getattr(data, "mkt_live_x", 0.0) or 0.0)
+    l2 = float(getattr(data, "mkt_live_2", 0.0) or 0.0)
+    if l1 > 1.0 and lx > 1.0 and l2 > 1.0:
+        return l1, lx, l2, "live_fallback"
+    return None
+
+
 def _session_manual_lines_summary() -> str | None:
     """Linee dal modulo principale (Sbobet / exchange), se già presenti in session_state."""
     stt = st.session_state
@@ -1306,17 +1321,26 @@ def _render_prematch_market_synthesis(data: PrematchAnalysisExtracted) -> None:
 
     rows_mkt: list[str] = []
 
-    imp = _implied_probs_1x2(data.mkt_init_1, data.mkt_init_x, data.mkt_init_2)
-    if imp:
+    qset = _select_ui_1x2_quotes(data)
+    if qset:
+        q1, qx, q2, qsrc = qset
+        imp = _implied_probs_1x2(q1, qx, q2)
+    else:
+        imp = None
+    if imp and qset:
         p1, px, p2 = imp
+        _, _, _, qsrc = qset
+        src_label = "iniziali" if qsrc == "initial" else "live (fallback)"
         rows_mkt.append(
-            f"**1X2 implicito** (da quote *iniziali* Nowgoal): "
+            f"**1X2 implicito** (da quote *{src_label}* Nowgoal): "
             f"Casa **{p1 * 100:.1f}%** · X **{px * 100:.1f}%** · Trasf. **{p2 * 100:.1f}%** "
-            f"— quote {data.mkt_init_1:.2f} / {data.mkt_init_x:.2f} / {data.mkt_init_2:.2f}"
+            f"— quote {q1:.2f} / {qx:.2f} / {q2:.2f}"
         )
-    elif data.mkt_init_1 > 0:
+    elif qset:
+        q1, qx, q2, qsrc = qset
+        src_label = "iniziali" if qsrc == "initial" else "live (fallback)"
         rows_mkt.append(
-            f"**1X2** (quote iniziali): {data.mkt_init_1:.2f} / {data.mkt_init_x:.2f} / {data.mkt_init_2:.2f}"
+            f"**1X2** (quote {src_label}): {q1:.2f} / {qx:.2f} / {q2:.2f}"
         )
 
     ah_o = float(data.ah_line_open or 0.0)
@@ -1403,7 +1427,12 @@ def _render_model_vs_market_1x2(
     if mp1 <= 0 and mpx <= 0 and mp2 <= 0:
         return
 
-    imp = _implied_probs_1x2(data.mkt_init_1, data.mkt_init_x, data.mkt_init_2)
+    qset = _select_ui_1x2_quotes(data)
+    if qset:
+        q1, qx, q2, _ = qset
+        imp = _implied_probs_1x2(q1, qx, q2)
+    else:
+        imp = None
     if not imp:
         st.caption("Modello: Casa / X / Trasf. calcolati; mercato 1X2 non disponibile per il confronto.")
         return
@@ -1421,8 +1450,9 @@ def _render_model_vs_market_1x2(
     c2.metric("X", f"{mpx * 100:.1f}%", f"{dx:+.1f} pp vs mercato")
     c3.metric(a, f"{mp2 * 100:.1f}%", f"{d2:+.1f} pp vs mercato")
 
+    src_txt = "quote 1X2 iniziali" if qset and qset[3] == "initial" else "quote 1X2 live (fallback)"
     st.caption(
-        "Mercato = probabilità implicite dalle **quote 1X2 iniziali** Nowgoal (normalizzate). "
+        f"Mercato = probabilità implicite da **{src_txt}** Nowgoal (normalizzate). "
         "Modello = ultimo **ANALIZZA** a minuto 0."
     )
 
