@@ -1089,6 +1089,19 @@ class TestExtractH2HWithRegex:
 # ---- Test #1: 1X2 da Vs_hOdds ----
 
 class TestVsHodds1x2:
+    def test_1x2_prefers_sbobet_initial_row_over_bet365(self):
+        """Se presenti più book nella tabella markdown, priorità a Sbobet Initial."""
+        text = (
+            "Title: Foo FC vs Bar SC Live Score\n"
+            "| **Bet365** | Initial | 0.90 | 1/1.5 | 0.95 | 1.38 | 4.20 | 9.50 | 0.98 | 2.5 | 0.88 |\n"
+            "| **Sbobet** | Initial | 0.96 | 1/1.5 | 0.94 | 1.36 | 4.20 | 7.70 | 1.04 | 2.5 | 0.84 |\n"
+            "| **188bet** | Initial | 0.95 | 1/1.5 | 0.95 | 1.41 | 4.70 | 8.40 | 1.05 | 2.5 | 0.85 |\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_1"] == pytest.approx(1.36)
+        assert parsed["mkt_init_x"] == pytest.approx(4.20)
+        assert parsed["mkt_init_2"] == pytest.approx(7.70)
+
     def test_1x2_from_vs_hodds(self):
         """Vs_hOdds indices 5,6,7 → mkt_init_1/x/2."""
         text = (
