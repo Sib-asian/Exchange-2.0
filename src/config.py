@@ -875,6 +875,11 @@ class OcrQuotesConfig:
     BTTS_QUALITY_OVERROUND_RATE: float = 3.0     # scala per GG/NG (2 vie, più sensibile)
     BTTS_QUALITY_MAX_PENALTY: float = 0.20       # max riduzione peso BTTS (-20%)
 
+    # Sicurezza operativa: l'estrazione 1X2 da pagine odds può essere ambigua
+    # (bookmaker/colonna/timestamp). Finché non è disponibile un parser Sbobet-only
+    # robusto, non usare mkt_init_1/x/2 come prior nel motore.
+    USE_EXTRACTED_1X2_PRIOR: bool = False
+
 
 @dataclass(frozen=True)
 class AIAdjConfig:
