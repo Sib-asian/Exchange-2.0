@@ -3769,16 +3769,20 @@ def _extract_all_with_regex(text: str) -> dict:
             _fallback_1x2_from_text = (q1, qx, q2)
 
     # Pattern per tabella markdown Live Odds Analysis (Jina Reader)
-    # Formato: | **Bet365** | Initial | AH_home | AH_line | AH_away | 1 | X | 2 | Over | Total | Under |
-    # Es: | **Bet365** | Initial | 0.80 | 1.5 | 1.05 | 1.20 | 5.50 | 12.00 | 0.88 | 2/2.5 | 0.98 |
+    # Priorita` bookmaker: Sbobet (target utente), poi fallback su altri.
     if result["mkt_init_1"] == 0:
-        # Pattern per tabella odds con Initial row
-        table_odds_pattern = r'\|\s*\*?\*?Bet365\*?\*?\s*\|\s*Initial\s*\|\s*[\d.]+\s*\|\s*[\d./]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|'
-        table_match = re.search(table_odds_pattern, text, re.IGNORECASE)
-        if table_match:
-            result["mkt_init_1"] = float(table_match.group(1))
-            result["mkt_init_x"] = float(table_match.group(2))
-            result["mkt_init_2"] = float(table_match.group(3))
+        company_priority = ["Sbobet", "Bet365", "188bet"]
+        for company in company_priority:
+            table_odds_pattern = (
+                rf"\|\s*\*?\*?{company}\*?\*?\s*\|\s*Initial\s*\|\s*[\d.]+\s*\|\s*[\d./]+\s*\|"
+                rf"\s*[\d.]+\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|"
+            )
+            table_match = re.search(table_odds_pattern, text, re.IGNORECASE)
+            if table_match:
+                result["mkt_init_1"] = float(table_match.group(1))
+                result["mkt_init_x"] = float(table_match.group(2))
+                result["mkt_init_2"] = float(table_match.group(3))
+                break
 
     # Pattern alternativo: cerca 1X2 in riga con "Initial"
     if result["mkt_init_1"] == 0:
