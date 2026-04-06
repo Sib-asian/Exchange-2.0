@@ -48,22 +48,22 @@ def test_ht_goal_share_clamped():
 
 def test_ht_probs_htft_matrix_nudges_toward_stronger_away_ht():
     """Matrice HT/FT (senza standings HT) sposta P(2 HT) rispetto al solo Poisson."""
-    base = dict(
-        home_goals_1h=1.0,
-        away_goals_1h=1.0,
-        home_matches=10,
-        away_matches=10,
-        home_ht_win=0,
-        home_ht_draw=0,
-        home_ht_lose=0,
-        away_ht_win=0,
-        away_ht_draw=0,
-        away_ht_lose=0,
-        h2h_ht_home_win_pct=0.0,
-        h2h_ht_draw_pct=0.0,
-        h2h_ht_away_win_pct=0.0,
-        h2h_ht_matches_count=0,
-    )
+    base = {
+        "home_goals_1h": 1.0,
+        "away_goals_1h": 1.0,
+        "home_matches": 10,
+        "away_matches": 10,
+        "home_ht_win": 0,
+        "home_ht_draw": 0,
+        "home_ht_lose": 0,
+        "away_ht_win": 0,
+        "away_ht_draw": 0,
+        "away_ht_lose": 0,
+        "h2h_ht_home_win_pct": 0.0,
+        "h2h_ht_draw_pct": 0.0,
+        "h2h_ht_away_win_pct": 0.0,
+        "h2h_ht_matches_count": 0,
+    }
     flat = SimpleNamespace(**base)
     out_flat = _calcola_ht_probs(flat, xg_h_fallback=1.35, xg_a_fallback=1.35, p1_ft=0.33, px_ft=0.34, p2_ft=0.33)
     assert out_flat is not None

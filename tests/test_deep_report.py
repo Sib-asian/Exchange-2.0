@@ -6,27 +6,27 @@ from src.tracking.stats import PerformanceStats
 
 
 def _completed(**kwargs: object) -> PredictionRecord:
-    base = dict(
-        id="t",
-        timestamp="2026-01-01T12:00:00",
-        squadra_casa="A",
-        squadra_trasf="B",
-        lega="Test League",
-        minuto=0,
-        is_prematch=True,
-        p1=0.4,
-        px=0.3,
-        p2=0.3,
-        p_over_25=0.55,
-        p_under_25=0.45,
-        ou_line=2.5,
-        gol_casa=2,
-        gol_trasf=1,
-        status="COMPLETED",
-        risultato_1x2="1",
-        over_25_hit=True,
-        btts_hit=True,
-    )
+    base = {
+        "id": "t",
+        "timestamp": "2026-01-01T12:00:00",
+        "squadra_casa": "A",
+        "squadra_trasf": "B",
+        "lega": "Test League",
+        "minuto": 0,
+        "is_prematch": True,
+        "p1": 0.4,
+        "px": 0.3,
+        "p2": 0.3,
+        "p_over_25": 0.55,
+        "p_under_25": 0.45,
+        "ou_line": 2.5,
+        "gol_casa": 2,
+        "gol_trasf": 1,
+        "status": "COMPLETED",
+        "risultato_1x2": "1",
+        "over_25_hit": True,
+        "btts_hit": True,
+    }
     base.update(kwargs)
     return PredictionRecord(**base)  # type: ignore[arg-type]
 

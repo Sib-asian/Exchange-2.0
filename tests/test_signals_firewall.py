@@ -1,5 +1,5 @@
-from src.signals import genera_segnali_avanzati, genera_segnali_rapidi
 from src.engine import ExchangeQuotes
+from src.signals import genera_segnali_avanzati, genera_segnali_rapidi
 
 
 def test_genera_segnali_rapidi_honors_firewall_block() -> None:

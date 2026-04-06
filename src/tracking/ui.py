@@ -9,19 +9,18 @@ Integrazione:
 
 from __future__ import annotations
 
-import streamlit as st
+from dataclasses import asdict, fields
 from datetime import datetime
 
-from dataclasses import asdict, fields
+import streamlit as st
 
 from src.tracking.prediction_log import (
     PredictionLog,
     PredictionRecord,
-    get_prediction_log,
     create_record_from_analysis,
+    get_prediction_log,
 )
-from src.tracking.stats import PerformanceStats, MarketStats
-
+from src.tracking.stats import PerformanceStats
 
 # ---------------------------------------------------------------------------
 # Salvataggio automatico
@@ -550,8 +549,8 @@ def _csv_cell(v: object) -> str | float | int:
 
 def _export_to_csv(records: list[PredictionRecord]) -> str:
     """Esporta tutti i campi del record (include pending e completate)."""
-    import io
     import csv
+    import io
 
     output = io.StringIO()
     writer = csv.writer(output)

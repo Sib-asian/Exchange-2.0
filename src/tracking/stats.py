@@ -68,7 +68,7 @@ class PerformanceStats:
 
     @staticmethod
     def compute_market_stats(
-        records: list["PredictionRecord"],
+        records: list[PredictionRecord],
         market: str,
     ) -> MarketStats:
         """
@@ -158,7 +158,7 @@ class PerformanceStats:
 
     @staticmethod
     def _get_market_data(
-        record: "PredictionRecord",
+        record: PredictionRecord,
         market: str,
     ) -> tuple[float | None, int, float]:
         """
@@ -208,7 +208,7 @@ class PerformanceStats:
         return None, 0, 0.0
 
     @staticmethod
-    def _get_market_close_quote(record: "PredictionRecord", market: str) -> float:
+    def _get_market_close_quote(record: PredictionRecord, market: str) -> float:
         """Quote closing associate al mercato (0.0 se non disponibili)."""
         if market == "1X2_1":
             return float(getattr(record, "quota_1_close", 0.0) or 0.0)
@@ -228,7 +228,7 @@ class PerformanceStats:
 
     @staticmethod
     def compute_all_stats(
-        records: list["PredictionRecord"],
+        records: list[PredictionRecord],
     ) -> dict[str, MarketStats]:
         """
         Calcola statistiche per tutti i mercati.
@@ -384,7 +384,7 @@ class PerformanceStats:
         return "\n".join(lines)
 
     @staticmethod
-    def compute_multiclass_brier_1x2(records: list["PredictionRecord"]) -> float | None:
+    def compute_multiclass_brier_1x2(records: list[PredictionRecord]) -> float | None:
         """Brier medio sul vettore 1X2 (somma (p-o)^2 sui tre esiti, diviso N)."""
         acc = 0.0
         n = 0
@@ -401,7 +401,7 @@ class PerformanceStats:
         return acc / n
 
     @staticmethod
-    def compute_log_loss_1x2(records: list["PredictionRecord"]) -> float | None:
+    def compute_log_loss_1x2(records: list[PredictionRecord]) -> float | None:
         """Log-loss (naturale) medio per classe vincitrice 1X2."""
         eps = 1e-6
         acc = 0.0
@@ -422,7 +422,7 @@ class PerformanceStats:
         return acc / n
 
     @staticmethod
-    def segment_by_league(records: list["PredictionRecord"]) -> dict[str, list["PredictionRecord"]]:
+    def segment_by_league(records: list[PredictionRecord]) -> dict[str, list[PredictionRecord]]:
         out: dict[str, list] = {}
         for r in records:
             if not r.is_completed():
@@ -432,7 +432,7 @@ class PerformanceStats:
         return out
 
     @staticmethod
-    def segment_by_tot_band(records: list["PredictionRecord"]) -> dict[str, list["PredictionRecord"]]:
+    def segment_by_tot_band(records: list[PredictionRecord]) -> dict[str, list[PredictionRecord]]:
         from src.tracking.prediction_log import tot_op_band
 
         out: dict[str, list] = {}
@@ -444,7 +444,7 @@ class PerformanceStats:
         return out
 
     @staticmethod
-    def segment_by_ou_line(records: list["PredictionRecord"]) -> dict[str, list["PredictionRecord"]]:
+    def segment_by_ou_line(records: list[PredictionRecord]) -> dict[str, list[PredictionRecord]]:
         """Raggruppa le completate per linea Over/Under usata in analisi (``ou_line``)."""
         out: dict[str, list] = {}
         for r in records:
@@ -457,11 +457,11 @@ class PerformanceStats:
 
     @staticmethod
     def sort_completed_newest_first(
-        records: list["PredictionRecord"],
-    ) -> list["PredictionRecord"]:
+        records: list[PredictionRecord],
+    ) -> list[PredictionRecord]:
         """Ordina le completate per data chiusura (o timestamp analisi) decrescente."""
 
-        def _key(r: "PredictionRecord") -> str:
+        def _key(r: PredictionRecord) -> str:
             return (r.completed_at or r.timestamp or "")
 
         done = [r for r in records if r.is_completed()]
@@ -469,8 +469,8 @@ class PerformanceStats:
 
     @staticmethod
     def segment_by_prematch(
-        records: list["PredictionRecord"],
-    ) -> tuple[list["PredictionRecord"], list["PredictionRecord"]]:
+        records: list[PredictionRecord],
+    ) -> tuple[list[PredictionRecord], list[PredictionRecord]]:
         """(prematch, live) tra i record completati."""
         done = [r for r in records if r.is_completed()]
         prem = [r for r in done if r.is_prematch]
@@ -479,7 +479,7 @@ class PerformanceStats:
 
     @staticmethod
     def rolling_1x2_metrics(
-        records: list["PredictionRecord"],
+        records: list[PredictionRecord],
         last_n: int = 30,
     ) -> dict[str, Any] | None:
         """Brier e log-loss 1X2 sulle ultime N partite chiuse (ordine cronologico inverso)."""
@@ -525,7 +525,7 @@ class PerformanceStats:
 
     @staticmethod
     def compute_multiclass_ece_1x2(
-        records: list["PredictionRecord"],
+        records: list[PredictionRecord],
         *,
         bins: int = 10,
     ) -> float | None:
@@ -546,7 +546,7 @@ class PerformanceStats:
         return PerformanceStats.compute_ece_binary(probs, outcomes, bins=bins)
 
     @staticmethod
-    def compute_clv_proxy_1x2(records: list["PredictionRecord"]) -> float | None:
+    def compute_clv_proxy_1x2(records: list[PredictionRecord]) -> float | None:
         """
         CLV proxy atteso 1X2: sum(p_i * (imp_open_i - imp_close_i)).
         Positivo = closing migliore del prezzo preso (buon segnale di qualità).
@@ -573,8 +573,8 @@ class PerformanceStats:
 
     @staticmethod
     def evaluate_champion_challenger(
-        champion_records: list["PredictionRecord"],
-        challenger_records: list["PredictionRecord"],
+        champion_records: list[PredictionRecord],
+        challenger_records: list[PredictionRecord],
     ) -> ChampionChallengeEvaluation:
         """
         Gate multi-metrica per promuovere un challenger.
@@ -591,7 +591,7 @@ class PerformanceStats:
             r.id: r for r in challenger_records
             if r.is_completed() and r.risultato_1x2 in ("1", "X", "2")
         }
-        common_ids = [rid for rid in ch_map.keys() if rid in cg_map]
+        common_ids = [rid for rid in ch_map if rid in cg_map]
         if len(common_ids) < PRECISION.CHAMPION_MIN_SAMPLES:
             return ChampionChallengeEvaluation(
                 promote=False,
