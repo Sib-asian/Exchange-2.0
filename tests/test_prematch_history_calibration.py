@@ -159,3 +159,37 @@ def test_calibration_starts_learning_at_20_samples(monkeypatch):
     sig = estimate_calibration_signals(league="Serie A")
     assert sig.samples == 20
     assert sig.weight > 0.0
+
+
+def test_calibration_warmup_learning_at_18_samples(monkeypatch):
+    class _FakeLog:
+        def get_completed(self):
+            records = []
+            for i in range(18):
+                records.append(
+                    PredictionRecord(
+                        id=f"w{i}",
+                        timestamp="2026-01-01T00:00:00",
+                        lega="Serie A",
+                        is_prematch=True,
+                        p1=0.44,
+                        px=0.28,
+                        p2=0.28,
+                        p_over_25=0.56,
+                        p_under_25=0.44,
+                        p_btts=0.53,
+                        risultato_1x2="1",
+                        over_25_hit=True,
+                        btts_hit=True,
+                        status="COMPLETED",
+                        gol_casa=2,
+                        gol_trasf=1,
+                    )
+                )
+            return records
+
+    monkeypatch.setattr("src.models.prematch_history_calibration.get_prediction_log", lambda: _FakeLog())
+    sig = estimate_calibration_signals(league="Serie A")
+    assert sig.samples == 18
+    assert 0.0 < sig.weight <= 0.03
+    assert 0.95 <= sig.p1_scale <= 1.05
