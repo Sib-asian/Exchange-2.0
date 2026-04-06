@@ -70,7 +70,7 @@ def _weighted_mean(values: list[float], weights: list[float]) -> float:
     denom = sum(weights)
     if denom <= 0:
         return 0.0
-    return sum(v * w for v, w in zip(values, weights)) / denom
+    return sum(v * w for v, w in zip(values, weights, strict=False)) / denom
 
 
 def _recency_weights(n: int) -> list[float]:
