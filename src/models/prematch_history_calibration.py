@@ -8,14 +8,18 @@ Usa solo partite prematch completate dal Prediction Tracker:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from src.tracking.prediction_log import PredictionRecord, get_prediction_log
 
 _MIN_SAMPLES = 20
 _MAX_WEIGHT = 0.18
+_MIN_WEIGHT_AT_THRESHOLD = 0.04
+_RAMP_MATCHES = 120
 _SCALE_MIN = 0.85
 _SCALE_MAX = 1.15
+_RECENCY_TAU_MATCHES = 35.0
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,31 @@ def _safe_scale(avg_pred: float, avg_outcome: float) -> float:
         return 1.0
     raw = avg_outcome / avg_pred
     return max(_SCALE_MIN, min(_SCALE_MAX, raw))
+
+
+def _learning_weight(n: int) -> float:
+    """
+    Peso calibrazione:
+    - 0 fino a MIN_SAMPLES-1
+    - >0 già a MIN_SAMPLES (inizio apprendimento percepibile)
+    - ramp graduale fino al cap
+    """
+    if n < _MIN_SAMPLES:
+        return 0.0
+    progress = min(1.0, max(0.0, (n - _MIN_SAMPLES) / max(1.0, _RAMP_MATCHES)))
+    return _MIN_WEIGHT_AT_THRESHOLD + progress * (_MAX_WEIGHT - _MIN_WEIGHT_AT_THRESHOLD)
+
+
+def _weighted_mean(values: list[float], weights: list[float]) -> float:
+    denom = sum(weights)
+    if denom <= 0:
+        return 0.0
+    return sum(v * w for v, w in zip(values, weights)) / denom
+
+
+def _recency_weights(n: int) -> list[float]:
+    # records arrivano in ordine cronologico; più recente = peso maggiore.
+    return [math.exp(-(n - 1 - i) / _RECENCY_TAU_MATCHES) for i in range(n)]
 
 
 def _prematch_completed_records() -> list[PredictionRecord]:
@@ -58,32 +87,15 @@ def estimate_calibration_signals(league: str = "") -> CalibrationSignals:
     else:
         scope = "global"
 
-    n = len(records)
-    if n < _MIN_SAMPLES:
-        return CalibrationSignals(samples=n, scope=scope)
-
-    avg_p1 = sum(r.p1 for r in records) / n
-    avg_px = sum(r.px for r in records) / n
-    avg_p2 = sum(r.p2 for r in records) / n
-    avg_over = sum(r.p_over_25 for r in records) / n
-    avg_btts = sum(r.p_btts for r in records) / n
-
-    avg_o1 = sum(1.0 for r in records if r.risultato_1x2 == "1") / n
-    avg_ox = sum(1.0 for r in records if r.risultato_1x2 == "X") / n
-    avg_o2 = sum(1.0 for r in records if r.risultato_1x2 == "2") / n
-    avg_over_hit = sum(1.0 for r in records if bool(r.over_25_hit)) / n
-    avg_btts_hit = sum(1.0 for r in records if bool(r.btts_hit)) / n
-
-    # Peso cresce con i campioni ma resta conservativo.
-    weight = min(_MAX_WEIGHT, (n - _MIN_SAMPLES) / 100.0 * _MAX_WEIGHT)
+    base = _estimate_from_records(records)
     return CalibrationSignals(
-        p1_scale=_safe_scale(avg_p1, avg_o1),
-        px_scale=_safe_scale(avg_px, avg_ox),
-        p2_scale=_safe_scale(avg_p2, avg_o2),
-        over_scale=_safe_scale(avg_over, avg_over_hit),
-        btts_scale=_safe_scale(avg_btts, avg_btts_hit),
-        weight=max(0.0, weight),
-        samples=n,
+        p1_scale=base.p1_scale,
+        px_scale=base.px_scale,
+        p2_scale=base.p2_scale,
+        over_scale=base.over_scale,
+        btts_scale=base.btts_scale,
+        weight=base.weight,
+        samples=base.samples,
         scope=scope,
     )
 
@@ -155,19 +167,20 @@ def _estimate_from_records(records: list[PredictionRecord]) -> CalibrationSignal
     if n < _MIN_SAMPLES:
         return CalibrationSignals(samples=n, scope="global")
 
-    avg_p1 = sum(r.p1 for r in records) / n
-    avg_px = sum(r.px for r in records) / n
-    avg_p2 = sum(r.p2 for r in records) / n
-    avg_over = sum(r.p_over_25 for r in records) / n
-    avg_btts = sum(r.p_btts for r in records) / n
+    ws = _recency_weights(n)
+    avg_p1 = _weighted_mean([float(r.p1) for r in records], ws)
+    avg_px = _weighted_mean([float(r.px) for r in records], ws)
+    avg_p2 = _weighted_mean([float(r.p2) for r in records], ws)
+    avg_over = _weighted_mean([float(r.p_over_25) for r in records], ws)
+    avg_btts = _weighted_mean([float(r.p_btts) for r in records], ws)
 
-    avg_o1 = sum(1.0 for r in records if r.risultato_1x2 == "1") / n
-    avg_ox = sum(1.0 for r in records if r.risultato_1x2 == "X") / n
-    avg_o2 = sum(1.0 for r in records if r.risultato_1x2 == "2") / n
-    avg_over_hit = sum(1.0 for r in records if bool(r.over_25_hit)) / n
-    avg_btts_hit = sum(1.0 for r in records if bool(r.btts_hit)) / n
+    avg_o1 = _weighted_mean([1.0 if r.risultato_1x2 == "1" else 0.0 for r in records], ws)
+    avg_ox = _weighted_mean([1.0 if r.risultato_1x2 == "X" else 0.0 for r in records], ws)
+    avg_o2 = _weighted_mean([1.0 if r.risultato_1x2 == "2" else 0.0 for r in records], ws)
+    avg_over_hit = _weighted_mean([1.0 if bool(r.over_25_hit) else 0.0 for r in records], ws)
+    avg_btts_hit = _weighted_mean([1.0 if bool(r.btts_hit) else 0.0 for r in records], ws)
 
-    weight = min(_MAX_WEIGHT, (n - _MIN_SAMPLES) / 100.0 * _MAX_WEIGHT)
+    weight = _learning_weight(n)
     return CalibrationSignals(
         p1_scale=_safe_scale(avg_p1, avg_o1),
         px_scale=_safe_scale(avg_px, avg_ox),
