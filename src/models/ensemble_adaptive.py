@@ -20,7 +20,7 @@ def _multiclass_brier_1x2(p1: float, px: float, p2: float, outcome: str) -> floa
     return float((p1 - o1) ** 2 + (px - ox) ** 2 + (p2 - o2) ** 2)
 
 
-def _record_has_model_probs(r: "PredictionRecord") -> bool:
+def _record_has_model_probs(r: PredictionRecord) -> bool:
     return (
         r.p1_bp > 0.0 or r.px_bp > 0.0 or r.p2_bp > 0.0
     ) and (

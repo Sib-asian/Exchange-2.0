@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.ocr import (
     ExtractedData,
@@ -12,31 +13,30 @@ from src.ocr import (
     _check_gemini_available,
     _check_openai_available,
     _check_zai_available,
+    _clean_league_name,
+    _clean_team_name,
     _derive_h2h_from_score_table,
-    _extract_h2h_with_regex,
-    _extract_match_identity_from_text,
-    _extract_identity_from_url,
-    _fallback_league_from_nowgoal_mirrors,
-    _fallback_league_external,
     _extract_all_with_regex,
+    _extract_h2h_with_regex,
+    _extract_identity_from_url,
+    _extract_live_page_data,
+    _extract_match_identity_from_text,
     _extract_with_gemini,
     _extract_with_openai,
     _extract_with_zai_cli,
     _fallback_extraction,
+    _fallback_league_external,
+    _fallback_league_from_nowgoal_mirrors,
     _find_zai_command,
     _get_env_with_path,
     _get_gemini_api_key,
     _get_openai_api_key,
     _normalize_live_stats_keys,
+    _parse_h2h_score_rows,
     _parse_live_stats_response,
     _parse_vlm_response,
-    _parse_h2h_score_rows,
-    _extract_all_with_regex,
-    _extract_live_page_data,
     _safe_float,
     _safe_int,
-    _clean_team_name,
-    _clean_league_name,
     _teams_name_match,
     extract_from_base64,
     extract_from_bytes,

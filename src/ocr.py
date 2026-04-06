@@ -35,7 +35,6 @@ import contextlib
 import json
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
 import shutil
 import subprocess
 import tempfile
@@ -43,6 +42,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -57,7 +57,7 @@ _get_weather_for_city = None
 
 try:
     # Prova import relativo
-    from src.weather import get_weather_for_match, get_weather_for_city
+    from src.weather import get_weather_for_city, get_weather_for_match
     WEATHER_MODULE_AVAILABLE = True
     _get_weather_for_match = get_weather_for_match
     _get_weather_for_city = get_weather_for_city
@@ -1116,7 +1116,7 @@ class PrematchAnalysisExtracted:
     weather_condition: str = ""       # es. "Partly cloudy", "Rain", "Clear"
     weather_temp: int = 0             # temperatura in °C
     weather_impact: float = 0.0       # -0.05 per pioggia, -0.03 per vento, etc.
-    
+
     # HT/FT Statistics (da pagina LIVE)
     htft_home_htw_ftw: int = 0        # HT win → FT win per casa
     htft_home_htd_ftw: int = 0        # HT draw → FT win per casa
@@ -1136,7 +1136,7 @@ class PrematchAnalysisExtracted:
     htft_away_htw_ftl: int = 0
     htft_away_htd_ftl: int = 0
     htft_away_htl_ftl: int = 0
-    
+
     # Team Statistics extra (da pagina LIVE, ultimi 10 match)
     team_stats_home_goals: float = 0.0      # media gol casa
     team_stats_home_conceded: float = 0.0   # media gol subiti casa
@@ -1172,7 +1172,7 @@ class PrematchAnalysisExtracted:
     # Fixture (3 Matches): giorni alla prossima partita (0 = sconosciuto)
     fixture_next_days_home: int = 0
     fixture_next_days_away: int = 0
-    
+
     # Quote LIVE (informativo, non sostituisce input manuale)
     live_ah_line: float = 0.0         # linea AH live
     live_ah_home_odds: float = 0.0    # quota AH casa live
@@ -2213,7 +2213,7 @@ def _fetch_raw_html(url: str, timeout: int = 30) -> str:
                 cmd = [executable] + extra_args + ["function", "-n", "page_reader", "-a", f'{{"url": "{url}"}}']
             else:
                 cmd = [executable, "function", "-n", "page_reader", "-a", f'{{"url": "{url}"}}']
-            
+
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=timeout,
                 env=_get_env_with_path()
@@ -2231,7 +2231,7 @@ def _fetch_raw_html(url: str, timeout: int = 30) -> str:
                         return data["data"]["html"]
     except Exception:
         pass
-    
+
     # Metodo 2: Jina Reader raw
     try:
         # https://r.jina.ai/http://URL restituisce HTML
@@ -2249,7 +2249,7 @@ def _fetch_raw_html(url: str, timeout: int = 30) -> str:
                 return html
     except Exception:
         pass
-    
+
     # Metodo 3: Richiesta diretta (probabilmente fallisce con anti-bot)
     try:
         req = urllib.request.Request(
@@ -2730,13 +2730,13 @@ def convert_nowgoal_line_to_software(line_str: str | float, invert_sign: bool = 
     if isinstance(line_str, (int, float)):
         nowgoal_value = float(line_str)
         return -nowgoal_value if invert_sign else nowgoal_value
-    
+
     # Converti in stringa e pulisci
     line_str = str(line_str).strip().replace(' ', '')
-    
+
     if not line_str:
         return 0.0
-    
+
     try:
         # Quarter line: "-0.5/1" o "0.5/1"
         if '/' in line_str:
@@ -2750,14 +2750,14 @@ def convert_nowgoal_line_to_software(line_str: str | float, invert_sign: bool = 
                 nowgoal_value = float(line_str.replace('/', ''))
         else:
             nowgoal_value = float(line_str)
-        
+
         # Inverti il segno per AH (Nowgoal: positivo = casa favorita)
         # Software: negativo = casa favorita
         if invert_sign:
             return -nowgoal_value
         else:
             return nowgoal_value
-            
+
     except (ValueError, TypeError):
         return 0.0
 
@@ -3156,7 +3156,7 @@ def _parse_htft_matrix_from_text(text: str) -> dict[str, int]:
     Tabella HT/FT Nowgoal / Jina: sezione «HT/FT Statistics» o «Half Time / Full Time»;
     righe HT-W/FT-W oppure W/W … L/L (colonne: casa_home | … | trasferta_trasferta → gruppi 1 e 4).
     """
-    out: dict[str, int] = {k: 0 for k in _HTFT_LIVE_KEYS}
+    out: dict[str, int] = dict.fromkeys(_HTFT_LIVE_KEYS, 0)
     htft_section = re.search(
         r"(?:HT/FT\s+Statistics|Half\s+Time\s*/\s*Full\s+Time).*?(?=\*\*Last Updated|Goals Distribution|Historical Matches|## Fixture|$)",
         text,
@@ -3497,47 +3497,47 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["strength_home"] = s1
                 result["strength_away"] = s2
                 strength_found = True
-    
+
     # === STANDINGS ===
     # Cerca tabelle con righe Total/Home/Away/Last 6
     # Nowgoal ha struttura: [Rank] NomeSquadra → FT section → HT section per ogni squadra
-    
+
     # Trova le posizioni delle sezioni squadra (es. "[JPN D1-1] Vissel Kobe")
     team_markers = list(re.finditer(r'\[[^\]]+\]\s*([A-Za-z][A-Za-z\s\-\'\.]+)', text))
-    
+
     # Estrai le sezioni FT e HT per ogni squadra
     ft_home_section = ""
     ht_home_section = ""
     ft_away_section = ""
     ht_away_section = ""
-    
+
     if len(team_markers) >= 2:
         # Prima squadra (casa): dal match 0 al match 1 (o fine testo)
         home_start = team_markers[0].start()
         home_end = team_markers[1].start() if len(team_markers) > 1 else len(text)
         home_team_text = text[home_start:home_end]
-        
+
         # Seconda squadra (trasferta): dal match 1 alla fine (o prossima squadra)
         away_start = team_markers[1].start()
         away_end = team_markers[2].start() if len(team_markers) > 2 else len(text)
         away_team_text = text[away_start:away_end]
-        
+
         # Separa FT e HT per casa (HT inizia con "HT Matches" o "| HT | Matches |")
         ht_split_home = re.split(r'\n\s*\|?\s*HT[\s|]+Matches', home_team_text, flags=re.IGNORECASE)
         ft_home_section = ht_split_home[0] if len(ht_split_home) >= 1 else ""
         ht_home_section = "HT Matches" + ht_split_home[1] if len(ht_split_home) >= 2 else ""
-        
+
         # Separa FT e HT per trasferta
         ht_split_away = re.split(r'\n\s*\|?\s*HT[\s|]+Matches', away_team_text, flags=re.IGNORECASE)
         ft_away_section = ht_split_away[0] if len(ht_split_away) >= 1 else ""
         ht_away_section = "HT Matches" + ht_split_away[1] if len(ht_split_away) >= 2 else ""
-    
+
     # === FT DATA ===
     # Separatore tollerante a pipe markdown: "| Total | 22 | 13 |" e "Total 22 13"
     _S = r"[\s|]+"
     # Riga Total FT: Matches, Win, Draw, Lose, Scored, Conceded
     total_pattern = rf"Total{_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+){_S}(\d+)"
-    
+
     # FT Casa
     ft_home_total = re.search(total_pattern, ft_home_section, re.IGNORECASE)
     if ft_home_total:
@@ -3548,7 +3548,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["home_lose"] = int(t[3])
         result["home_scored"] = int(t[4])
         result["home_conceded"] = int(t[5])
-    
+
     # FT Trasferta
     ft_away_total = re.search(total_pattern, ft_away_section, re.IGNORECASE)
     if ft_away_total:
@@ -3559,7 +3559,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["away_lose"] = int(t[3])
         result["away_scored"] = int(t[4])
         result["away_conceded"] = int(t[5])
-    
+
     # === HT DATA ===
     # Riga Total HT: Matches, Win, Draw, Lose, Scored, Conceded
     # HT Casa
@@ -3569,7 +3569,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["home_ht_win"] = int(t[1])
         result["home_ht_draw"] = int(t[2])
         result["home_ht_lose"] = int(t[3])
-    
+
     # HT Trasferta
     ht_away_total = re.search(total_pattern, ht_away_section, re.IGNORECASE)
     if ht_away_total:
@@ -3577,7 +3577,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["away_ht_win"] = int(t[1])
         result["away_ht_draw"] = int(t[2])
         result["away_ht_lose"] = int(t[3])
-    
+
     # Riga Home FT (performance in casa)
     # Es: "Home  5  1  2  2  7  7" (matches, win, draw, lose, scored, conceded)
     # NOTA: la prima colonna è Matches, NON Win!
@@ -3593,7 +3593,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["home_home_lose"] = int(m[3])
         result["home_home_scored"] = int(m[4])
         result["home_home_conceded"] = int(m[5])
-    
+
     # Riga Away FT (performance in trasferta)
     # Es: "Away  6  3  0  3  7  6" (matches, win, draw, lose, scored, conceded)
     # NOTA: ci sono QUATTRO righe "Away" nel testo (FT e HT per entrambe le squadre).
@@ -3615,7 +3615,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["away_away_lose"] = int(m[3])
         result["away_away_scored"] = int(m[4])
         result["away_away_conceded"] = int(m[5])
-    
+
     # Riga Last 6 (solo blocco FT — vedi sezioni ft_home_section / ft_away_section)
     # Es. Nowgoal: Last 6 | 6 | 2 | 1 | 3 | 8 | 10 | 7 | 33.3%  → scored=8, conceded=10
     last6_re = re.compile(
@@ -3665,7 +3665,7 @@ def _extract_all_with_regex(text: str) -> dict:
             if l[4] and l[5]:
                 result["away_last6_scored"] = int(l[4])
                 result["away_last6_conceded"] = int(l[5])
-    
+
     # === RANK ===
     # Es: "[SPA D2-3]" → rank=3 o "Rank: 3"
     rank_pattern = r"\[[^\]]*-(\d+)\]"
@@ -3685,7 +3685,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["standings_total_teams"] = max(round(_hm / 2) + 1, _max_rank + 1) if _hm > 0 else _max_rank + 1
     elif _hm > 0:
         result["standings_total_teams"] = round(_hm / 2) + 1
-    
+
     # === PREVIOUS SCORES ===
     # FIX: Cerca nella sezione "Previous Scores Statistics" per evitare di
     # confondere con H2H Win (che appare prima nel testo con lo stesso pattern).
@@ -3704,7 +3704,7 @@ def _extract_all_with_regex(text: str) -> dict:
             result["prev_home_win_pct"] = float(prev_matches[0][1])
         if len(prev_matches) >= 2:
             result["prev_away_win_pct"] = float(prev_matches[1][1])
-    
+
     # Previous Over %
     # FIX: Usa pattern "% Over" invece di "Over %" per evitare garbage
     prev_over_pattern = r"(\d+(?:\.\d+)?)%\s*Over"
@@ -3714,7 +3714,7 @@ def _extract_all_with_regex(text: str) -> dict:
             result["prev_home_over_pct"] = float(prev_over_matches[0])
         if len(prev_over_matches) >= 2:
             result["prev_away_over_pct"] = float(prev_over_matches[1])
-    
+
     # Previous avg goals
     # FIX: Il formato reale è "1.3 goals Goal Score/Loss per Game 1.4 goals"
     # Il vecchio pattern cercava "Score" o "per Game" subito dopo "goals",
@@ -3737,7 +3737,7 @@ def _extract_all_with_regex(text: str) -> dict:
         if len(prev_goals_matches) >= 2:
             result["prev_away_avg_scored"] = float(prev_goals_matches[1][0].replace(",", "."))
             result["prev_away_avg_conceded"] = float(prev_goals_matches[1][1].replace(",", "."))
-    
+
     # === QUOTE INIZIALI ===
     # Es: "1 @2.10  X @3.25  2 @3.40" o "1: 2.10  X: 3.25  2: 3.40"
     odds_pattern = r"(?:1|Home)\s*[@:]\s*(\d+[.,]\d+).*?(?:X|Draw)\s*[@:]\s*(\d+[.,]\d+).*?(?:2|Away)\s*[@:]\s*(\d+[.,]\d+)"
@@ -3746,7 +3746,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["mkt_init_1"] = float(odds_match.group(1).replace(",", "."))
         result["mkt_init_x"] = float(odds_match.group(2).replace(",", "."))
         result["mkt_init_2"] = float(odds_match.group(3).replace(",", "."))
-    
+
     # Pattern per tabella markdown Live Odds Analysis (Jina Reader)
     # Formato: | **Bet365** | Initial | AH_home | AH_line | AH_away | 1 | X | 2 | Over | Total | Under |
     # Es: | **Bet365** | Initial | 0.80 | 1.5 | 1.05 | 1.20 | 5.50 | 12.00 | 0.88 | 2/2.5 | 0.98 |
@@ -3758,7 +3758,7 @@ def _extract_all_with_regex(text: str) -> dict:
             result["mkt_init_1"] = float(table_match.group(1))
             result["mkt_init_x"] = float(table_match.group(2))
             result["mkt_init_2"] = float(table_match.group(3))
-    
+
     # Pattern alternativo: cerca 1X2 in riga con "Initial"
     if result["mkt_init_1"] == 0:
         # Cerca pattern: "Initial" seguito da valori che sembrano quote 1X2
@@ -3771,7 +3771,7 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["mkt_init_1"] = q1
                 result["mkt_init_x"] = qx
                 result["mkt_init_2"] = q2
-    
+
     # === INFO PARTITA ===
     id_home, id_away, id_league = _extract_match_identity_from_text(text)
     if id_home:
@@ -3791,7 +3791,7 @@ def _extract_all_with_regex(text: str) -> dict:
     if teams_match:
         result["home_team"] = _clean_team_name(teams_match.group(1))
         result["away_team"] = _clean_team_name(teams_match.group(2))
-    
+
     # Data partita: usa solo pattern contestualizzati (evita date spurie nel footer/log).
     date_match = re.search(
         r"(?:Match\s*Date|Date|Kick[-\s]?off)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})",
@@ -3800,7 +3800,7 @@ def _extract_all_with_regex(text: str) -> dict:
     )
     if date_match:
         result["match_date"] = date_match.group(1)
-    
+
     # Lega: "League: XXX" o dopo nome squadre — sovrascrive solo se produce un valore valido
     if not result["league_name"]:
         league_match = re.search(r"(?:League|Lega|Competition)\s*[:\-]\s*([A-Za-z][A-Za-z\s0-9]{2,30})", text, re.IGNORECASE)
@@ -3808,15 +3808,15 @@ def _extract_all_with_regex(text: str) -> dict:
             _candidate_league = _clean_league_name(league_match.group(1))
             if _candidate_league:
                 result["league_name"] = _candidate_league
-    
+
     # =====================================================
     # === NUOVI CAMPI: ESTRAZIONE AVANZATA ===
     # =====================================================
-    
+
     # === 1. h_data / a_data: PARTITE RECENTI (da JavaScript Nowgoal) ===
     # Formato: h_data = [[team1_id, team2_id, gol_team1, gol_team2], ...]
     # La squadra di casa è identificata da h2h_home, la trasferta da h2h_away
-    
+
     # Cerca prima gli ID delle squadre
     home_id = None
     away_id = None
@@ -3828,7 +3828,7 @@ def _extract_all_with_regex(text: str) -> dict:
     if id_match_a:
         away_id = int(id_match_a.group(1))
         result["away_id"] = away_id
-    
+
     # Estrai h_data (partite recenti squadra casa)
     # Pattern aggiornato per matchare formato Nowgoal
     h_data_match = re.search(r'h_data\s*=\s*(\[(?:\[\d+,\s*\d+,\s*\d+,\s*\d+\]\s*,?\s*)+\])', text)
@@ -3837,7 +3837,7 @@ def _extract_all_with_regex(text: str) -> dict:
             h_data_str = h_data_match.group(1)
             h_data_parsed = json.loads(h_data_str)
             home_results = []
-            
+
             for match_data in h_data_parsed[:15]:  # Max 15 partite
                 if len(match_data) >= 4:
                     t1, t2, g1, g2 = int(match_data[0]), int(match_data[1]), int(match_data[2]), int(match_data[3])
@@ -3852,13 +3852,13 @@ def _extract_all_with_regex(text: str) -> dict:
                         # Fallback: assume prima squadra è casa
                         if len(home_results) < 10:
                             home_results.append((g1, g2))
-            
+
             result["home_recent_results"] = home_results
             if home_results:
                 sc, cs = _compute_streaks_from_results(home_results)
                 result["scoring_streak_h"] = sc
                 result["clean_sheet_streak_h"] = cs
-            
+
             # Calcola trend forma (prime 5 vs ultime 5)
             if len(home_results) >= 10:
                 first5 = home_results[:5]
@@ -3866,15 +3866,15 @@ def _extract_all_with_regex(text: str) -> dict:
                 first5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in first5)
                 last5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in last5)
                 result["home_form_trend"] = (last5_pts - first5_pts) / 15.0  # Normalizzato [-1, 1]
-            
+
             # Calcola xG da partite recenti
             if home_results:
                 avg_gf = sum(gf for gf, gs in home_results) / len(home_results)
                 avg_gs = sum(gs for gf, gs in home_results) / len(home_results)
                 result["home_xg_from_recent"] = round(avg_gf, 2)
-        except (json.JSONDecodeError, ValueError, IndexError) as e:
+        except (json.JSONDecodeError, ValueError, IndexError):
             pass
-    
+
     # Estrai a_data (partite recenti squadra trasferta)
     a_data_match = re.search(r'a_data\s*=\s*(\[(?:\[\d+,\s*\d+,\s*\d+,\s*\d+\]\s*,?\s*)+\])', text)
     if a_data_match:
@@ -3882,7 +3882,7 @@ def _extract_all_with_regex(text: str) -> dict:
             a_data_str = a_data_match.group(1)
             a_data_parsed = json.loads(a_data_str)
             away_results = []
-            
+
             for match_data in a_data_parsed[:15]:
                 if len(match_data) >= 4:
                     t1, t2, g1, g2 = int(match_data[0]), int(match_data[1]), int(match_data[2]), int(match_data[3])
@@ -3893,32 +3893,32 @@ def _extract_all_with_regex(text: str) -> dict:
                     elif not away_id:
                         if len(away_results) < 10:
                             away_results.append((g1, g2))
-            
+
             result["away_recent_results"] = away_results
             if away_results:
                 sc, cs = _compute_streaks_from_results(away_results)
                 result["scoring_streak_a"] = sc
                 result["clean_sheet_streak_a"] = cs
-            
+
             if len(away_results) >= 10:
                 first5 = away_results[:5]
                 last5 = away_results[-5:]
                 first5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in first5)
                 last5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in last5)
                 result["away_form_trend"] = (last5_pts - first5_pts) / 15.0
-            
+
             if away_results:
                 avg_gf = sum(gf for gf, gs in away_results) / len(away_results)
                 avg_gs = sum(gs for gf, gs in away_results) / len(away_results)
                 result["away_xg_from_recent"] = round(avg_gf, 2)
         except (json.JSONDecodeError, ValueError, IndexError):
             pass
-    
+
     # === 2. Vs_hOdds: QUOTE MULTI-BOOKMAKER (da JavaScript Nowgoal) ===
     # Formato variabile: legacy ~12 colonne + ts=1 “apertura”; live5 spesso 18 colonne e ts 3,8,12,24
     # (apertura = timestamp minimo). BTTS: indici 16–17 se len>=18, altrimenti 12–13 legacy.
     # I valori sono stringhe con apici singoli, JSON vuole doppi apici!
-    
+
     # Pattern più robusto: trova tutto fino al punto e virgola
     vs_odds_match = re.search(r"Vs_hOdds\s*=\s*(\[[\s\S]+?\]\s*\])\s*;", text)
     if vs_odds_match:
@@ -3947,7 +3947,7 @@ def _extract_all_with_regex(text: str) -> dict:
                         break
                 if opening_row is None:
                     opening_row = min(eligible, key=_row_ts)
-            
+
             # Estrai dati da opening
             if opening_row and len(opening_row) >= 12:
                 # AH: index 2=home_odds, 3=line, 4=away_odds
@@ -3977,7 +3977,7 @@ def _extract_all_with_regex(text: str) -> dict:
                             _ou_or = 1.0 / o1 + 1.0 / o2
                             if 1.02 <= _ou_or <= OCR_QUOTES.MAX_OVERROUND_2WAY:
                                 total_over, total_under = o1, o2
-                
+
                 result["ah_line_open"] = ah_line
                 result["ah_home_odds_open"] = ah_home
                 result["ah_away_odds_open"] = ah_away
@@ -4015,23 +4015,23 @@ def _extract_all_with_regex(text: str) -> dict:
                                     break
                         except (ValueError, TypeError, ZeroDivisionError):
                             continue
-            
+
             # Estrai dati da closing
             if closing_row and len(closing_row) >= 12:
                 ah_line_close_raw = closing_row[3] if closing_row[3] else "0"
                 ah_line_close = convert_nowgoal_line_to_software(ah_line_close_raw, invert_sign=True)
                 total_line_close_raw = closing_row[8] if closing_row[8] else "0"
                 total_line_close = convert_nowgoal_line_to_software(total_line_close_raw, invert_sign=False)
-                
+
                 result["ah_line_close"] = ah_line_close
                 result["total_line_close"] = total_line_close
-            
+
             # Calcola movimento
             if result["ah_line_open"] != 0 and result["ah_line_close"] != 0:
                 result["line_movement_ah"] = result["ah_line_close"] - result["ah_line_open"]
             if result["total_line_open"] != 0 and result["total_line_close"] != 0:
                 result["line_movement_total"] = result["total_line_close"] - result["total_line_open"]
-            
+
             # Sharp signal: movimento significativo (>0.25) indica informazione
             if abs(result["line_movement_ah"]) >= 0.25 or abs(result["line_movement_total"]) >= 0.25:
                 result["odds_sharp_signal"] = max(abs(result["line_movement_ah"]), abs(result["line_movement_total"]))
@@ -4075,7 +4075,7 @@ def _extract_all_with_regex(text: str) -> dict:
                             result["mkt_init_2"] = q2
             except (json.JSONDecodeError, ValueError, TypeError, IndexError, ZeroDivisionError):
                 pass
-    
+
     # === 3. NOMI SQUADRE (da meta tags o title - più affidabile) ===
     # Pattern 1: Formato Jina Reader markdown "Title: Team A VS Team B Match..."
     jina_title_match = re.search(
@@ -4092,7 +4092,7 @@ def _extract_all_with_regex(text: str) -> dict:
             result["home_team"] = _clean_team_name(home)
         if away and not result["away_team"]:
             result["away_team"] = _clean_team_name(away)
-    
+
     # Pattern 2: Formato HTML <title> (se raw HTML disponibile)
     if not result["home_team"] or not result["away_team"]:
         title_match = re.search(
@@ -4108,7 +4108,7 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["home_team"] = _clean_team_name(home)
             if away and not result["away_team"]:
                 result["away_team"] = _clean_team_name(away)
-    
+
     # Pattern 3: Cerca "# Team A vs Team B" heading (markdown)
     if not result["home_team"] or not result["away_team"]:
         heading_match = re.search(
@@ -4120,7 +4120,7 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["home_team"] = _clean_team_name(heading_match.group(1))
             if not result["away_team"]:
                 result["away_team"] = _clean_team_name(heading_match.group(2))
-    
+
     # Pattern 4: Cerca nella sezione H2H "Team A Home Same League"
     if not result["home_team"] or not result["away_team"]:
         h2h_home_match = re.search(
@@ -4130,7 +4130,7 @@ def _extract_all_with_regex(text: str) -> dict:
         if h2h_home_match:
             if not result["home_team"]:
                 result["home_team"] = _clean_team_name(h2h_home_match.group(1))
-    
+
     # Fallback: cerca in meta description
     if not result["home_team"] or not result["away_team"]:
         meta_match = re.search(
@@ -4159,7 +4159,7 @@ def _extract_all_with_regex(text: str) -> dict:
         result["extraction_notes"].append("league_missing")
     if result["mkt_init_1"] <= 1.0:
         result["extraction_notes"].append("market_1x2_missing_or_unreadable")
-    
+
     # === 4. PUNTI CLASSIFICA (dalla tabella standings) ===
     # FIX: La tabella standings ha righe FT e HT per OGNI squadra.
     # Dobbiamo prendere SOLO le righe FT Total (non HT Total).
@@ -4188,21 +4188,17 @@ def _extract_all_with_regex(text: str) -> dict:
             result["home_points"] = int(_all_pts[0])
         if len(_all_pts) >= 2:
             result["away_points"] = int(_all_pts[1])
-    
+
     # === 5. MOTIVAZIONE (basata su posizione classifica) ===
     max_teams = result.get("standings_total_teams", 0) or 20
     if result["home_rank"] > 0 and result["home_matches"] > 0:
-        if result["home_rank"] <= 3:
-            result["home_motivation"] = "high"
-        elif result["home_rank"] >= max_teams - 2:
+        if result["home_rank"] <= 3 or result["home_rank"] >= max_teams - 2:
             result["home_motivation"] = "high"
         elif result["home_rank"] > max_teams // 2 + 3 and result["home_rank"] < max_teams - 3:
             result["home_motivation"] = "low"
-    
+
     if result["away_rank"] > 0 and result["away_matches"] > 0:
-        if result["away_rank"] <= 3:
-            result["away_motivation"] = "high"
-        elif result["away_rank"] >= max_teams - 2:
+        if result["away_rank"] <= 3 or result["away_rank"] >= max_teams - 2:
             result["away_motivation"] = "high"
         elif result["away_rank"] > max_teams // 2 + 3 and result["away_rank"] < max_teams - 3:
             result["away_motivation"] = "low"
@@ -4353,12 +4349,12 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
     anche senza API key Gemini o con restrizioni geografiche.
     """
     import time
-    
+
     # === PASSO 1: Estrazione con REGEX (PRIMARIO) ===
     # NOTA: Usiamo l'intero testo, non troncato, perché i dati JavaScript
     # (h_data, Vs_hOdds) sono nell'HTML grezzo che viene dopo i 20000 caratteri
     regex_data = _extract_all_with_regex(page_text)
-    
+
     # Crea il risultato base dai dati regex
     result = PrematchAnalysisExtracted(
         extraction_success=True,
@@ -4530,23 +4526,23 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
     )
 
     _fill_last6_goals_from_recent_results(result)
-    
+
     # Calcola win_rate se non estratto (W / Matches * 100)
     if result.home_win_rate == 0 and result.home_matches > 0 and result.home_win > 0:
         result.home_win_rate = round(result.home_win / result.home_matches * 100, 1)
     if result.away_win_rate == 0 and result.away_matches > 0 and result.away_win > 0:
         result.away_win_rate = round(result.away_win / result.away_matches * 100, 1)
-    
+
     # Se abbiamo dati partite recenti, migliora forma_mult con trend reale
     if result.home_recent_results and len(result.home_recent_results) >= 6:
         # Forma_mult già calcolato da standings, aggiusta con trend partite
         trend_adj = result.home_form_trend * 0.04  # Max ±4% aggiustamento
         result.forma_mult_h = max(0.88, min(1.12, result.forma_mult_h + trend_adj))
-    
+
     if result.away_recent_results and len(result.away_recent_results) >= 6:
         trend_adj = result.away_form_trend * 0.04
         result.forma_mult_a = max(0.88, min(1.12, result.forma_mult_a + trend_adj))
-    
+
     # Calcola fixture_historical_total (media gol H2H totali)
     if result.h2h_avg_goals_home > 0 or result.h2h_avg_goals_away > 0:
         result.fixture_historical_total = result.h2h_avg_goals_home + result.h2h_avg_goals_away
@@ -4557,17 +4553,17 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
     result.extraction_section_scores = section_scores
     if section_scores:
         result.extraction_coverage = sum(section_scores.values()) / len(section_scores)
-    
+
     # === PASSO 2: Se regex ha estratto dati sufficienti, termina qui ===
     has_data = (
         result.h2h_home_win_pct > 0 or result.h2h_matches_count > 0 or result.home_matches > 0
         or result.strength_home > 0
         or result.home_last6_win + result.home_last6_draw + result.home_last6_lose > 0
     )
-    
+
     if has_data:
         return result
-    
+
     # === PASSO 3: Prova Gemini come FALLBACK (solo se regex non ha trovato nulla) ===
     api_key = _get_gemini_api_key()
     if not api_key:
@@ -4579,7 +4575,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
             extraction_success=False,
             error_message="Nessun dato estratto (regex e Gemini non disponibili)",
         )
-    
+
     # Prova Gemini
     # FIX: text_truncated non esisteva — usiamo page_text limitato a 30000 caratteri
     _trunc = page_text[:30000] if page_text else ""
@@ -4593,7 +4589,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         },
     }
     payload = json.dumps(request_body).encode("utf-8")
-    
+
     last_error = ""
     for model in _GEMINI_MODELS:
         api_url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
@@ -4605,7 +4601,7 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
                 )
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
-                
+
                 if "candidates" in resp_data and resp_data["candidates"]:
                     parts_resp = resp_data["candidates"][0].get("content", {}).get("parts", [])
                     if parts_resp:
@@ -4655,12 +4651,12 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
             except Exception as e:
                 last_error = f"Gemini ({model}): {e}"
                 break
-    
+
     # Ritorna risultato regex anche se Gemini ha fallito
     if has_data:
         result.error_message = f"Dati da regex (Gemini: {last_error})"
         return result
-    
+
     return PrematchAnalysisExtracted(
         extraction_success=False,
         error_message=f"Nessun dato estratto (regex vuoto, Gemini: {last_error})",
@@ -4938,7 +4934,7 @@ def _extract_live_page_data(text: str) -> dict:
         "away_absences_count": 0,
         "live_data_notes": [],
     }
-    
+
     # === 1. METEO ===
     # Pattern: "Partly cloudy, 10°C" o "Rain, 15°C" o "Sunny, 25°C"
     # FIX: Gestisce sia °C (U+00B0+C) che ℃ (U+2103) e range "10℃～11℃"
@@ -4956,7 +4952,7 @@ def _extract_live_page_data(text: str) -> dict:
             result["weather_temp"] = (temp_low + temp_high) // 2
         else:
             result["weather_temp"] = temp_low
-        
+
         # Calcola impatto meteo sui gol
         condition_lower = result["weather_condition"].lower()
         if any(x in condition_lower for x in ["rain", "thunderstorm", "heavy"]):
@@ -4967,7 +4963,7 @@ def _extract_live_page_data(text: str) -> dict:
             result["weather_impact"] = -0.03  # -3% xG per vento
         elif result["weather_temp"] >= 30:
             result["weather_impact"] = -0.02  # -2% xG per caldo eccessivo
-    
+
     # === 2. HT/FT (stesso parser del percorso regex prematch) ===
     for _hk, _hv in _parse_htft_matrix_from_text(text).items():
         result[_hk] = _hv
@@ -4978,7 +4974,7 @@ def _extract_live_page_data(text: str) -> dict:
     #   | 1.3 | **Goal** | 1.3 | 1.3 | **Goal** | 1.3 |
     # FIX: Aggiunto \*\*? prima del nome per gestire il markdown bold di Jina Reader.
     # Prendi sempre l'ULTIMO match (Recent 10 Matches).
-    
+
     team_stats_section = re.search(
         r"Team Statistics.*?(?=\*\*Last Updated|HT/FT Statistics|Half\s+Time\s*/\s*Full\s+Time|$)",
         text,
@@ -4986,11 +4982,11 @@ def _extract_live_page_data(text: str) -> dict:
     )
     if team_stats_section:
         stats_text = team_stats_section.group(0)
-        
+
         # Estrai valori dalla tabella usando findall per trovare TUTTI i match
         # Supporta sia formato "|" che formato TAB/spazi
         # FIX: \*\*? gestisce il markdown bold di Jina Reader
-        
+
         # Riga Goal
         goals_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Goal\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if goals_matches:
@@ -5000,7 +4996,7 @@ def _extract_live_page_data(text: str) -> dict:
             if len(goals_matches) >= 2:
                 result["team_stats3_home_goals"] = float(goals_matches[0][0])
                 result["team_stats3_away_goals"] = float(goals_matches[0][1])
-        
+
         # Riga Loss (gol subiti)
         loss_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Loss\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if loss_matches:
@@ -5009,7 +5005,7 @@ def _extract_live_page_data(text: str) -> dict:
             if len(loss_matches) >= 2:
                 result["team_stats3_home_conceded"] = float(loss_matches[0][0])
                 result["team_stats3_away_conceded"] = float(loss_matches[0][1])
-        
+
         # Riga Shots (Opponent Shots)
         shots_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Opponent Shots\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if shots_matches:
@@ -5018,7 +5014,7 @@ def _extract_live_page_data(text: str) -> dict:
             if len(shots_matches) >= 2:
                 result["team_stats3_home_shots"] = float(shots_matches[0][0])
                 result["team_stats3_away_shots"] = float(shots_matches[0][1])
-        
+
         # Riga Corners
         corners_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Corners\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if corners_matches:
@@ -5027,7 +5023,7 @@ def _extract_live_page_data(text: str) -> dict:
             if len(corners_matches) >= 2:
                 result["team_stats3_home_corners"] = float(corners_matches[0][0])
                 result["team_stats3_away_corners"] = float(corners_matches[0][1])
-        
+
         # Riga Yellow Cards
         yellows_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Yellow Cards\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if yellows_matches:
@@ -5036,7 +5032,7 @@ def _extract_live_page_data(text: str) -> dict:
             if len(yellows_matches) >= 2:
                 result["team_stats3_home_yellows"] = float(yellows_matches[0][0])
                 result["team_stats3_away_yellows"] = float(yellows_matches[0][1])
-        
+
         # Riga Fouls
         fouls_matches = re.findall(r'([\d.]+)\s*[\|]?\s*\*\*?Fouls\*\*?\s*[\|]?\s*([\d.]+)', stats_text, re.IGNORECASE)
         if fouls_matches:
@@ -5045,7 +5041,7 @@ def _extract_live_page_data(text: str) -> dict:
             if len(fouls_matches) >= 2:
                 result["team_stats3_home_fouls"] = float(fouls_matches[0][0])
                 result["team_stats3_away_fouls"] = float(fouls_matches[0][1])
-        
+
         # Riga Possession
         poss_matches = re.findall(r'([\d.]+)%?\s*[\|]?\s*\*\*?Possession\*\*?\s*[\|]?\s*([\d.]+)%?', stats_text, re.IGNORECASE)
         if poss_matches:
@@ -5054,7 +5050,7 @@ def _extract_live_page_data(text: str) -> dict:
             if len(poss_matches) >= 2:
                 result["team_stats3_home_possession"] = float(poss_matches[0][0])
                 result["team_stats3_away_possession"] = float(poss_matches[0][1])
-    
+
     # === 4. QUOTE LIVE ===
     # Fonte: tabella markdown prodotta da Jina se inclusa nella risposta (HTML server-side).
     # Se manca, live_data_notes += live_odds_not_available_no_js (spesso i live odds sono JS).
@@ -5068,7 +5064,7 @@ def _extract_live_page_data(text: str) -> dict:
     #
     # Le colonne sono ACCOPPIATE (Initial/Live) per ogni tipo di quota.
     # Prendiamo SOLO i valori "Live" (gruppi 2-4 per AH, gruppi 6-8 per O/U).
-    
+
     live_odds_match = re.search(
         r'\|\s*Live\s*\|\s*\|'                                    # | Live | (score vuoto) |
         r'\s*[\d.]+\s*\|\s*(-?[\d./]+)\s*\|\s*[\d.]+\s*\|'       # AH_init_H | AH_line(1) | AH_init_A
@@ -5103,7 +5099,7 @@ def _extract_live_page_data(text: str) -> dict:
     fx_h, fx_a = _extract_fixture_next_days(text)
     result["fixture_next_days_home"] = fx_h
     result["fixture_next_days_away"] = fx_a
-    
+
     return result
 
 

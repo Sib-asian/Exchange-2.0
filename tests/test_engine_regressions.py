@@ -4,26 +4,26 @@ from src.engine import MatchState, analizza
 
 
 def _base_state(**kwargs) -> MatchState:
-    payload = dict(
-        minuto=0,
-        gol_casa=0,
-        gol_trasf=0,
-        rossi_casa=0,
-        rossi_trasf=0,
-        ah_op=0.0,
-        tot_op=2.5,
-        ah_cur=0.0,
-        tot_cur=2.5,
-        linea_ou=2.75,
+    payload = {
+        "minuto": 0,
+        "gol_casa": 0,
+        "gol_trasf": 0,
+        "rossi_casa": 0,
+        "rossi_trasf": 0,
+        "ah_op": 0.0,
+        "tot_op": 2.5,
+        "ah_cur": 0.0,
+        "tot_cur": 2.5,
+        "linea_ou": 2.75,
         # OCR signals disabled by default
-        ocr_imp_total=0.0,
-        ocr_quota_1=0.0,
-        ocr_quota_x=0.0,
-        ocr_quota_2=0.0,
-        ocr_quota_over=0.0,
-        ocr_quota_under=0.0,
-        h2h_over_pct=60.0,
-    )
+        "ocr_imp_total": 0.0,
+        "ocr_quota_1": 0.0,
+        "ocr_quota_x": 0.0,
+        "ocr_quota_2": 0.0,
+        "ocr_quota_over": 0.0,
+        "ocr_quota_under": 0.0,
+        "h2h_over_pct": 60.0,
+    }
     payload.update(kwargs)
     return MatchState(**payload)
 

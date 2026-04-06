@@ -75,7 +75,7 @@ def test_warns_ou_line_below_market_total() -> None:
 
 
 def test_prediction_record_ou_line_default_from_dict() -> None:
-    from src.tracking.prediction_log import PredictionRecord, record_from_dict
+    from src.tracking.prediction_log import record_from_dict
 
     r = record_from_dict(
         {

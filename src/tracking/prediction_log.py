@@ -15,12 +15,10 @@ Il file sopravvive a:
 from __future__ import annotations
 
 import json
-import os
-from dataclasses import dataclass, asdict, field, fields
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
 
 # Percorso del file dati (relativo alla directory dell'app)
 _APP_DIR = Path(__file__).parent.parent.parent  # sale da src/tracking -> src -> root
@@ -39,7 +37,7 @@ def tot_op_band(tot_op: float) -> str:
     return ">2.75"
 
 
-def record_from_dict(data: dict[str, Any]) -> "PredictionRecord":
+def record_from_dict(data: dict[str, Any]) -> PredictionRecord:
     """Costruisce un record ignorando chiavi sconosciute (retrocompatibilità JSON)."""
     allowed = {f.name for f in fields(PredictionRecord)}
     return PredictionRecord(**{k: v for k, v in data.items() if k in allowed})
@@ -183,7 +181,7 @@ class PredictionLog:
                 except (TypeError, ValueError):
                     pass
         try:
-            with open(PREDICTIONS_FILE, "r", encoding="utf-8") as f:
+            with open(PREDICTIONS_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             return [record_from_dict(r) for r in data.get("predictions", [])]
         except (json.JSONDecodeError, FileNotFoundError):
