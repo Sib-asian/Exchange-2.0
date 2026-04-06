@@ -1144,6 +1144,9 @@ class TestVsHodds1x2:
         assert parsed["mkt_init_1"] == pytest.approx(4.17)
         assert parsed["mkt_init_x"] == pytest.approx(4.29)
         assert parsed["mkt_init_2"] == pytest.approx(1.54)
+        assert parsed["mkt_live_1"] == pytest.approx(4.27)
+        assert parsed["mkt_live_x"] == pytest.approx(4.29)
+        assert parsed["mkt_live_2"] == pytest.approx(1.53)
         assert parsed["ah_line_open"] == pytest.approx(1.0)
         assert parsed["total_line_open"] == pytest.approx(3.5)
         # BTTS 1.5/1.5 → overround troppo alto: correttamente assente

@@ -4,11 +4,61 @@ Ponte tra PrematchAnalysisExtracted e MatchState (stessa logica del flusso Strea
 
 from __future__ import annotations
 
+import math
+
 from src.config import OCR_QUOTES
 from src.engine import MatchState
 from src.models.ai_adjustments import calcola_assenze_mult
 from src.ocr import PrematchAnalysisExtracted
 from src.ui.inputs import build_match_state
+
+
+def _valid_1x2_triplet(q1: float, qx: float, q2: float) -> bool:
+    if not (1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100):
+        return False
+    overround = 1.0 / q1 + 1.0 / qx + 1.0 / q2
+    return 1.0 <= overround <= OCR_QUOTES.MAX_OVERROUND_3WAY
+
+
+def _apply_ah_consistency_guard(q1: float, qx: float, q2: float, ah_op: float) -> tuple[float, float, float]:
+    """
+    Protezione anti-inversione Home/Away:
+    - AH negativo => casa favorita (atteso q1 < q2)
+    - AH positivo => trasferta favorita (atteso q2 < q1)
+    Se il segnale 1X2 è forte ma opposto all'AH, scambia 1<->2.
+    """
+    if abs(ah_op) < 0.25:
+        return q1, qx, q2
+    skew = abs(math.log(max(1e-9, q1 / q2)))
+    if skew < 0.18:
+        return q1, qx, q2
+    home_fav_ah = ah_op < 0
+    home_fav_1x2 = q1 < q2
+    if home_fav_ah != home_fav_1x2:
+        return q2, qx, q1
+    return q1, qx, q2
+
+
+def _choose_market_1x2(pa: PrematchAnalysisExtracted | None, lines: dict) -> tuple[float, float, float]:
+    if not pa:
+        return 0.0, 0.0, 0.0
+    init_1 = float(getattr(pa, "mkt_init_1", 0.0) or 0.0)
+    init_x = float(getattr(pa, "mkt_init_x", 0.0) or 0.0)
+    init_2 = float(getattr(pa, "mkt_init_2", 0.0) or 0.0)
+    live_1 = float(getattr(pa, "mkt_live_1", 0.0) or 0.0)
+    live_x = float(getattr(pa, "mkt_live_x", 0.0) or 0.0)
+    live_2 = float(getattr(pa, "mkt_live_2", 0.0) or 0.0)
+
+    if _valid_1x2_triplet(init_1, init_x, init_2):
+        q1, qx, q2 = init_1, init_x, init_2
+    elif _valid_1x2_triplet(live_1, live_x, live_2):
+        # Prematch: fallback live solo se initial manca/non valido.
+        q1, qx, q2 = live_1, live_x, live_2
+    else:
+        return 0.0, 0.0, 0.0
+
+    ah_op = float(lines.get("ah_op", 0.0) or 0.0)
+    return _apply_ah_consistency_guard(q1, qx, q2, ah_op)
 
 
 def build_match_state_from_prematch_analysis(
@@ -32,9 +82,7 @@ def build_match_state_from_prematch_analysis(
     _forma_h = float(_fm_raw_h) if _fm_raw_h is not None else 1.0
     _forma_a = float(_fm_raw_a) if _fm_raw_a is not None else 1.0
     _hist_tot = float(getattr(pa, "fixture_historical_total", 0.0)) if pa else 0.0
-    _mkt1 = float(getattr(pa, "mkt_init_1", 0.0)) if pa else 0.0
-    _mktx = float(getattr(pa, "mkt_init_x", 0.0)) if pa else 0.0
-    _mkt2 = float(getattr(pa, "mkt_init_2", 0.0)) if pa else 0.0
+    _mkt1, _mktx, _mkt2 = _choose_market_1x2(pa, lines)
     if not OCR_QUOTES.USE_EXTRACTED_1X2_PRIOR:
         _mkt1 = _mktx = _mkt2 = 0.0
     _h2h_home = float(getattr(pa, "h2h_home_win_pct", 0.0)) if pa else 0.0

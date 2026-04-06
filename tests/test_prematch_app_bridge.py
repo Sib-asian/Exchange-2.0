@@ -91,7 +91,7 @@ def test_bridge_maps_new_premarket_fields_to_state() -> None:
     assert state.team_stats_away_possession == 45.0
 
 
-def test_bridge_disables_extracted_1x2_prior_by_default() -> None:
+def test_bridge_uses_valid_initial_1x2_prior_by_default() -> None:
     pa = _base_pa(mkt_init_1=2.00, mkt_init_x=3.30, mkt_init_2=3.80)
     state, _, _ = build_match_state_from_prematch_analysis(
         pa,
@@ -101,10 +101,48 @@ def test_bridge_disables_extracted_1x2_prior_by_default() -> None:
         bankroll=1000.0,
         comm_rate=0.025,
     )
-    assert state.mkt_init_1 == 0.0
-    assert state.mkt_init_x == 0.0
-    assert state.mkt_init_2 == 0.0
-    assert state.ocr_quota_1 == 0.0
-    assert state.ocr_quota_x == 0.0
-    assert state.ocr_quota_2 == 0.0
+    assert state.mkt_init_1 == 2.0
+    assert state.mkt_init_x == 3.3
+    assert state.mkt_init_2 == 3.8
+    assert state.ocr_quota_1 == 2.0
+    assert state.ocr_quota_x == 3.3
+    assert state.ocr_quota_2 == 3.8
+
+
+def test_bridge_falls_back_to_live_1x2_when_initial_missing() -> None:
+    pa = _base_pa(
+        mkt_init_1=0.0,
+        mkt_init_x=0.0,
+        mkt_init_2=0.0,
+        mkt_live_1=2.22,
+        mkt_live_x=3.30,
+        mkt_live_2=3.10,
+    )
+    state, _, _ = build_match_state_from_prematch_analysis(
+        pa,
+        match=_base_match(),
+        lines=_base_lines(),
+        linea_ou=2.5,
+        bankroll=1000.0,
+        comm_rate=0.025,
+    )
+    assert state.mkt_init_1 == 2.22
+    assert state.mkt_init_x == 3.30
+    assert state.mkt_init_2 == 3.10
+
+
+def test_bridge_swaps_inverted_1x2_when_ah_says_home_favorite() -> None:
+    # AH apertura negativa => casa favorita, ma quote invertite (q1 molto > q2).
+    pa = _base_pa(mkt_init_1=4.82, mkt_init_x=3.50, mkt_init_2=1.70)
+    state, _, _ = build_match_state_from_prematch_analysis(
+        pa,
+        match=_base_match(),
+        lines=_base_lines(),
+        linea_ou=2.5,
+        bankroll=1000.0,
+        comm_rate=0.025,
+    )
+    assert state.mkt_init_1 == 1.70
+    assert state.mkt_init_x == 3.50
+    assert state.mkt_init_2 == 4.82
 
