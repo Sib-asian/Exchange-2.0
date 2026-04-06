@@ -1031,6 +1031,10 @@ class PrematchAnalysisExtracted:
     mkt_init_1: float = 0.0   # quota 1 iniziale media
     mkt_init_x: float = 0.0   # quota X iniziale media
     mkt_init_2: float = 0.0   # quota 2 iniziale media
+    # Quote 1X2 live (se disponibili nel feed europeo Vs_eOdds)
+    mkt_live_1: float = 0.0
+    mkt_live_x: float = 0.0
+    mkt_live_2: float = 0.0
     # BTTS (GG/NG) da Vs_hOdds quando la riga ha colonne extra (HTML Nowgoal)
     mkt_init_gg: float = 0.0  # quota "entrambe segnano" (sì)
     mkt_init_ng: float = 0.0  # quota "non entrambe segnano" (no)
@@ -3295,6 +3299,9 @@ def _extract_all_with_regex(text: str) -> dict:
         "mkt_init_1": 0.0,
         "mkt_init_x": 0.0,
         "mkt_init_2": 0.0,
+        "mkt_live_1": 0.0,
+        "mkt_live_x": 0.0,
+        "mkt_live_2": 0.0,
         "mkt_init_gg": 0.0,
         "mkt_init_ng": 0.0,
         # Info partita
@@ -4054,7 +4061,7 @@ def _extract_all_with_regex(text: str) -> dict:
 
     # === 2b. Vs_eOdds: 1X2 in formato europeo (molte pagine live5) ===
     # Vs_hOdds esteso ha spesso altri mercati al posto della triplette 1X2 in 5–7.
-    if (not _is_live_inplay) and result["mkt_init_1"] <= 1.0:
+    if result["mkt_init_1"] <= 1.0:
         vs_e_match = re.search(r"Vs_eOdds\s*=\s*(\[[\s\S]+?\]\s*\])\s*;", text)
         if vs_e_match:
             try:
@@ -4087,6 +4094,18 @@ def _extract_all_with_regex(text: str) -> dict:
                             result["mkt_init_1"] = q1
                             result["mkt_init_x"] = qx
                             result["mkt_init_2"] = q2
+                    # Molte righe Vs_eOdds includono anche il triplo live in [5:8].
+                    # Lo salviamo separatamente per fallback controllato nel bridge.
+                    if len(e_row) > 7:
+                        l1 = float(e_row[5]) if e_row[5] not in (None, "", "0", 0) else 0.0
+                        lx = float(e_row[6]) if e_row[6] not in (None, "", "0", 0) else 0.0
+                        l2 = float(e_row[7]) if e_row[7] not in (None, "", "0", 0) else 0.0
+                        _or3_live = (1.0 / l1 + 1.0 / lx + 1.0 / l2) if l1 and lx and l2 else 99.0
+                        if 1.01 < l1 < 100 and 1.01 < lx < 100 and 1.01 < l2 < 100:
+                            if _or3_live <= OCR_QUOTES.MAX_OVERROUND_3WAY:
+                                result["mkt_live_1"] = l1
+                                result["mkt_live_x"] = lx
+                                result["mkt_live_2"] = l2
             except (json.JSONDecodeError, ValueError, TypeError, IndexError, ZeroDivisionError):
                 pass
 
@@ -4099,9 +4118,8 @@ def _extract_all_with_regex(text: str) -> dict:
             result["mkt_init_x"] = qx
             result["mkt_init_2"] = q2
 
-    if _is_live_inplay:
-        # In live il 1X2 prematch puo` risultare ambiguo/non affidabile
-        # rispetto alla tabella corrente: non usarlo come prior nel motore.
+    if _is_live_inplay and result["mkt_init_1"] <= 1.0:
+        # Su pagine in-play senza tripla 1X2 affidabile restiamo neutrali.
         result["mkt_init_1"] = 0.0
         result["mkt_init_x"] = 0.0
         result["mkt_init_2"] = 0.0
@@ -4463,6 +4481,9 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
         mkt_init_1=regex_data["mkt_init_1"],
         mkt_init_x=regex_data["mkt_init_x"],
         mkt_init_2=regex_data["mkt_init_2"],
+        mkt_live_1=regex_data.get("mkt_live_1", 0.0),
+        mkt_live_x=regex_data.get("mkt_live_x", 0.0),
+        mkt_live_2=regex_data.get("mkt_live_2", 0.0),
         mkt_init_gg=regex_data.get("mkt_init_gg", 0.0),
         mkt_init_ng=regex_data.get("mkt_init_ng", 0.0),
         # Info partita
