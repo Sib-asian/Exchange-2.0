@@ -268,6 +268,11 @@ def _render_completed_row(record: PredictionRecord, log: PredictionLog) -> None:
         if record.btts_hit is not None:
             hits.append(f"BTTS: {'✓' if record.btts_hit else '✗'}")
         st.caption(" | ".join(hits))
+        _qq = str(getattr(record, "quote_quality", "") or "").strip().lower()
+        if _qq == "trusted":
+            st.caption("Quote quality: ✅ trusted")
+        elif _qq == "untrusted":
+            st.caption("Quote quality: ⚠️ untrusted")
 
     st.divider()
 
@@ -283,6 +288,9 @@ def _render_stats_tab(log: PredictionLog) -> None:
 
     # Calcola statistiche
     stats = PerformanceStats.compute_all_stats(completed)
+    stats_trusted = PerformanceStats.compute_all_stats(completed, trusted_only_quotes=True)
+    trusted_n = len(PerformanceStats.filter_records_by_quote_quality(completed, trusted_only=True))
+    st.caption(f"Record con quote trusted: **{trusted_n}/{len(completed)}**")
     # Alert: Brier peggiore sulle ultime partite (solo mercati con volume).
     recent = PerformanceStats.sort_completed_newest_first(completed)[:50]
     if len(recent) >= 20:
@@ -346,6 +354,30 @@ def _render_stats_tab(log: PredictionLog) -> None:
             "CLV usa anche la quota closing se disponibile. "
             "Over/Under: ogni riga usa la **linea O/U scelta** al momento dell'analisi (es. 1.5 o 2.5)."
         )
+
+    st.subheader("📊 Performance quote affidabili (trusted-only)")
+    trusted_data = []
+    for key, s in stats_trusted.items():
+        if s.total_predictions > 0:
+            qn = s.predictions_with_quote
+            tot = s.total_predictions
+            edge_s = f"{s.avg_edge*100:+.1f}%" if qn > 0 else "—"
+            roi_s = f"{s.roi*100:+.1f}%" if qn > 0 else "—"
+            trusted_data.append({
+                "Mercato": market_names.get(key, key),
+                "Previsioni": tot,
+                "Con quota trusted": f"{qn}/{tot}",
+                "Win Rate": f"{s.win_rate*100:.1f}%",
+                "Brier": f"{s.brier_score:.3f}",
+                "ECE": f"{s.ece_score:.3f}",
+                "CLV": f"{s.avg_clv*100:+.2f}%" if s._clv_n > 0 else "—",
+                "Edge (trusted)": edge_s,
+                "ROI (trusted)": roi_s,
+            })
+    if trusted_data:
+        import pandas as pd
+        st.dataframe(pd.DataFrame(trusted_data), use_container_width=True, hide_index=True)
+        st.caption("Questa vista usa solo record con `quote_quality=trusted` per Edge/ROI/CLV.")
 
     with st.expander("📉 Report per linea O/U e lega (Brier / log-loss)", expanded=False):
         from src.tracking.deep_report import render_deep_report_streamlit
@@ -523,6 +555,13 @@ def _render_stats_tab(log: PredictionLog) -> None:
         )
 
     with col_exp2:
+        if st.button("🔧 Retro-tag quote quality", key="btn_backfill_quote_quality"):
+            out = log.backfill_quote_quality(overwrite=False)
+            st.success(
+                "Quote quality aggiornate: "
+                f"updated={out['updated']} trusted={out['trusted']} untrusted={out['untrusted']}"
+            )
+            st.rerun()
         if st.button("🗑️ Cancella Tutto", type="secondary", key="btn_clear_all"):
             st.session_state["_tracking_confirm_clear"] = True
         if st.session_state.get("_tracking_confirm_clear", False):

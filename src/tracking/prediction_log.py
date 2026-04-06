@@ -15,6 +15,7 @@ Il file sopravvive a:
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,30 @@ def record_from_dict(data: dict[str, Any]) -> PredictionRecord:
     """Costruisce un record ignorando chiavi sconosciute (retrocompatibilità JSON)."""
     allowed = {f.name for f in fields(PredictionRecord)}
     return PredictionRecord(**{k: v for k, v in data.items() if k in allowed})
+
+
+def assess_quote_quality(
+    quotes: dict[str, float] | None,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[str, str]:
+    """
+    Classifica la qualità quote per uso tracking:
+    - trusted: tripla 1X2 valida e overround plausibile
+    - untrusted: quote assenti/parziali/incoerenti
+    """
+    q = quotes or {}
+    q1 = float(q.get("quota_1", 0.0) or 0.0)
+    qx = float(q.get("quota_x", 0.0) or 0.0)
+    q2 = float(q.get("quota_2", 0.0) or 0.0)
+    source = str((metadata or {}).get("quote_source", "")).strip() or "unknown"
+    if not (q1 > 1.0 and qx > 1.0 and q2 > 1.0):
+        return "untrusted", f"missing_or_partial_1x2:{source}"
+    overround = 1.0 / q1 + 1.0 / qx + 1.0 / q2
+    if not (1.0 <= overround <= 1.30):
+        return "untrusted", f"bad_overround_1x2:{overround:.3f}:{source}"
+    if not all(math.isfinite(v) for v in (q1, qx, q2)):
+        return "untrusted", f"non_finite_quote:{source}"
+    return "trusted", f"ok:{source}"
 
 
 @dataclass
@@ -113,6 +138,8 @@ class PredictionRecord:
     quota_under_close: float = 0.0
     quota_btts_si_close: float = 0.0
     quota_btts_no_close: float = 0.0
+    quote_quality: str = "unknown"  # trusted | untrusted | unknown
+    quote_quality_reason: str = ""
 
     # Risultato (vuoto fino a fine partita)
     gol_casa: int | None = None
@@ -264,6 +291,46 @@ class PredictionLog:
         self._records = []
         self._save_to_file([])
 
+    def backfill_quote_quality(self, *, overwrite: bool = False) -> dict[str, int]:
+        """
+        Retro-tagga quote_quality sui record esistenti.
+        overwrite=False: aggiorna solo record unknown/vuoti.
+        """
+        updated = 0
+        trusted = 0
+        untrusted = 0
+        for r in self._records:
+            current = str(getattr(r, "quote_quality", "") or "").strip().lower()
+            if (not overwrite) and current in {"trusted", "untrusted"}:
+                if current == "trusted":
+                    trusted += 1
+                else:
+                    untrusted += 1
+                continue
+            q_quality, q_reason = assess_quote_quality(
+                {
+                    "quota_1": float(getattr(r, "quota_1", 0.0) or 0.0),
+                    "quota_x": float(getattr(r, "quota_x", 0.0) or 0.0),
+                    "quota_2": float(getattr(r, "quota_2", 0.0) or 0.0),
+                },
+                {"quote_source": "retro-tag"},
+            )
+            r.quote_quality = q_quality
+            r.quote_quality_reason = q_reason
+            updated += 1
+            if q_quality == "trusted":
+                trusted += 1
+            else:
+                untrusted += 1
+        if updated > 0:
+            self._save_to_file(self._records)
+        return {
+            "updated": updated,
+            "trusted": trusted,
+            "untrusted": untrusted,
+            "total": len(self._records),
+        }
+
 
 # Istanza globale singleton
 _log_instance: PredictionLog | None = None
@@ -310,6 +377,7 @@ def create_record_from_analysis(
     meta = metadata or {}
     tot_op_val = float(input_data.get("tot_op", 0.0))
 
+    _qq, _qq_reason = assess_quote_quality(quotes, meta)
     return PredictionRecord(
         id=record_id,
         timestamp=now.isoformat(),
@@ -364,4 +432,6 @@ def create_record_from_analysis(
         quota_under_close=float(quotes.get("quota_under_close", 0.0)),
         quota_btts_si_close=float(quotes.get("quota_btts_si_close", 0.0)),
         quota_btts_no_close=float(quotes.get("quota_btts_no_close", 0.0)),
+        quote_quality=str(meta.get("quote_quality", _qq)),
+        quote_quality_reason=str(meta.get("quote_quality_reason", _qq_reason)),
     )

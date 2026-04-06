@@ -9,6 +9,7 @@ from src.models.uncertainty_shrink import shrink_outcome_probs
 from src.pipeline import run_analysis_pipeline
 from src.tracking.prediction_log import (
     PredictionRecord,
+    assess_quote_quality,
     create_record_from_analysis,
     record_from_dict,
     tot_op_band,
@@ -175,6 +176,7 @@ def test_market_stats_ece_and_clv_proxy():
             quota_1_close=2.00,
             quota_x_close=3.50,
             quota_2_close=4.10,
+            quote_quality="trusted",
             risultato_1x2="1",
             gol_casa=2,
             gol_trasf=1,
@@ -192,6 +194,7 @@ def test_market_stats_ece_and_clv_proxy():
             quota_1_close=2.50,
             quota_x_close=3.00,
             quota_2_close=2.80,
+            quote_quality="trusted",
             risultato_1x2="2",
             gol_casa=0,
             gol_trasf=1,
@@ -303,6 +306,68 @@ def test_market_stats_avg_edge_only_uses_rows_with_quota():
     assert s.predictions_with_quote == 1
     implied = 1.0 / 2.0
     assert s.avg_edge == pytest.approx(0.6 - implied)
+
+
+def test_assess_quote_quality_trusted_and_untrusted():
+    q_ok = {"quota_1": 2.20, "quota_x": 3.30, "quota_2": 3.40}
+    q_bad = {"quota_1": 2.20, "quota_x": 0.0, "quota_2": 3.40}
+    quality_ok, _ = assess_quote_quality(q_ok, {"quote_source": "initial"})
+    quality_bad, _ = assess_quote_quality(q_bad, {"quote_source": "initial"})
+    assert quality_ok == "trusted"
+    assert quality_bad == "untrusted"
+
+
+def test_create_record_stores_quote_quality():
+    r = create_record_from_analysis(
+        "Alpha",
+        "Beta",
+        "Test",
+        {"tot_op": 2.5},
+        {"p1": 0.34, "px": 0.33, "p2": 0.33},
+        {"quota_1": 2.1, "quota_x": 3.3, "quota_2": 3.4},
+        {"quote_source": "initial"},
+    )
+    assert r.quote_quality == "trusted"
+    assert "ok" in r.quote_quality_reason
+
+
+def test_trusted_only_stats_ignore_untrusted_quotes_for_edge():
+    recs = [
+        PredictionRecord(
+            id="t1",
+            timestamp="t1",
+            p1=0.6,
+            px=0.25,
+            p2=0.15,
+            quota_1=2.0,
+            quota_x=3.5,
+            quota_2=3.5,
+            quote_quality="trusted",
+            risultato_1x2="1",
+            gol_casa=1,
+            gol_trasf=0,
+            status="COMPLETED",
+        ),
+        PredictionRecord(
+            id="t2",
+            timestamp="t2",
+            p1=0.6,
+            px=0.25,
+            p2=0.15,
+            quota_1=2.0,
+            quota_x=3.5,
+            quota_2=3.5,
+            quote_quality="untrusted",
+            risultato_1x2="2",
+            gol_casa=0,
+            gol_trasf=1,
+            status="COMPLETED",
+        ),
+    ]
+    s_all = PerformanceStats.compute_market_stats(recs, "1X2_1")
+    s_trusted = PerformanceStats.compute_market_stats(recs, "1X2_1", trusted_only_quotes=True)
+    assert s_all.predictions_with_quote == 2
+    assert s_trusted.predictions_with_quote == 1
 
 
 def test_pick_best_falls_back_to_brier_without_quotes():

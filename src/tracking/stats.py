@@ -67,9 +67,25 @@ class PerformanceStats:
     """
 
     @staticmethod
+    def is_quote_trusted(record: PredictionRecord) -> bool:
+        return str(getattr(record, "quote_quality", "") or "").strip().lower() == "trusted"
+
+    @staticmethod
+    def filter_records_by_quote_quality(
+        records: list[PredictionRecord],
+        *,
+        trusted_only: bool,
+    ) -> list[PredictionRecord]:
+        if not trusted_only:
+            return records
+        return [r for r in records if PerformanceStats.is_quote_trusted(r)]
+
+    @staticmethod
     def compute_market_stats(
         records: list[PredictionRecord],
         market: str,
+        *,
+        trusted_only_quotes: bool = False,
     ) -> MarketStats:
         """
         Calcola statistiche per un mercato specifico.
@@ -121,7 +137,8 @@ class PerformanceStats:
                 stats.losses += 1
 
             # Edge e ROI (solo se c'è quota mercato)
-            if quote > 1.0:
+            _quote_allowed = (not trusted_only_quotes) or PerformanceStats.is_quote_trusted(r)
+            if _quote_allowed and quote > 1.0:
                 stats.predictions_with_quote += 1
                 prob_market = 1.0 / quote
                 edge = prob_model - prob_market
@@ -135,7 +152,7 @@ class PerformanceStats:
                 stats._stake_sum += 1.0
 
             close_quote = PerformanceStats._get_market_close_quote(r, market)
-            if quote > 1.0 and close_quote > 1.0:
+            if _quote_allowed and quote > 1.0 and close_quote > 1.0:
                 clv = (1.0 / quote) - (1.0 / close_quote)
                 stats._clv_sum += clv
                 stats._clv_n += 1
@@ -229,6 +246,8 @@ class PerformanceStats:
     @staticmethod
     def compute_all_stats(
         records: list[PredictionRecord],
+        *,
+        trusted_only_quotes: bool = False,
     ) -> dict[str, MarketStats]:
         """
         Calcola statistiche per tutti i mercati.
@@ -243,7 +262,11 @@ class PerformanceStats:
         ]
 
         return {
-            m: PerformanceStats.compute_market_stats(records, m)
+            m: PerformanceStats.compute_market_stats(
+                records,
+                m,
+                trusted_only_quotes=trusted_only_quotes,
+            )
             for m in markets
         }
 
@@ -555,6 +578,8 @@ class PerformanceStats:
         n = 0
         for r in records:
             if not r.is_completed():
+                continue
+            if not PerformanceStats.is_quote_trusted(r):
                 continue
             q_open = [float(r.quota_1), float(r.quota_x), float(r.quota_2)]
             q_close = [

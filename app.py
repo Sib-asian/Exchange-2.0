@@ -260,6 +260,22 @@ if _btn_prematch or _btn_live:
         "quota_btts_si": float(state.ocr_quota_gg),
         "quota_btts_no": float(state.ocr_quota_ng),
     }
+    _quote_source = "unknown"
+    if _pa:
+        _has_init = (
+            float(getattr(_pa, "mkt_init_1", 0.0) or 0.0) > 1.0
+            and float(getattr(_pa, "mkt_init_x", 0.0) or 0.0) > 1.0
+            and float(getattr(_pa, "mkt_init_2", 0.0) or 0.0) > 1.0
+        )
+        _has_live = (
+            float(getattr(_pa, "mkt_live_1", 0.0) or 0.0) > 1.0
+            and float(getattr(_pa, "mkt_live_x", 0.0) or 0.0) > 1.0
+            and float(getattr(_pa, "mkt_live_2", 0.0) or 0.0) > 1.0
+        )
+        if _has_init:
+            _quote_source = "initial"
+        elif _has_live:
+            _quote_source = "live_fallback"
 
     _tracking_meta = {
         "extraction_coverage": float(_coverage),
@@ -282,6 +298,7 @@ if _btn_prematch or _btn_live:
         "p1_mk": float(risultati.p1_mk),
         "px_mk": float(risultati.px_mk),
         "p2_mk": float(risultati.p2_mk),
+        "quote_source": _quote_source,
     }
     _tracking_record = create_record_from_analysis(
         squadra_casa=_squadra_casa,
