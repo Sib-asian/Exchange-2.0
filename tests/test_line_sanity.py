@@ -74,6 +74,18 @@ def test_warns_ou_line_below_market_total() -> None:
     assert any("sotto" in m for m in msgs)
 
 
+def test_no_warn_when_ou_line_equals_current_total_with_open_different() -> None:
+    msgs = prematch_line_quality(
+        ah_op=-1.25,
+        ah_cur_raw=-1.25,
+        tot_op=2.25,
+        tot_cur_raw=2.5,
+        linea_ou=2.5,
+        gol_tot=0,
+    )
+    assert not any("Over/Under" in m and "total di mercato" in m for m in msgs)
+
+
 def test_prediction_record_ou_line_default_from_dict() -> None:
     from src.tracking.prediction_log import record_from_dict
 

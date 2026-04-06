@@ -38,14 +38,15 @@ def prematch_line_quality(
             "siano coerenti con il mercato che stai guardando."
         )
 
-    # Avvisa su mismatch O/U vs total di mercato in entrambi i versi:
-    # - linea analisi più alta del total inserito (es. 3.0 vs 2.5)
-    # - linea analisi più bassa del total inserito (es. 2.25 vs 2.75)
-    # Per allineare il confronto modello/mercato conviene usare la stessa linea.
-    if tot_op > 0 and abs(linea_ou - tot_op) > 1e-6:
-        direction = "sopra" if linea_ou > tot_op else "sotto"
+    # Avvisa su mismatch O/U vs total "attuale" (chiusura/live) quando disponibile;
+    # per decisione prematch la linea target dovrebbe essere quella giocabile ora.
+    # Se tot_cur_raw manca/non valido, fallback su apertura.
+    total_ref = tot_cur_raw if tot_cur_raw > 0 else tot_op
+    if total_ref > 0 and abs(linea_ou - total_ref) > 1e-6:
+        direction = "sopra" if linea_ou > total_ref else "sotto"
+        ref_label = "corrente" if tot_cur_raw > 0 else "di apertura"
         out.append(
-            f"La linea Over/Under **{linea_ou:g}** è **{direction}** il total di mercato **{tot_op:.2f}** "
+            f"La linea Over/Under **{linea_ou:g}** è **{direction}** il total di mercato **{total_ref:.2f}** ({ref_label}) "
             "che hai inserito: controlla che entrambi si riferiscano allo stesso listino (full game, stesso book)."
         )
 
