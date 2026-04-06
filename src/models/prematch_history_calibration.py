@@ -20,6 +20,10 @@ _RAMP_MATCHES = 120
 _SCALE_MIN = 0.85
 _SCALE_MAX = 1.15
 _RECENCY_TAU_MATCHES = 35.0
+_WARMUP_MIN_SAMPLES = 12
+_WARMUP_MAX_WEIGHT = 0.03
+_WARMUP_SCALE_MIN = 0.95
+_WARMUP_SCALE_MAX = 1.05
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,14 @@ def _learning_weight(n: int) -> float:
         return 0.0
     progress = min(1.0, max(0.0, (n - _MIN_SAMPLES) / max(1.0, _RAMP_MATCHES)))
     return _MIN_WEIGHT_AT_THRESHOLD + progress * (_MAX_WEIGHT - _MIN_WEIGHT_AT_THRESHOLD)
+
+
+def _warmup_weight(n: int) -> float:
+    if n < _WARMUP_MIN_SAMPLES:
+        return 0.0
+    span = max(1.0, _MIN_SAMPLES - _WARMUP_MIN_SAMPLES)
+    progress = min(1.0, max(0.0, (n - _WARMUP_MIN_SAMPLES) / span))
+    return progress * _WARMUP_MAX_WEIGHT
 
 
 def _weighted_mean(values: list[float], weights: list[float]) -> float:
@@ -164,7 +176,7 @@ def estimate_calibration_signals_segmented(
 
 def _estimate_from_records(records: list[PredictionRecord]) -> CalibrationSignals:
     n = len(records)
-    if n < _MIN_SAMPLES:
+    if n < _WARMUP_MIN_SAMPLES:
         return CalibrationSignals(samples=n, scope="global")
 
     ws = _recency_weights(n)
@@ -180,13 +192,27 @@ def _estimate_from_records(records: list[PredictionRecord]) -> CalibrationSignal
     avg_over_hit = _weighted_mean([1.0 if bool(r.over_25_hit) else 0.0 for r in records], ws)
     avg_btts_hit = _weighted_mean([1.0 if bool(r.btts_hit) else 0.0 for r in records], ws)
 
-    weight = _learning_weight(n)
+    weight = _learning_weight(n) if n >= _MIN_SAMPLES else _warmup_weight(n)
+    if n < _MIN_SAMPLES:
+        # Warmup ultra-conservativo: evita correzioni aggressive con campione ancora piccolo.
+        p1_scale = max(_WARMUP_SCALE_MIN, min(_WARMUP_SCALE_MAX, _safe_scale(avg_p1, avg_o1)))
+        px_scale = max(_WARMUP_SCALE_MIN, min(_WARMUP_SCALE_MAX, _safe_scale(avg_px, avg_ox)))
+        p2_scale = max(_WARMUP_SCALE_MIN, min(_WARMUP_SCALE_MAX, _safe_scale(avg_p2, avg_o2)))
+        over_scale = max(_WARMUP_SCALE_MIN, min(_WARMUP_SCALE_MAX, _safe_scale(avg_over, avg_over_hit)))
+        btts_scale = max(_WARMUP_SCALE_MIN, min(_WARMUP_SCALE_MAX, _safe_scale(avg_btts, avg_btts_hit)))
+    else:
+        p1_scale = _safe_scale(avg_p1, avg_o1)
+        px_scale = _safe_scale(avg_px, avg_ox)
+        p2_scale = _safe_scale(avg_p2, avg_o2)
+        over_scale = _safe_scale(avg_over, avg_over_hit)
+        btts_scale = _safe_scale(avg_btts, avg_btts_hit)
+
     return CalibrationSignals(
-        p1_scale=_safe_scale(avg_p1, avg_o1),
-        px_scale=_safe_scale(avg_px, avg_ox),
-        p2_scale=_safe_scale(avg_p2, avg_o2),
-        over_scale=_safe_scale(avg_over, avg_over_hit),
-        btts_scale=_safe_scale(avg_btts, avg_btts_hit),
+        p1_scale=p1_scale,
+        px_scale=px_scale,
+        p2_scale=p2_scale,
+        over_scale=over_scale,
+        btts_scale=btts_scale,
         weight=max(0.0, weight),
         samples=n,
         scope="global",
