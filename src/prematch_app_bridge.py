@@ -4,6 +4,7 @@ Ponte tra PrematchAnalysisExtracted e MatchState (stessa logica del flusso Strea
 
 from __future__ import annotations
 
+from src.config import OCR_QUOTES
 from src.engine import MatchState
 from src.models.ai_adjustments import calcola_assenze_mult
 from src.ocr import PrematchAnalysisExtracted
@@ -34,6 +35,8 @@ def build_match_state_from_prematch_analysis(
     _mkt1 = float(getattr(pa, "mkt_init_1", 0.0)) if pa else 0.0
     _mktx = float(getattr(pa, "mkt_init_x", 0.0)) if pa else 0.0
     _mkt2 = float(getattr(pa, "mkt_init_2", 0.0)) if pa else 0.0
+    if not OCR_QUOTES.USE_EXTRACTED_1X2_PRIOR:
+        _mkt1 = _mktx = _mkt2 = 0.0
     _h2h_home = float(getattr(pa, "h2h_home_win_pct", 0.0)) if pa else 0.0
     _h2h_draw = float(getattr(pa, "h2h_draw_pct", 0.0)) if pa else 0.0
     _h2h_away = float(getattr(pa, "h2h_away_win_pct", 0.0)) if pa else 0.0
