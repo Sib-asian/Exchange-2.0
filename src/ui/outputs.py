@@ -1703,9 +1703,10 @@ def render_ocr_market_divergence(
     ocr_quota_under: float,
 ) -> None:
     """
-    Mostra un warning se le quote OCR divergono >15% dalle probabilità del modello.
+    Mostra un warning se le quote estratte divergono >15% dalle probabilità del modello.
 
-    Le quote OCR sono quelle estratte dallo screenshot del sito di scommesse.
+    Le quote possono provenire dalla sorgente prematch (URL/Analysis Nowgoal)
+    o da OCR/screenshot, a seconda del flusso usato.
     Il modello stima le probabilità dalle linee AH/Total.
     Una divergenza >15% indica:
       - Possibile errore nell'inserimento manuale AH/Total
@@ -1762,7 +1763,7 @@ def render_ocr_market_divergence(
 
     with st.expander("⚠️ Divergenza modello–mercato OCR", expanded=True):
         st.warning(
-            "Le quote OCR estratte dallo screenshot divergono dal modello. "
+            "Le quote estratte dalla sorgente prematch (URL/OCR) divergono dal modello. "
             "Possibili cause: AH/Total inseriti non coerenti con le quote, "
             "mercato diverso (European vs Asian), o vera opportunità di value."
         )

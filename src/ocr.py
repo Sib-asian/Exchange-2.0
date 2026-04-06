@@ -3375,6 +3375,10 @@ def _extract_all_with_regex(text: str) -> dict:
     for _hk in _HTFT_LIVE_KEYS:
         result[_hk] = 0
 
+    # Se la pagina e` gia` in-play, i blocchi odds possono essere misti/ambigui
+    # per un uso prematch: evita di popolare 1X2 init da questi fallback.
+    _is_live_inplay = bool(re.search(r"\b(1st Half|2nd Half|In Play)\b", text, re.IGNORECASE))
+
     # === H2H ===
     pre_ps = _text_before_previous_scores_statistics(text)
     id_h2h_home, id_h2h_away, _ = _extract_match_identity_from_text(text)
@@ -3742,10 +3746,20 @@ def _extract_all_with_regex(text: str) -> dict:
     # Es: "1 @2.10  X @3.25  2 @3.40" o "1: 2.10  X: 3.25  2: 3.40"
     odds_pattern = r"(?:1|Home)\s*[@:]\s*(\d+[.,]\d+).*?(?:X|Draw)\s*[@:]\s*(\d+[.,]\d+).*?(?:2|Away)\s*[@:]\s*(\d+[.,]\d+)"
     odds_match = re.search(odds_pattern, text, re.IGNORECASE)
+    _fallback_1x2_from_text: tuple[float, float, float] | None = None
     if odds_match:
-        result["mkt_init_1"] = float(odds_match.group(1).replace(",", "."))
-        result["mkt_init_x"] = float(odds_match.group(2).replace(",", "."))
-        result["mkt_init_2"] = float(odds_match.group(3).replace(",", "."))
+        q1 = float(odds_match.group(1).replace(",", "."))
+        qx = float(odds_match.group(2).replace(",", "."))
+        q2 = float(odds_match.group(3).replace(",", "."))
+        if not _is_live_inplay:
+            # In prematch mantiene la priorita` storica: se il testo dichiara
+            # esplicitamente 1/X/2, non sovrascrivere con fallback da Vs_hOdds.
+            result["mkt_init_1"] = q1
+            result["mkt_init_x"] = qx
+            result["mkt_init_2"] = q2
+        else:
+            # In live tienilo solo come fallback (di norma verra` ignorato).
+            _fallback_1x2_from_text = (q1, qx, q2)
 
     # Pattern per tabella markdown Live Odds Analysis (Jina Reader)
     # Formato: | **Bet365** | Initial | AH_home | AH_line | AH_away | 1 | X | 2 | Over | Total | Under |
@@ -3985,7 +3999,7 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["total_over_odds_open"] = total_over
                 result["total_under_odds_open"] = total_under
                 # 1X2: index 5=home, 6=draw, 7=away
-                if result["mkt_init_1"] == 0 and len(opening_row) > 7:
+                if (not _is_live_inplay) and result["mkt_init_1"] == 0 and len(opening_row) > 7:
                     try:
                         q1 = float(opening_row[5]) if opening_row[5] else 0.0
                         qx = float(opening_row[6]) if opening_row[6] else 0.0
@@ -4040,7 +4054,7 @@ def _extract_all_with_regex(text: str) -> dict:
 
     # === 2b. Vs_eOdds: 1X2 in formato europeo (molte pagine live5) ===
     # Vs_hOdds esteso ha spesso altri mercati al posto della triplette 1X2 in 5–7.
-    if result["mkt_init_1"] <= 1.0:
+    if (not _is_live_inplay) and result["mkt_init_1"] <= 1.0:
         vs_e_match = re.search(r"Vs_eOdds\s*=\s*(\[[\s\S]+?\]\s*\])\s*;", text)
         if vs_e_match:
             try:
@@ -4075,6 +4089,22 @@ def _extract_all_with_regex(text: str) -> dict:
                             result["mkt_init_2"] = q2
             except (json.JSONDecodeError, ValueError, TypeError, IndexError, ZeroDivisionError):
                 pass
+
+    # Fallback finale 1X2 da testo libero: usalo solo se i parser più affidabili
+    # (tabella Initial / Vs_hOdds / Vs_eOdds) non hanno popolato i campi.
+    if (not _is_live_inplay) and result["mkt_init_1"] <= 1.0 and _fallback_1x2_from_text is not None:
+        q1, qx, q2 = _fallback_1x2_from_text
+        if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100:
+            result["mkt_init_1"] = q1
+            result["mkt_init_x"] = qx
+            result["mkt_init_2"] = q2
+
+    if _is_live_inplay:
+        # In live il 1X2 prematch puo` risultare ambiguo/non affidabile
+        # rispetto alla tabella corrente: non usarlo come prior nel motore.
+        result["mkt_init_1"] = 0.0
+        result["mkt_init_x"] = 0.0
+        result["mkt_init_2"] = 0.0
 
     # === 3. NOMI SQUADRE (da meta tags o title - più affidabile) ===
     # Pattern 1: Formato Jina Reader markdown "Title: Team A VS Team B Match..."
