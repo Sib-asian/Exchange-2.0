@@ -107,6 +107,223 @@ def _ht_goal_share_1h(g1h: float, g2h: float, *, default: float = 0.46) -> float
     return max(0.34, min(0.56, a / (a + b)))
 
 
+def _consecutive_failures(results: list[tuple[int, int]], event_predicate: Any) -> int:
+    """Conta da partita più recente quante gare consecutive non hanno centrato l'evento."""
+    delay = 0
+    for gf, gs in results:
+        if event_predicate(gf, gs):
+            break
+        delay += 1
+    return delay
+
+
+def _event_delay_metrics(results: list[tuple[int, int]], event_predicate: Any) -> dict[str, float]:
+    """
+    Stima robusta del ritardo evento con smoothing bayesiano:
+    - p_hat = (hits+1)/(n+2) (Laplace)
+    - delay = partite consecutive senza evento (dalla più recente)
+    - ritardo_idx = 1 - (1-p_hat)^delay  in [0,1]
+    """
+    n = len(results)
+    if n <= 0:
+        return {"n": 0.0, "p_hat": 0.0, "delay": 0.0, "ritardo_idx": 0.0}
+    hits = sum(1 for gf, gs in results if event_predicate(gf, gs))
+    p_hat = (hits + 1.0) / (n + 2.0)
+    delay = float(_consecutive_failures(results, event_predicate))
+    ritardo_idx = 1.0 - ((1.0 - p_hat) ** delay) if delay > 0 else 0.0
+    return {"n": float(n), "p_hat": p_hat, "delay": delay, "ritardo_idx": max(0.0, min(1.0, ritardo_idx))}
+
+
+def _weighted_event_rate(results: list[tuple[int, int]], event_predicate: Any) -> float:
+    """
+    Frequenza evento con peso maggiore alle gare recenti:
+    w_i = exp(-i / tau), i=0 più recente.
+    """
+    n = len(results)
+    if n <= 0:
+        return 0.0
+    tau = 4.5
+    num = 0.0
+    den = 0.0
+    for i, (gf, gs) in enumerate(results):
+        w = math.exp(-i / tau)
+        den += w
+        if event_predicate(gf, gs):
+            num += w
+    return num / den if den > 0 else 0.0
+
+
+def _wilson_half_width(p: float, n: int, z: float = 1.0) -> float:
+    """Semi-ampiezza intervallo Wilson (z=1 ~ 68%) come proxy di incertezza."""
+    if n <= 0:
+        return 1.0
+    denom = 1.0 + (z * z) / n
+    center = p + (z * z) / (2.0 * n)
+    rad = z * math.sqrt((p * (1.0 - p) + (z * z) / (4.0 * n)) / n)
+    lo = (center - rad) / denom
+    hi = (center + rad) / denom
+    return max(0.0, min(1.0, (hi - lo) / 2.0))
+
+
+def _beta_blend_with_model(p_data: float, n: int, p_model: float, prior_strength: float = 6.0) -> float:
+    """
+    Fusione bayesiana semplice:
+    - prior ~ Beta(alpha0, beta0) centrata su p_model
+    - pseudo-campione dati con dimensione n su p_data
+    """
+    p_model = max(0.01, min(0.99, p_model))
+    p_data = max(0.01, min(0.99, p_data))
+    n_eff = max(0.0, float(n))
+    alpha0 = p_model * prior_strength
+    beta0 = (1.0 - p_model) * prior_strength
+    alpha = alpha0 + p_data * n_eff
+    beta = beta0 + (1.0 - p_data) * n_eff
+    return alpha / max(1e-9, alpha + beta)
+
+
+def _delay_zscore(delay: float, p_event: float) -> float:
+    """
+    Z-score del ritardo rispetto a una geometrica (fallimenti prima del primo successo).
+    mean = (1-p)/p ; std = sqrt(1-p)/p
+    """
+    p = max(0.02, min(0.98, p_event))
+    mean = (1.0 - p) / p
+    std = math.sqrt(max(1e-9, 1.0 - p)) / p
+    return (delay - mean) / max(1e-9, std)
+
+
+def _render_prematch_delay_insight_box(risultati: ProbabilitaModello, prematch: Any) -> None:
+    """Specchietto informativo ritardi statistici prematch (non altera il modello)."""
+    home_recent = list(getattr(prematch, "home_recent_results", []) or [])[:12]
+    away_recent = list(getattr(prematch, "away_recent_results", []) or [])[:12]
+    if not home_recent and not away_recent:
+        return
+
+    h_ng = _event_delay_metrics(home_recent, lambda gf, _gs: gf > 0)
+    a_ng = _event_delay_metrics(away_recent, lambda gf, _gs: gf > 0)
+    h_o25 = _event_delay_metrics(home_recent, lambda gf, gs: (gf + gs) >= 3)
+    a_o25 = _event_delay_metrics(away_recent, lambda gf, gs: (gf + gs) >= 3)
+    h_btts = _event_delay_metrics(home_recent, lambda gf, gs: gf > 0 and gs > 0)
+    a_btts = _event_delay_metrics(away_recent, lambda gf, gs: gf > 0 and gs > 0)
+    h_o25_w = _weighted_event_rate(home_recent, lambda gf, gs: (gf + gs) >= 3)
+    a_o25_w = _weighted_event_rate(away_recent, lambda gf, gs: (gf + gs) >= 3)
+    h_btts_w = _weighted_event_rate(home_recent, lambda gf, gs: gf > 0 and gs > 0)
+    a_btts_w = _weighted_event_rate(away_recent, lambda gf, gs: gf > 0 and gs > 0)
+
+    n_eff = min(int(h_ng["n"]), int(a_ng["n"])) if h_ng["n"] > 0 and a_ng["n"] > 0 else int(max(h_ng["n"], a_ng["n"]))
+    reliability = "alta" if n_eff >= 10 else ("media" if n_eff >= 7 else "bassa")
+    over_p_struct = (h_o25["p_hat"] + a_o25["p_hat"]) / 2.0
+    over_p_recent = (h_o25_w + a_o25_w) / 2.0
+    btts_p_struct = (h_btts["p_hat"] + a_btts["p_hat"]) / 2.0
+    btts_p_recent = (h_btts_w + a_btts_w) / 2.0
+    # Blend strutturale+recency con peso guidato da sample size.
+    rec_w = max(0.20, min(0.60, 0.20 + 0.04 * n_eff))
+    over_p_data = (1.0 - rec_w) * over_p_struct + rec_w * over_p_recent
+    btts_p_data = (1.0 - rec_w) * btts_p_struct + rec_w * btts_p_recent
+    # Micro-ancoraggio H2H solo se sample minimo.
+    h2h_n = int(getattr(prematch, "h2h_matches_count", 0) or 0)
+    h2h_over = float(getattr(prematch, "h2h_over_pct", 0.0) or 0.0) / 100.0
+    h2h_btts = float(getattr(prematch, "h2h_btts_pct", 0.0) or 0.0) / 100.0
+    if h2h_n >= 4 and 0.05 < h2h_over < 0.95:
+        h2h_w = max(0.04, min(0.14, 0.02 * h2h_n))
+        over_p_data = (1.0 - h2h_w) * over_p_data + h2h_w * h2h_over
+    if h2h_n >= 4 and 0.05 < h2h_btts < 0.95:
+        h2h_w = max(0.04, min(0.14, 0.02 * h2h_n))
+        btts_p_data = (1.0 - h2h_w) * btts_p_data + h2h_w * h2h_btts
+    # Posterior finale con prior centrata sul modello.
+    over_p_post = _beta_blend_with_model(over_p_data, n_eff, risultati.p_over_25_ref, prior_strength=6.0)
+    btts_p_post = _beta_blend_with_model(btts_p_data, n_eff, risultati.p_btts, prior_strength=6.0)
+    over_delay = int(round((h_o25["delay"] + a_o25["delay"]) / 2.0))
+    over_unc = _wilson_half_width(over_p_struct, max(1, n_eff))
+    btts_unc = _wilson_half_width(btts_p_struct, max(1, n_eff))
+    over_shift = over_p_post - over_p_struct
+    btts_shift = btts_p_post - btts_p_struct
+    over_z = _delay_zscore(float(over_delay), over_p_post)
+    btts_delay = (h_btts["delay"] + a_btts["delay"]) / 2.0
+    btts_z = _delay_zscore(float(btts_delay), btts_p_post)
+
+    st.divider()
+    st.caption("**Specchietto ritardi statistici (prematch)**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Ritardo gol Casa", f"{int(h_ng['delay'])} gare", delta=f"freq stimata {h_ng['p_hat']:.0%}")
+    c2.metric("Ritardo gol Trasf.", f"{int(a_ng['delay'])} gare", delta=f"freq stimata {a_ng['p_hat']:.0%}")
+    c3.metric("Ritardo Over 2.5", f"{over_delay} gare", delta=f"base {over_p_struct:.0%} · post {over_p_post:.0%}")
+
+    # Delay Power Score: combina anomalia, concordanza col modello e affidabilità.
+    over_idx = (h_o25["ritardo_idx"] + a_o25["ritardo_idx"]) / 2.0
+    btts_idx = (h_btts["ritardo_idx"] + a_btts["ritardo_idx"]) / 2.0
+    model_alignment = (
+        1.0
+        - abs(over_p_post - risultati.p_over_25_ref)
+        - 0.7 * abs(btts_p_post - risultati.p_btts)
+    )
+    model_alignment = max(0.0, min(1.0, model_alignment))
+    reliability_weight = max(0.30, min(1.0, n_eff / 12.0))
+    uncertainty_pen = max(0.0, min(1.0, 1.0 - (over_unc + btts_unc)))
+    delay_power_score = 100.0 * (
+        0.35 * ((over_idx + btts_idx) / 2.0)
+        + 0.35 * model_alignment
+        + 0.20 * reliability_weight
+        + 0.10 * uncertainty_pen
+    )
+    delay_power_score = max(0.0, min(100.0, delay_power_score))
+    _dps_icon = "🟢" if delay_power_score >= 68 else ("🟡" if delay_power_score >= 48 else "🔴")
+    st.caption(f"{_dps_icon} Delay Power Score: **{delay_power_score:.0f}/100** (coerenza ritardi+modello).")
+
+    advice: list[str] = []
+    warnings: list[str] = []
+    if over_idx >= 0.70 and risultati.p_over_25_ref >= 0.54 and over_unc <= 0.16 and over_z >= 0.8:
+        advice.append("Over 2.5: ritardo elevato e modello coerente (setup favorevole).")
+    elif over_idx >= 0.70 and risultati.p_over_25_ref < 0.50 and over_z >= 0.8:
+        advice.append("Over 2.5: ritardo elevato ma modello freddo (segnale in conflitto, prudenza).")
+        warnings.append("Conflitto Over: ritardo alto ma probabilità modello sotto 50%.")
+    if btts_idx >= 0.68 and risultati.p_btts >= 0.52 and btts_unc <= 0.18 and btts_z >= 0.8:
+        advice.append("BTTS: ritardo alto con supporto modello (valuta quota solo se margine reale).")
+    elif btts_idx >= 0.68 and risultati.p_btts < 0.50 and btts_z >= 0.8:
+        warnings.append("Conflitto BTTS: ritardo alto ma modello non conferma.")
+    if h_ng["delay"] >= 3 and risultati.p1 >= 0.42:
+        advice.append("Gol Casa: digiuno prolungato ma base 1 forte, possibile rientro offensivo.")
+    if a_ng["delay"] >= 3 and risultati.p2 >= 0.35:
+        advice.append("Gol Trasferta: ritardo marcato con P2 non bassa, attenzione a quota squadra ospite.")
+    if not advice:
+        advice.append("Nessun ritardo statisticamente anomalo: meglio seguire edge puro modello/mercato.")
+
+    trend_parts: list[str] = []
+    if abs(over_shift) >= 0.08:
+        trend_parts.append(f"trend Over {'in aumento' if over_shift > 0 else 'in calo'} ({over_shift:+.0%})")
+    if abs(btts_shift) >= 0.08:
+        trend_parts.append(f"trend BTTS {'in aumento' if btts_shift > 0 else 'in calo'} ({btts_shift:+.0%})")
+    trend_txt = f" · {' | '.join(trend_parts)}" if trend_parts else ""
+    st.caption(
+        f"Affidabilita campione: **{reliability}** (N utile={n_eff}) · "
+        f"incertezza Over/BTTS: ±{over_unc:.0%}/±{btts_unc:.0%} · "
+        f"z-ritardo Over/BTTS: {over_z:+.2f}/{btts_z:+.2f}{trend_txt}."
+    )
+    if warnings:
+        st.caption("⚠️ " + "  ·  ".join(warnings[:2]))
+
+    # Ranking sintetico segnali ritardo (top/bottom) per lettura immediata.
+    def _event_score(idx: float, p_recent: float, p_model: float, unc: float) -> float:
+        align = max(0.0, 1.0 - abs(p_recent - p_model))
+        return 100.0 * (0.45 * idx + 0.35 * align + 0.20 * (1.0 - unc))
+
+    score_over = _event_score(over_idx, over_p_post, risultati.p_over_25_ref, over_unc)
+    score_btts = _event_score(btts_idx, btts_p_post, risultati.p_btts, btts_unc)
+    score_home_goal = _event_score(h_ng["ritardo_idx"], h_ng["p_hat"], risultati.p1, _wilson_half_width(h_ng["p_hat"], int(max(1, h_ng["n"]))))
+    score_away_goal = _event_score(a_ng["ritardo_idx"], a_ng["p_hat"], risultati.p2, _wilson_half_width(a_ng["p_hat"], int(max(1, a_ng["n"]))))
+    rank = [
+        ("Over 2.5", score_over),
+        ("BTTS", score_btts),
+        ("Gol Casa", score_home_goal),
+        ("Gol Trasf.", score_away_goal),
+    ]
+    rank_sorted = sorted(rank, key=lambda x: x[1], reverse=True)
+    best_lbl, best_sc = rank_sorted[0]
+    worst_lbl, worst_sc = rank_sorted[-1]
+    st.caption(f"Top segnale: **{best_lbl}** ({best_sc:.0f}/100) · Debole: **{worst_lbl}** ({worst_sc:.0f}/100).")
+    st.markdown("\n".join(f"- {line}" for line in advice[:3]))
+
+
 def _calcola_ht_probs(
     prematch: Any,
     xg_h_fallback: float = 0.0,
@@ -495,6 +712,7 @@ def render_pronostici_rapidi(
                 "GG/NG = P(BTTS) del modello (entrambe segnano almeno una volta); "
                 "non è automaticamente la quota del bookmaker."
             )
+        _render_prematch_delay_insight_box(risultati, prematch)
 
     xh = risultati.xg_h_final
     xa = risultati.xg_a_final
