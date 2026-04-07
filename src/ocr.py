@@ -3939,65 +3939,83 @@ def _extract_all_with_regex(text: str) -> dict:
         except (json.JSONDecodeError, ValueError, IndexError):
             pass
 
-    # === 2. Vs_hOdds: QUOTE MULTI-BOOKMAKER (da JavaScript Nowgoal) ===
-    # Formato variabile: legacy ~12 colonne + ts=1 “apertura”; live5 spesso 18 colonne e ts 3,8,12,24
-    # (apertura = timestamp minimo). BTTS: indici 16–17 se len>=18, altrimenti 12–13 legacy.
-    # I valori sono stringhe con apici singoli, JSON vuole doppi apici!
+    # === 2. Vs_hOdds / Vs_eOdds: QUOTE DA JAVASCRIPT NOWGOAL ===
+    # Formato multi-bookmaker: [match_id, company_id, odds...]
+    # Sulle pagine h2h contengono dati di TUTTE le partite storiche h2h per più bookmaker.
+    # Filtriamo per il match corrente (scheduleID) e per Sbobet (priorità).
+    #
+    # Company IDs (da dropdown nowgoal):
+    #   Vs_hOdds (Asian Handicap): Sbobet=31, Bet365=8, 12bet=24
+    #   Vs_eOdds (European 1X2):   Sbobet=474, Bet365=281
+    #
+    # Vs_hOdds per riga: [match_id, company_id,
+    #   ah_h_open(2), ah_line_open(3), ah_a_open(4),
+    #   ah_h_close(5), ah_line_close(6), ah_a_close(7),
+    #   total_open(8), total_close(9), ...]
+    # Vs_eOdds per riga: [match_id, company_id,
+    #   1_open(2), x_open(3), 2_open(4),
+    #   1_close(5), x_close(6), 2_close(7), ...]
 
-    # Pattern più robusto: trova tutto fino al punto e virgola
+    _COMPANY_PRIORITY_AH = [31, 8, 3, 24, 12, 1]      # Sbobet first
+    _COMPANY_PRIORITY_EU = [474, 281, 82, 90, 115, 0]  # Sbobet first
+
+    # Identifica il match corrente dalla pagina
+    _schedule_id: int | None = None
+    _sid_match = re.search(r'scheduleID\s*=\s*(\d+)', text)
+    if _sid_match:
+        _schedule_id = int(_sid_match.group(1))
+
+    def _select_row_by_priority(
+        rows: list[list], company_priority: list[int], schedule_id: int | None,
+    ) -> list | None:
+        """Seleziona la riga per il match corrente con priorita' bookmaker Sbobet."""
+        if not rows:
+            return None
+        # Filtra per match corrente se abbiamo lo scheduleID
+        if schedule_id is not None:
+            match_rows = [r for r in rows if r[0] == schedule_id]
+        else:
+            match_rows = rows
+        if not match_rows:
+            return None
+        # Cerca il bookmaker per ordine di priorità (Sbobet prima)
+        for cid in company_priority:
+            for r in match_rows:
+                if r[1] == cid:
+                    return r
+        # Fallback: prima riga disponibile per il match
+        return match_rows[0]
+
     vs_odds_match = re.search(r"Vs_hOdds\s*=\s*(\[[\s\S]+?\]\s*\])\s*;", text)
     if vs_odds_match:
         try:
             odds_str = vs_odds_match.group(1)
-            # Converti apici singoli in doppi per JSON
-            # Attenzione: solo per i valori stringa, non per i numeri
             odds_str = re.sub(r"'([^']*)'", r'"\1"', odds_str)
             odds_data = json.loads(odds_str)
 
-            def _row_ts(r: list) -> int:
-                try:
-                    return int(r[1]) if len(r) > 1 and r[1] is not None else 0
-                except (TypeError, ValueError):
-                    return 0
-
             eligible = [r for r in odds_data if len(r) >= 12]
-            # Closing = timestamp più alto (come prima).
-            closing_row = max(eligible, key=_row_ts) if eligible else None
-            # Opening: molte pagine live5 non hanno ts=1; usare la riga col timestamp minimo.
-            opening_row = None
-            if eligible:
-                for row in eligible:
-                    if _row_ts(row) == 1:
-                        opening_row = row
-                        break
-                if opening_row is None:
-                    opening_row = min(eligible, key=_row_ts)
+            selected_row = _select_row_by_priority(eligible, _COMPANY_PRIORITY_AH, _schedule_id)
 
-            # Estrai dati da opening
-            if opening_row and len(opening_row) >= 12:
-                # AH: index 2=home_odds, 3=line, 4=away_odds
-                # NOTA: Le linee Nowgoal hanno formato diverso e segno invertito!
-                # - Quarter lines: "0.5/1" → 0.75 (media)
-                # - Segno: Nowgoal 0.5 (casa favorita) → Software -0.5
-                ah_line_raw = opening_row[3] if opening_row[3] else "0"
+            if selected_row and len(selected_row) >= 12:
+                # AH opening: indices 2,3,4
+                ah_line_raw = selected_row[3] if selected_row[3] else "0"
                 ah_line = convert_nowgoal_line_to_software(ah_line_raw, invert_sign=True)
-                ah_home = float(opening_row[2]) if opening_row[2] else 0.0
-                ah_away = float(opening_row[4]) if opening_row[4] else 0.0
-                # Total: index 8=line, 10=over_odds, 11=under_odds
-                # Per Total: quarter lines ma SENZA inversione segno
-                total_line_raw = opening_row[8] if opening_row[8] else "0"
+                ah_home = float(selected_row[2]) if selected_row[2] else 0.0
+                ah_away = float(selected_row[4]) if selected_row[4] else 0.0
+                # Total opening: index 8
+                total_line_raw = selected_row[8] if selected_row[8] else "0"
                 total_line = convert_nowgoal_line_to_software(total_line_raw, invert_sign=False)
-                total_over = float(opening_row[10]) if len(opening_row) > 10 and opening_row[10] else 0.0
-                total_under = float(opening_row[11]) if len(opening_row) > 11 and opening_row[11] else 0.0
-                # Formato esteso (18+ colonne): [11] spesso è una linea (es. -0.25), non quota Under.
+                total_over = float(selected_row[10]) if len(selected_row) > 10 and selected_row[10] else 0.0
+                total_under = float(selected_row[11]) if len(selected_row) > 11 and selected_row[11] else 0.0
+
                 def _ok_ou(q: float) -> bool:
                     return 1.01 < q < 100
 
                 if not (_ok_ou(total_over) and _ok_ou(total_under)):
                     total_over = total_under = 0.0
-                    if len(opening_row) > 13:
-                        o1 = float(opening_row[10]) if opening_row[10] not in (None, "", "0", 0) else 0.0
-                        o2 = float(opening_row[13]) if opening_row[13] not in (None, "", "0", 0) else 0.0
+                    if len(selected_row) > 13:
+                        o1 = float(selected_row[10]) if selected_row[10] not in (None, "", "0", 0) else 0.0
+                        o2 = float(selected_row[13]) if selected_row[13] not in (None, "", "0", 0) else 0.0
                         if _ok_ou(o1) and _ok_ou(o2):
                             _ou_or = 1.0 / o1 + 1.0 / o2
                             if 1.02 <= _ou_or <= OCR_QUOTES.MAX_OVERROUND_2WAY:
@@ -4009,29 +4027,26 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["total_line_open"] = total_line
                 result["total_over_odds_open"] = total_over
                 result["total_under_odds_open"] = total_under
-                # 1X2: index 5=home, 6=draw, 7=away
-                if (not _is_live_inplay) and result["mkt_init_1"] == 0 and len(opening_row) > 7:
-                    try:
-                        q1 = float(opening_row[5]) if opening_row[5] else 0.0
-                        qx = float(opening_row[6]) if opening_row[6] else 0.0
-                        q2 = float(opening_row[7]) if opening_row[7] else 0.0
-                        if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100:
-                            result["mkt_init_1"] = q1
-                            result["mkt_init_x"] = qx
-                            result["mkt_init_2"] = q2
-                    except (ValueError, TypeError):
-                        pass
+
+                # AH closing: indices 5,6,7 (stessa riga, NON sono 1X2!)
+                ah_line_close_raw = selected_row[6] if selected_row[6] else "0"
+                ah_line_close = convert_nowgoal_line_to_software(ah_line_close_raw, invert_sign=True)
+                total_line_close_raw = selected_row[9] if len(selected_row) > 9 and selected_row[9] else "0"
+                total_line_close = convert_nowgoal_line_to_software(total_line_close_raw, invert_sign=False)
+                result["ah_line_close"] = ah_line_close
+                result["total_line_close"] = total_line_close
+
                 # BTTS Yes/No: formato lungo live5 → indici 16,17; legacy corto → 12,13
                 if result["mkt_init_gg"] <= 1.0:
                     _btts_pairs: list[tuple[int, int]] = []
-                    if len(opening_row) > 17:
+                    if len(selected_row) > 17:
                         _btts_pairs.append((16, 17))
-                    if len(opening_row) > 13:
+                    if len(selected_row) > 13:
                         _btts_pairs.append((12, 13))
                     for _i, _j in _btts_pairs:
                         try:
-                            qgg = float(opening_row[_i]) if opening_row[_i] not in (None, "", "0", 0) else 0.0
-                            qng = float(opening_row[_j]) if opening_row[_j] not in (None, "", "0", 0) else 0.0
+                            qgg = float(selected_row[_i]) if selected_row[_i] not in (None, "", "0", 0) else 0.0
+                            qng = float(selected_row[_j]) if selected_row[_j] not in (None, "", "0", 0) else 0.0
                             if 1.01 < qgg < 100 and 1.01 < qng < 100:
                                 _or2 = 1.0 / qgg + 1.0 / qng
                                 if 1.02 <= _or2 <= OCR_QUOTES.MAX_OVERROUND_2WAY:
@@ -4041,30 +4056,19 @@ def _extract_all_with_regex(text: str) -> dict:
                         except (ValueError, TypeError, ZeroDivisionError):
                             continue
 
-            # Estrai dati da closing
-            if closing_row and len(closing_row) >= 12:
-                ah_line_close_raw = closing_row[3] if closing_row[3] else "0"
-                ah_line_close = convert_nowgoal_line_to_software(ah_line_close_raw, invert_sign=True)
-                total_line_close_raw = closing_row[8] if closing_row[8] else "0"
-                total_line_close = convert_nowgoal_line_to_software(total_line_close_raw, invert_sign=False)
-
-                result["ah_line_close"] = ah_line_close
-                result["total_line_close"] = total_line_close
-
-            # Calcola movimento
+            # Calcola movimento linee
             if result["ah_line_open"] != 0 and result["ah_line_close"] != 0:
                 result["line_movement_ah"] = result["ah_line_close"] - result["ah_line_open"]
             if result["total_line_open"] != 0 and result["total_line_close"] != 0:
                 result["line_movement_total"] = result["total_line_close"] - result["total_line_open"]
 
-            # Sharp signal: movimento significativo (>0.25) indica informazione
             if abs(result["line_movement_ah"]) >= 0.25 or abs(result["line_movement_total"]) >= 0.25:
                 result["odds_sharp_signal"] = max(abs(result["line_movement_ah"]), abs(result["line_movement_total"]))
         except (json.JSONDecodeError, ValueError, IndexError):
             pass
 
-    # === 2b. Vs_eOdds: 1X2 in formato europeo (molte pagine live5) ===
-    # Vs_hOdds esteso ha spesso altri mercati al posto della triplette 1X2 in 5–7.
+    # === 2b. Vs_eOdds: 1X2 da Sbobet (formato europeo) ===
+    # Questo è l'array dedicato per le quote 1X2. Filtriamo per Sbobet (474).
     if result["mkt_init_1"] <= 1.0:
         vs_e_match = re.search(r"Vs_eOdds\s*=\s*(\[[\s\S]+?\]\s*\])\s*;", text)
         if vs_e_match:
@@ -4073,21 +4077,9 @@ def _extract_all_with_regex(text: str) -> dict:
                 es = re.sub(r"'([^']*)'", r'"\1"', es)
                 edata = json.loads(es)
 
-                def _ets(r: list) -> int:
-                    try:
-                        return int(r[1]) if len(r) > 1 and r[1] is not None else 0
-                    except (TypeError, ValueError):
-                        return 0
-
                 e_elig = [r for r in edata if len(r) >= 5]
-                e_row = None
-                if e_elig:
-                    for r in e_elig:
-                        if _ets(r) == 1:
-                            e_row = r
-                            break
-                    if e_row is None:
-                        e_row = min(e_elig, key=_ets)
+                e_row = _select_row_by_priority(e_elig, _COMPANY_PRIORITY_EU, _schedule_id)
+
                 if e_row is not None:
                     q1 = float(e_row[2]) if e_row[2] not in (None, "", "0", 0) else 0.0
                     qx = float(e_row[3]) if e_row[3] not in (None, "", "0", 0) else 0.0
@@ -4098,8 +4090,7 @@ def _extract_all_with_regex(text: str) -> dict:
                             result["mkt_init_1"] = q1
                             result["mkt_init_x"] = qx
                             result["mkt_init_2"] = q2
-                    # Molte righe Vs_eOdds includono anche il triplo live in [5:8].
-                    # Lo salviamo separatamente per fallback controllato nel bridge.
+                    # Quote live 1X2 in [5:8]
                     if len(e_row) > 7:
                         l1 = float(e_row[5]) if e_row[5] not in (None, "", "0", 0) else 0.0
                         lx = float(e_row[6]) if e_row[6] not in (None, "", "0", 0) else 0.0

@@ -1102,23 +1102,26 @@ class TestVsHodds1x2:
         assert parsed["mkt_init_x"] == pytest.approx(4.20)
         assert parsed["mkt_init_2"] == pytest.approx(7.70)
 
-    def test_1x2_from_vs_hodds(self):
-        """Vs_hOdds indices 5,6,7 → mkt_init_1/x/2."""
+    def test_1x2_from_vs_eodds_sbobet(self):
+        """1X2 viene da Vs_eOdds (formato europeo), NON da Vs_hOdds indices 5-7 (che sono AH close)."""
         text = (
             "Title: Foo FC vs Bar SC Live Score\n"
-            "Vs_hOdds = [[123, 1, '0.85', '0.5', '1.05', '1.50', '4.20', '6.00', '2.5', '', '0.90', '0.95']];\n"
+            "scheduleID = 123;\n"
+            "Vs_hOdds = [[123, 31, '0.85', '0.5', '1.05', '0.90', '0.25', '1.00', '2.5', '2.5', '0.90', '0.95']];\n"
+            "Vs_eOdds = [[123, 474, '1.50', '4.20', '6.00', '1.55', '4.10', '5.80', 0, '0', '0', '0', '0', '0', '0']];\n"
         )
         parsed = _extract_all_with_regex(text)
         assert parsed["mkt_init_1"] == 1.50
         assert parsed["mkt_init_x"] == 4.20
         assert parsed["mkt_init_2"] == 6.00
 
-    def test_1x2_not_overridden_by_vs_hodds(self):
-        """Se le quote 1X2 sono già trovate dal testo, Vs_hOdds non le sovrascrive."""
+    def test_1x2_not_overridden_by_vs_eodds_when_text_found(self):
+        """Se le quote 1X2 sono già trovate dal testo, Vs_eOdds non le sovrascrive."""
         text = (
             "Title: Foo FC vs Bar SC Live Score\n"
             "1 @2.10  X @3.25  2 @3.40\n"
-            "Vs_hOdds = [[123, 1, '0.85', '0.5', '1.05', '1.50', '4.20', '6.00', '2.5', '', '0.90', '0.95']];\n"
+            "scheduleID = 123;\n"
+            "Vs_eOdds = [[123, 474, '1.50', '4.20', '6.00', '1.55', '4.10', '5.80', 0, '0', '0', '0', '0', '0', '0']];\n"
         )
         parsed = _extract_all_with_regex(text)
         assert parsed["mkt_init_1"] == 2.10
