@@ -332,6 +332,9 @@ class ProbabilitaModello:
     # Over/Under linea 1.5 (marginali; stessa pipeline shrink/calibrazione prematch della linea principale)
     p_over_15: float = 0.0
     p_under_15: float = 0.0
+    # Over/Under canonico 2.5 (sempre calcolato dalla stessa distribuzione, indipendente da linea_ou scelta)
+    p_over_25_ref: float = 0.0
+    p_under_25_ref: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +914,19 @@ def analizza(
         else _raw_o15
     )
     p_under_15 = 1.0 - p_over_15
+    # O/U 2.5 canonico per workflow book europei (sempre disponibile in output UI).
+    consensus_probs_25 = compute_consensus(
+        full_bp, full_copula, full_markov,
+        state.gol_casa, state.gol_trasf, 2.5,
+        weights=(_w_bp, _w_cop, _w_mk),
+    )
+    _raw_o25 = consensus_probs_25["p_over"]
+    p_over_25_ref = (
+        _logistic_sharpen(_raw_o25, alpha=CONSENSUS.LOGISTIC_ALPHA_OVER)
+        if _raw_o25 not in (0.0, 1.0)
+        else _raw_o25
+    )
+    p_under_25_ref = 1.0 - p_over_25_ref
 
     # 9. Calibrazione isotonica con draw shrinkage dinamico (#4).
     # Partite difensive (tot basso) → meno correzione sul pareggio.
@@ -1014,6 +1030,12 @@ def analizza(
         _p_over_h2h = state.h2h_over_pct / 100.0  # Converti da % a proporzione
         p_over = (1.0 - _alpha_over_h2h) * p_over + _alpha_over_h2h * _p_over_h2h
         p_under = 1.0 - p_over  # Rinormalizza
+    # Applica lo stesso micro-blend H2H anche al canale canonico O/U 2.5.
+    if state.minuto == 0 and state.h2h_over_pct > 0:
+        _alpha_over_h2h = 0.15
+        _p_over_h2h = state.h2h_over_pct / 100.0
+        p_over_25_ref = (1.0 - _alpha_over_h2h) * p_over_25_ref + _alpha_over_h2h * _p_over_h2h
+        p_under_25_ref = 1.0 - p_over_25_ref
 
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
     # Fix #2.7: Usa funzione helper per costruire la matrice consensus (pesi dinamici)
@@ -1097,6 +1119,8 @@ def analizza(
         p_btts=p_btts,
         p_over_15=p_over_15,
         p_under_15=p_under_15,
+        p_over_25_ref=p_over_25_ref,
+        p_under_25_ref=p_under_25_ref,
         top_cs=top_cs,
         gol_tot_dist=gol_tot_dist,
         rho=rho,
