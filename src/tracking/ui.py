@@ -286,13 +286,33 @@ def _render_stats_tab(log: PredictionLog) -> None:
         st.write(f"Completate: **{len(completed)}** / 5 minime")
         return
 
+    min_conf = st.slider(
+        "Confidenza minima modello (filtro report)",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.0,
+        step=0.05,
+        help="Mostra statistiche solo su partite con model_confidence >= soglia.",
+    )
+    completed_view = [
+        r for r in completed
+        if float(getattr(r, "model_confidence", 0.0) or 0.0) >= float(min_conf)
+    ]
+    if len(completed_view) < 5:
+        st.info("Con il filtro confidenza attuale servono almeno 5 partite.")
+        st.write(f"Partite filtrate: **{len(completed_view)}** / {len(completed)}")
+        return
+
     # Calcola statistiche
-    stats = PerformanceStats.compute_all_stats(completed)
-    stats_trusted = PerformanceStats.compute_all_stats(completed, trusted_only_quotes=True)
-    trusted_n = len(PerformanceStats.filter_records_by_quote_quality(completed, trusted_only=True))
-    st.caption(f"Record con quote trusted: **{trusted_n}/{len(completed)}**")
+    stats = PerformanceStats.compute_all_stats(completed_view)
+    stats_trusted = PerformanceStats.compute_all_stats(completed_view, trusted_only_quotes=True)
+    trusted_n = len(PerformanceStats.filter_records_by_quote_quality(completed_view, trusted_only=True))
+    st.caption(
+        f"Partite nel report: **{len(completed_view)}** (filtro confidenza ≥ {min_conf:.2f}) · "
+        f"Record con quote trusted: **{trusted_n}/{len(completed_view)}**"
+    )
     # Alert: Brier peggiore sulle ultime partite (solo mercati con volume).
-    recent = PerformanceStats.sort_completed_newest_first(completed)[:50]
+    recent = PerformanceStats.sort_completed_newest_first(completed_view)[:50]
     if len(recent) >= 20:
         recent_stats = PerformanceStats.compute_all_stats(recent)
         valid_recent = [s for s in recent_stats.values() if s.total_predictions >= 8]
@@ -304,13 +324,39 @@ def _render_stats_tab(log: PredictionLog) -> None:
                     f"{worst_recent.market_name} nelle ultime {len(recent)} partite."
                 )
 
-    roll = PerformanceStats.rolling_1x2_metrics(completed, last_n=30)
-    if roll:
-        st.caption(
-            f"Ultime {roll['n']} partite — Brier 1X2: **{roll['brier_1x2']:.4f}** · "
-            f"log-loss: **{roll['log_loss_1x2']:.4f}** · "
-            f"ECE: **{roll['ece_1x2']:.4f}**"
-        )
+    roll_10 = PerformanceStats.rolling_1x2_metrics(completed_view, last_n=10)
+    roll_20 = PerformanceStats.rolling_1x2_metrics(completed_view, last_n=20)
+    roll_30 = PerformanceStats.rolling_1x2_metrics(completed_view, last_n=30)
+    if roll_10 or roll_20 or roll_30:
+        _chunks: list[str] = []
+        for lbl, roll in (("10", roll_10), ("20", roll_20), ("30", roll_30)):
+            if not roll:
+                continue
+            _chunks.append(
+                f"R{lbl}: Brier **{roll['brier_1x2']:.4f}**, "
+                f"LL **{roll['log_loss_1x2']:.4f}**, ECE **{roll['ece_1x2']:.4f}**"
+            )
+        if _chunks:
+            st.caption(" · ".join(_chunks))
+
+    # Learning status (autonomous calibration)
+    try:
+        from src.models.prematch_history_calibration import estimate_calibration_signals
+
+        sig = estimate_calibration_signals(league="")
+        st.subheader("🧠 Learning Status")
+        c_l1, c_l2, c_l3, c_l4 = st.columns(4)
+        with c_l1:
+            st.metric("Campioni usati", int(getattr(sig, "samples", 0) or 0))
+        with c_l2:
+            st.metric("Peso calibrazione", f"{float(getattr(sig, 'weight', 0.0) or 0.0):.3f}")
+        with c_l3:
+            st.metric("Scope", str(getattr(sig, "scope", "global")))
+        with c_l4:
+            _phase = "full" if float(getattr(sig, "weight", 0.0) or 0.0) >= 0.04 else "warmup/off"
+            st.metric("Fase", _phase)
+    except Exception:
+        pass
 
     # Tabella statistiche
     st.subheader("📊 Performance per Mercato")
@@ -382,14 +428,14 @@ def _render_stats_tab(log: PredictionLog) -> None:
     with st.expander("📉 Report per linea O/U e lega (Brier / log-loss)", expanded=False):
         from src.tracking.deep_report import render_deep_report_streamlit
 
-        render_deep_report_streamlit(completed, min_n=3)
+        render_deep_report_streamlit(completed_view, min_n=3)
 
     st.divider()
     st.subheader("Calibrazione 1X2 (multiclasse)")
-    _mb = PerformanceStats.compute_multiclass_brier_1x2(completed)
-    _ll = PerformanceStats.compute_log_loss_1x2(completed)
-    _ece = PerformanceStats.compute_multiclass_ece_1x2(completed)
-    _clv = PerformanceStats.compute_clv_proxy_1x2(completed)
+    _mb = PerformanceStats.compute_multiclass_brier_1x2(completed_view)
+    _ll = PerformanceStats.compute_log_loss_1x2(completed_view)
+    _ece = PerformanceStats.compute_multiclass_ece_1x2(completed_view)
+    _clv = PerformanceStats.compute_clv_proxy_1x2(completed_view)
     c_m1, c_m2, c_m3, c_m4 = st.columns(4)
     with c_m1:
         st.metric(
@@ -402,10 +448,10 @@ def _render_stats_tab(log: PredictionLog) -> None:
             f"{_ll:.4f}" if _ll is not None else "—",
         )
     with c_m3:
-        if roll:
+        if roll_30:
             st.metric(
                 "Rolling 30",
-                f"{roll['brier_1x2']:.4f}",
+                f"{roll_30['brier_1x2']:.4f}",
                 help="Brier 1X2 sulle ultime 30 partite chiuse",
             )
         else:
@@ -419,9 +465,9 @@ def _render_stats_tab(log: PredictionLog) -> None:
     if _clv is not None:
         st.caption(f"CLV proxy 1X2 medio (open→close): **{_clv*100:+.2f}%**")
 
-    _by_l = PerformanceStats.segment_by_league(completed)
-    _by_t = PerformanceStats.segment_by_tot_band(completed)
-    prem, live = PerformanceStats.segment_by_prematch(completed)
+    _by_l = PerformanceStats.segment_by_league(completed_view)
+    _by_t = PerformanceStats.segment_by_tot_band(completed_view)
+    prem, live = PerformanceStats.segment_by_prematch(completed_view)
     with st.expander("Prematch vs live (1X2)", expanded=False):
         rows_pm = []
         if len(prem) >= 3:
