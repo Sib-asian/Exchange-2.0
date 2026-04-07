@@ -1102,6 +1102,18 @@ class TestVsHodds1x2:
         assert parsed["mkt_init_x"] == pytest.approx(4.20)
         assert parsed["mkt_init_2"] == pytest.approx(7.70)
 
+    def test_1x2_sbobet_table_overrides_previous_text_triplet(self):
+        """Se Sbobet è presente e valido in tabella, deve vincere su 1/X/2 trovato altrove."""
+        text = (
+            "Title: Foo FC vs Bar SC Live Score\n"
+            "1 @2.03  X @3.22  2 @3.27\n"
+            "| **Sbobet** | Initial | 0.87 | 0/-0.5 | 1.03 | 2.91 | 3.20 | 2.24 | 0.93 | 2.5 | 0.95 |\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_1"] == pytest.approx(2.91)
+        assert parsed["mkt_init_x"] == pytest.approx(3.20)
+        assert parsed["mkt_init_2"] == pytest.approx(2.24)
+
     def test_1x2_from_vs_hodds(self):
         """Vs_hOdds indices 5,6,7 → mkt_init_1/x/2."""
         text = (
