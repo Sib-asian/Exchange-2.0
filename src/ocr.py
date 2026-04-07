@@ -3763,20 +3763,27 @@ def _extract_all_with_regex(text: str) -> dict:
         _fallback_1x2_from_text = (q1, qx, q2)
 
     # Pattern per tabella markdown Live Odds Analysis (Jina Reader)
-    # Priorita` bookmaker: Sbobet (target utente), poi fallback su altri.
-    if result["mkt_init_1"] == 0:
-        company_priority = ["Sbobet", "Bet365", "188bet"]
-        for company in company_priority:
-            table_odds_pattern = (
-                rf"\|\s*\*?\*?{company}\*?\*?\s*\|\s*Initial\s*\|\s*[\d.]+\s*\|\s*[\d./]+\s*\|"
-                rf"\s*[\d.]+\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|"
-            )
-            table_match = re.search(table_odds_pattern, text, re.IGNORECASE)
-            if table_match:
-                result["mkt_init_1"] = float(table_match.group(1))
-                result["mkt_init_x"] = float(table_match.group(2))
-                result["mkt_init_2"] = float(table_match.group(3))
-                break
+    # Priorita` bookmaker hard: Sbobet (target utente), poi fallback su altri.
+    # Se troviamo una tripletta valida in tabella bookmaker, ha precedenza sulle altre fonti 1X2.
+    _table_triplet: tuple[float, float, float] | None = None
+    company_priority = ["Sbobet", "Bet365", "188bet"]
+    for company in company_priority:
+        table_odds_pattern = (
+            rf"\|\s*\*?\*?{company}\*?\*?\s*\|\s*Initial\s*\|\s*[^|]*\|\s*[^|]*\|\s*[^|]*\|"
+            rf"\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|"
+        )
+        table_match = re.search(table_odds_pattern, text, re.IGNORECASE)
+        if not table_match:
+            continue
+        q1 = float(table_match.group(1))
+        qx = float(table_match.group(2))
+        q2 = float(table_match.group(3))
+        _or3 = (1.0 / q1 + 1.0 / qx + 1.0 / q2) if q1 and qx and q2 else 99.0
+        if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100 and 1.0 <= _or3 <= OCR_QUOTES.MAX_OVERROUND_3WAY:
+            _table_triplet = (q1, qx, q2)
+            break
+    if _table_triplet is not None:
+        result["mkt_init_1"], result["mkt_init_x"], result["mkt_init_2"] = _table_triplet
 
     # Pattern alternativo: cerca 1X2 in riga con "Initial"
     if result["mkt_init_1"] == 0:
