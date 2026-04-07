@@ -1113,17 +1113,28 @@ class TestVsHodds1x2:
         assert parsed["mkt_init_x"] == 4.20
         assert parsed["mkt_init_2"] == 6.00
 
-    def test_1x2_not_overridden_by_vs_hodds(self):
-        """Se le quote 1X2 sono già trovate dal testo, Vs_hOdds non le sovrascrive."""
+    def test_1x2_text_pattern_is_fallback_vs_hodds_preferred(self):
+        """Pattern testuale 1/X/2 resta fallback: se Vs_hOdds è valido, ha priorità."""
         text = (
             "Title: Foo FC vs Bar SC Live Score\n"
             "1 @2.10  X @3.25  2 @3.40\n"
             "Vs_hOdds = [[123, 1, '0.85', '0.5', '1.05', '1.50', '4.20', '6.00', '2.5', '', '0.90', '0.95']];\n"
         )
         parsed = _extract_all_with_regex(text)
-        assert parsed["mkt_init_1"] == 2.10
-        assert parsed["mkt_init_x"] == 3.25
-        assert parsed["mkt_init_2"] == 3.40
+        assert parsed["mkt_init_1"] == 1.50
+        assert parsed["mkt_init_x"] == 4.20
+        assert parsed["mkt_init_2"] == 6.00
+
+    def test_1x2_fallback_rejects_implausible_overround(self):
+        """Fallback testuale non deve entrare nel motore se overround 3-way è irrealistico."""
+        text = (
+            "Title: Foo FC vs Bar SC Live Score\n"
+            "1 @2.10  X @2.20  2 @2.20\n"
+        )
+        parsed = _extract_all_with_regex(text)
+        assert parsed["mkt_init_1"] == 0.0
+        assert parsed["mkt_init_x"] == 0.0
+        assert parsed["mkt_init_2"] == 0.0
 
     def test_btts_gg_ng_from_vs_hodds_extra_columns(self):
         """Vs_hOdds con colonne 12–13 = quote BTTS sì/no (se presenti nell'HTML Nowgoal)."""

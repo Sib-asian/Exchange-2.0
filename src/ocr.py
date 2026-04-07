@@ -3758,15 +3758,9 @@ def _extract_all_with_regex(text: str) -> dict:
         q1 = float(odds_match.group(1).replace(",", "."))
         qx = float(odds_match.group(2).replace(",", "."))
         q2 = float(odds_match.group(3).replace(",", "."))
-        if not _is_live_inplay:
-            # In prematch mantiene la priorita` storica: se il testo dichiara
-            # esplicitamente 1/X/2, non sovrascrivere con fallback da Vs_hOdds.
-            result["mkt_init_1"] = q1
-            result["mkt_init_x"] = qx
-            result["mkt_init_2"] = q2
-        else:
-            # In live tienilo solo come fallback (di norma verra` ignorato).
-            _fallback_1x2_from_text = (q1, qx, q2)
+        # Pattern testuale "1 @ ... X @ ... 2 @ ..." è utile ma meno affidabile dei feed
+        # strutturati (tabella bookmaker / Vs_hOdds / Vs_eOdds): usalo solo come fallback finale.
+        _fallback_1x2_from_text = (q1, qx, q2)
 
     # Pattern per tabella markdown Live Odds Analysis (Jina Reader)
     # Priorita` bookmaker: Sbobet (target utente), poi fallback su altri.
@@ -4015,7 +4009,8 @@ def _extract_all_with_regex(text: str) -> dict:
                         q1 = float(opening_row[5]) if opening_row[5] else 0.0
                         qx = float(opening_row[6]) if opening_row[6] else 0.0
                         q2 = float(opening_row[7]) if opening_row[7] else 0.0
-                        if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100:
+                        _or3 = (1.0 / q1 + 1.0 / qx + 1.0 / q2) if q1 and qx and q2 else 99.0
+                        if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100 and 1.0 <= _or3 <= OCR_QUOTES.MAX_OVERROUND_3WAY:
                             result["mkt_init_1"] = q1
                             result["mkt_init_x"] = qx
                             result["mkt_init_2"] = q2
@@ -4094,7 +4089,7 @@ def _extract_all_with_regex(text: str) -> dict:
                     q2 = float(e_row[4]) if e_row[4] not in (None, "", "0", 0) else 0.0
                     _or3 = (1.0 / q1 + 1.0 / qx + 1.0 / q2) if q1 and qx and q2 else 99.0
                     if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100:
-                        if _or3 <= OCR_QUOTES.MAX_OVERROUND_3WAY:
+                        if 1.0 <= _or3 <= OCR_QUOTES.MAX_OVERROUND_3WAY:
                             result["mkt_init_1"] = q1
                             result["mkt_init_x"] = qx
                             result["mkt_init_2"] = q2
@@ -4106,7 +4101,7 @@ def _extract_all_with_regex(text: str) -> dict:
                         l2 = float(e_row[7]) if e_row[7] not in (None, "", "0", 0) else 0.0
                         _or3_live = (1.0 / l1 + 1.0 / lx + 1.0 / l2) if l1 and lx and l2 else 99.0
                         if 1.01 < l1 < 100 and 1.01 < lx < 100 and 1.01 < l2 < 100:
-                            if _or3_live <= OCR_QUOTES.MAX_OVERROUND_3WAY:
+                            if 1.0 <= _or3_live <= OCR_QUOTES.MAX_OVERROUND_3WAY:
                                 result["mkt_live_1"] = l1
                                 result["mkt_live_x"] = lx
                                 result["mkt_live_2"] = l2
@@ -4117,7 +4112,8 @@ def _extract_all_with_regex(text: str) -> dict:
     # (tabella Initial / Vs_hOdds / Vs_eOdds) non hanno popolato i campi.
     if (not _is_live_inplay) and result["mkt_init_1"] <= 1.0 and _fallback_1x2_from_text is not None:
         q1, qx, q2 = _fallback_1x2_from_text
-        if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100:
+        _or3_fb = (1.0 / q1 + 1.0 / qx + 1.0 / q2) if q1 and qx and q2 else 99.0
+        if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100 and 1.0 <= _or3_fb <= OCR_QUOTES.MAX_OVERROUND_3WAY:
             result["mkt_init_1"] = q1
             result["mkt_init_x"] = qx
             result["mkt_init_2"] = q2
