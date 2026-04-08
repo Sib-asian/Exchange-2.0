@@ -206,6 +206,33 @@ class TestEngineOutput:
         r = analizza(stato_prematch)
         assert r.momentum == 0.0
 
+    def test_market_divergence_zero_without_ocr(self, stato_prematch):
+        """Senza quote OCR, market_divergence deve restare 0.0 (nessun dato mercato)."""
+        r = analizza(stato_prematch)
+        assert r.market_divergence == 0.0
+
+    def test_market_divergence_nonzero_with_ocr_quotes(self):
+        """Con quote OCR disponibili, market_divergence deve essere calcolata (> 0)."""
+        state = MatchState(
+            minuto=0,
+            gol_casa=0, gol_trasf=0,
+            rossi_casa=0, rossi_trasf=0,
+            ah_op=-1.5, tot_op=3.0,
+            ah_cur=-1.5, tot_cur=3.0,
+            linea_ou=2.5,
+            # Quote OCR che implicano una partita molto diversa dal modello
+            ocr_quota_1=1.50, ocr_quota_x=4.0, ocr_quota_2=6.0,
+            ocr_quota_over=1.90, ocr_quota_under=1.90,
+        )
+        r = analizza(state)
+        # La divergenza è sempre ≥ 0 e dovrebbe essere positiva con quote presenti
+        assert r.market_divergence >= 0.0
+        # Non è necessariamente > 0 se le quote sono perfettamente allineate,
+        # ma con questi input il modello e le quote divergono sicuramente.
+        assert r.market_divergence > 0.0, (
+            f"market_divergence dovrebbe essere > 0 con quote OCR: {r.market_divergence}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Test ExchangeQuotes
