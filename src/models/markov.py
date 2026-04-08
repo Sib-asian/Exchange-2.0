@@ -102,16 +102,16 @@ def markov_score_distribution(
             p_h_raw = min(0.20, lh * dt)
             p_a_raw = min(0.20, la * dt)
 
-            # Correzione DC per punteggi bassi: riduce la probabilità
-            # di gol simultanei quando i gol RIMANENTI sono bassi (gh,ga ∈ {0,1}).
-            # FIX: usa gol rimanenti (gh, ga), non il totale cumulato (gol_h+gh+gol_a+ga),
-            # coerente con la tau-correction DC che si applica a i,j ∈ {0,1}.
+            # Correzione DC per punteggi bassi: quando rho_dc < 0 (correlazione
+            # negativa) i punteggi bassi (0-0) sono PIÙ probabili rispetto alla Poisson
+            # indipendente, e 1-1 è MENO probabile.
+            # In termini di Markov: a stati (gh,ga) bassi riduco la probabilità di
+            # segnare (→ più prob di restare a 0-0), coerente con la tau-correction DC.
             if gh <= 1 and ga <= 1:
-                # Applica correzione DC: rho_dc < 0 → meno prob simultanea
-                # Redistribuisce la riduzione del joint verso i gol singoli.
+                # rho_dc < 0 → dc_corr_low < 1 → (1 - dc_corr_low) > 0 → riduco marginals.
                 joint_reduction = p_h_raw * p_a_raw * (1.0 - dc_corr_low)
-                p_h_raw = min(0.20, p_h_raw + joint_reduction * 0.5)
-                p_a_raw = min(0.20, p_a_raw + joint_reduction * 0.5)
+                p_h_raw = max(0.0, p_h_raw - joint_reduction * 0.5)
+                p_a_raw = max(0.0, p_a_raw - joint_reduction * 0.5)
 
             p_h = p_h_raw
             p_a = p_a_raw

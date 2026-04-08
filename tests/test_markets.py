@@ -125,6 +125,43 @@ class TestAsianHandicap:
         r = results[0]
         assert r["p_eff"] > 0.70, f"Casa forte ma AH -0.5 p_eff bassa: {r['p_eff']}"
 
+    def test_quarter_line_split_logic(self):
+        """AH -0.75 deve essere la media di -0.5 e -1.0 (split 50/50)."""
+        _, full, _ = build_bivariate_matrix(1.5, 1.0, 0, 2.5)
+        r_half = calcola_asian_handicap(full, [-0.5])
+        r_whole = calcola_asian_handicap(full, [-1.0])
+        r_quarter = calcola_asian_handicap(full, [-0.75])
+        expected_eff = 0.5 * r_half[0]["p_eff"] + 0.5 * r_whole[0]["p_eff"]
+        assert abs(r_quarter[0]["p_eff"] - expected_eff) < 1e-9, (
+            f"AH -0.75 p_eff={r_quarter[0]['p_eff']:.6f} ≠ avg(-0.5, -1.0)={expected_eff:.6f}"
+        )
+
+    def test_quarter_line_sum_to_one(self):
+        """P(win)+P(push)+P(lose)=1 anche per quarter line."""
+        _, full, _ = build_bivariate_matrix(1.5, 1.0, 0, 2.5)
+        results = calcola_asian_handicap(full, [-0.75, -0.25, 0.25, 0.75])
+        for r in results:
+            total = r["p_win"] + r["p_push"] + r["p_lose"]
+            assert abs(total - 1.0) < 1e-9, f"AH {r['level']}: sum={total}"
+
+    def test_quarter_line_win_by_1_is_half_win(self):
+        """Con AH -0.75, vincere di 1 gol deve dare 50% win + 50% push."""
+        # Matrice deterministica: casa vince sempre 1-0
+        full = {(1, 0): 1.0}
+        r = calcola_asian_handicap(full, [-0.75])[0]
+        # Su -0.5: diff=0.5 → win. Su -1.0: diff=0 → push.
+        # Split: 50% win + 50% push → p_eff = 0.5 + 0.5*0.5 = 0.75
+        assert abs(r["p_win"] - 0.5) < 1e-9, f"p_win={r['p_win']}, expected 0.5"
+        assert abs(r["p_push"] - 0.5) < 1e-9, f"p_push={r['p_push']}, expected 0.5"
+        assert abs(r["p_eff"] - 0.75) < 1e-9, f"p_eff={r['p_eff']}, expected 0.75"
+
+    def test_half_line_unchanged(self):
+        """Le mezze linee non devono cambiare comportamento dopo il fix."""
+        _, full, _ = build_bivariate_matrix(1.5, 1.0, 0, 2.5)
+        r = calcola_asian_handicap(full, [-0.5])[0]
+        # Nessun push su mezza linea
+        assert r["p_push"] == 0.0, f"Half-line -0.5 ha push={r['p_push']}"
+
 
 # ---------------------------------------------------------------------------
 # BTTS

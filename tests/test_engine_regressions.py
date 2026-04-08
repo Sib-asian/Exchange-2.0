@@ -1,6 +1,7 @@
 """Regression tests for prematch consistency edge-cases."""
 
 from src.engine import MatchState, analizza
+from src.models.markov import markov_score_distribution
 
 
 def _base_state(**kwargs) -> MatchState:
@@ -159,3 +160,22 @@ def test_engine_new_premarket_fields_reach_calibration(monkeypatch) -> None:
     assert captured["extraction_coverage"] == 0.82
     assert captured["line_movement_ah_raw"] == -0.50
     assert captured["line_movement_total_raw"] == 0.25
+
+
+def test_markov_dc_negative_rho_increases_0_0() -> None:
+    """
+    Con rho_dc < 0, la correzione DC deve AUMENTARE P(0,0) rispetto a rho_dc=0.
+
+    rho_dc negativo = correlazione negativa tra gol casa e trasferta →
+    lo 0-0 è più probabile della Poisson indipendente.
+    """
+    dist_no_dc = markov_score_distribution(1.2, 1.0, 0, 0, 0, rho_dc=0.0)
+    dist_neg_dc = markov_score_distribution(1.2, 1.0, 0, 0, 0, rho_dc=-0.13)
+
+    p00_no_dc = dist_no_dc.get((0, 0), 0.0)
+    p00_neg_dc = dist_neg_dc.get((0, 0), 0.0)
+
+    assert p00_neg_dc > p00_no_dc, (
+        f"rho_dc=-0.13 should increase P(0,0): "
+        f"P(0,0|rho=0)={p00_no_dc:.6f} vs P(0,0|rho=-0.13)={p00_neg_dc:.6f}"
+    )

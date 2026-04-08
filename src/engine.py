@@ -459,6 +459,7 @@ def analizza(
         calibrate_probabilities,
         compute_consensus,
         compute_model_credible_intervals,
+        compute_model_market_divergence,
         per_model_market_probs,
     )
     from src.models.ensemble_adaptive import blend_consensus_weights_with_history
@@ -1113,6 +1114,25 @@ def analizza(
     from src.config import MOMENTUM as _MOM
     market_shock = (state.minuto > 0 and momentum >= _MOM.MOMENTUM_SHOCK_THRESHOLD)
 
+    # 14. Divergenza modello-mercato (proxy Brier) dalle quote OCR.
+    # Confronta le probabilità del modello con quelle implicite nelle quote bookmaker.
+    # Se le quote non sono disponibili, la divergenza resta 0.0 (nessuna penalità).
+    _market_probs: dict[str, float] = {}
+    if state.ocr_quota_1 > 1.0 and state.ocr_quota_x > 1.0 and state.ocr_quota_2 > 1.0:
+        _sum_inv = 1.0 / state.ocr_quota_1 + 1.0 / state.ocr_quota_x + 1.0 / state.ocr_quota_2
+        _market_probs["p1"] = (1.0 / state.ocr_quota_1) / _sum_inv
+        _market_probs["px"] = (1.0 / state.ocr_quota_x) / _sum_inv
+        _market_probs["p2"] = (1.0 / state.ocr_quota_2) / _sum_inv
+    if state.ocr_quota_over > 1.0 and state.ocr_quota_under > 1.0:
+        _sum_inv_ou = 1.0 / state.ocr_quota_over + 1.0 / state.ocr_quota_under
+        _market_probs["p_over"] = (1.0 / state.ocr_quota_over) / _sum_inv_ou
+        _market_probs["p_under"] = (1.0 / state.ocr_quota_under) / _sum_inv_ou
+    _model_probs_for_div: dict[str, float] = {
+        "p1": p1, "px": px, "p2": p2,
+        "p_over": p_over, "p_under": p_under,
+    }
+    _market_divergence = compute_model_market_divergence(_model_probs_for_div, _market_probs)
+
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,
         p_under=p_under, p_over=p_over,
@@ -1141,6 +1161,7 @@ def analizza(
         delta_ah=delta_ah,
         delta_tot=delta_tot,
         lines_need_update=lines_need_update,
+        market_divergence=_market_divergence,
         market_shock=market_shock,
         consensus_w_bp=_w_bp,
         consensus_w_cop=_w_cop,
