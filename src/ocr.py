@@ -2725,8 +2725,8 @@ def convert_nowgoal_line_to_software(line_str: str | float, invert_sign: bool = 
     Examples:
         >>> convert_nowgoal_line_to_software("0.5")      # Casa favorita su Nowgoal
         -0.5                                            # Software: casa favorita = negativo
-        >>> convert_nowgoal_line_to_software("-0.5/1")   # Quarter line
-        0.75                                            # Media di -0.5 e 1, poi segno invertito
+        >>> convert_nowgoal_line_to_software("-0.5/1")   # Quarter line negativa
+        0.75                                            # -0.5 e -1 → media -0.75, poi segno invertito
         >>> convert_nowgoal_line_to_software("0.5/1", invert_sign=False)  # Total line
         0.75
     """
@@ -2743,11 +2743,18 @@ def convert_nowgoal_line_to_software(line_str: str | float, invert_sign: bool = 
 
     try:
         # Quarter line: "-0.5/1" o "0.5/1"
+        # FIX: In Nowgoal "-0.5/1" significa tra -0.5 e -1.0 (handicap -0.75).
+        # Il segno negativo del primo valore si propaga al secondo quando
+        # il secondo è un intero positivo (il "/" è un separatore di range).
         if '/' in line_str:
             parts = line_str.split('/')
             if len(parts) == 2:
                 val1 = float(parts[0])
                 val2 = float(parts[1])
+                # Propaga segno: "-0.5/1" → val2 diventa -1.0
+                # In Nowgoal il segno negativo si applica all'intero range.
+                if val1 < 0 and val2 > 0:
+                    val2 = -val2
                 nowgoal_value = (val1 + val2) / 2.0
             else:
                 # Formato inatteso, prova a parsare come singolo valore
@@ -3191,15 +3198,17 @@ def _parse_htft_matrix_from_text(text: str) -> dict[str, int]:
             _apply_row(key, match)
 
     if sum(out.values()) == 0:
+        # FIX: Le chiavi devono riflettere il significato di "HT result / FT result".
+        # W/D = HT Win, FT Draw → htw_ftd (NON htd_ftw come era prima).
         ww_patterns = {
             "htw_ftw": r"(?:^|\n)\s*\|?\s*W/W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
-            "htd_ftw": r"(?:^|\n)\s*\|?\s*W/D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
-            "htl_ftw": r"(?:^|\n)\s*\|?\s*W/L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
-            "htw_ftd": r"(?:^|\n)\s*\|?\s*D/W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htw_ftd": r"(?:^|\n)\s*\|?\s*W/D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htw_ftl": r"(?:^|\n)\s*\|?\s*W/L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htd_ftw": r"(?:^|\n)\s*\|?\s*D/W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
             "htd_ftd": r"(?:^|\n)\s*\|?\s*D/D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
-            "htl_ftd": r"(?:^|\n)\s*\|?\s*D/L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
-            "htw_ftl": r"(?:^|\n)\s*\|?\s*L/W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
-            "htd_ftl": r"(?:^|\n)\s*\|?\s*L/D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htd_ftl": r"(?:^|\n)\s*\|?\s*D/L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htl_ftw": r"(?:^|\n)\s*\|?\s*L/W\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
+            "htl_ftd": r"(?:^|\n)\s*\|?\s*L/D\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
             "htl_ftl": r"(?:^|\n)\s*\|?\s*L/L\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)",
         }
         for key, pattern in ww_patterns.items():
@@ -3885,13 +3894,16 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["scoring_streak_h"] = sc
                 result["clean_sheet_streak_h"] = cs
 
-            # Calcola trend forma (prime 5 vs ultime 5)
+            # Calcola trend forma (recenti vs vecchie).
+            # FIX: h_data di Nowgoal è reverse-cronologico (recenti prima).
+            # [:5] = 5 partite più recenti, [-5:] = 5 più vecchie.
+            # Trend positivo = miglioramento → (recenti - vecchie).
             if len(home_results) >= 10:
-                first5 = home_results[:5]
-                last5 = home_results[-5:]
-                first5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in first5)
-                last5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in last5)
-                result["home_form_trend"] = (last5_pts - first5_pts) / 15.0  # Normalizzato [-1, 1]
+                recent5 = home_results[:5]
+                older5 = home_results[-5:]
+                recent5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in recent5)
+                older5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in older5)
+                result["home_form_trend"] = (recent5_pts - older5_pts) / 15.0  # Normalizzato [-1, 1]
 
             # Calcola xG da partite recenti
             if home_results:
@@ -3927,11 +3939,11 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["clean_sheet_streak_a"] = cs
 
             if len(away_results) >= 10:
-                first5 = away_results[:5]
-                last5 = away_results[-5:]
-                first5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in first5)
-                last5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in last5)
-                result["away_form_trend"] = (last5_pts - first5_pts) / 15.0
+                recent5 = away_results[:5]
+                older5 = away_results[-5:]
+                recent5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in recent5)
+                older5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in older5)
+                result["away_form_trend"] = (recent5_pts - older5_pts) / 15.0
 
             if away_results:
                 avg_gf = sum(gf for gf, gs in away_results) / len(away_results)

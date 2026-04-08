@@ -38,6 +38,7 @@ from src.ocr import (
     _safe_float,
     _safe_int,
     _teams_name_match,
+    convert_nowgoal_line_to_software,
     extract_from_base64,
     extract_from_bytes,
     extract_from_image_file,
@@ -1338,6 +1339,99 @@ class TestExtractLivePageHtft:
         full = _extract_all_with_regex(md)
         assert full["htft_home_htw_ftw"] == 2
         assert full["htft_away_htl_ftl"] == 4
+
+    def test_ww_off_diagonal_mapping_correct(self):
+        """W/D = HT Win, FT Draw → htw_ftd, NOT htd_ftw (regression test)."""
+        md = """
+## Half Time / Full Time
+| W/W | 0 | 0 | 0 | 0 |
+| W/D | 5 | 0 | 0 | 3 |
+| W/L | 0 | 0 | 0 | 0 |
+| D/W | 7 | 0 | 0 | 2 |
+| D/D | 0 | 0 | 0 | 0 |
+| D/L | 0 | 0 | 0 | 0 |
+| L/W | 9 | 0 | 0 | 1 |
+| L/D | 0 | 0 | 0 | 0 |
+| L/L | 0 | 0 | 0 | 0 |
+"""
+        r = _extract_live_page_data(md)
+        # W/D = HT Win, FT Draw → htw_ftd
+        assert r["htft_home_htw_ftd"] == 5
+        assert r["htft_away_htw_ftd"] == 3
+        # D/W = HT Draw, FT Win → htd_ftw
+        assert r["htft_home_htd_ftw"] == 7
+        assert r["htft_away_htd_ftw"] == 2
+        # L/W = HT Lose, FT Win → htl_ftw
+        assert r["htft_home_htl_ftw"] == 9
+        assert r["htft_away_htl_ftw"] == 1
+        # Verify the OLD (wrong) keys are NOT populated with W/D data
+        assert r["htft_home_htd_ftw"] != 5  # htd_ftw should be 7 (D/W), not 5 (W/D)
+
+
+class TestConvertNowgoalLine:
+    """Conversione linee Nowgoal → formato software."""
+
+    def test_positive_quarter_line(self):
+        assert convert_nowgoal_line_to_software("0.5/1", invert_sign=False) == 0.75
+
+    def test_negative_quarter_line_propagates_sign(self):
+        """"-0.5/1" means between -0.5 and -1 → -0.75, inverted → 0.75."""
+        assert convert_nowgoal_line_to_software("-0.5/1") == 0.75
+
+    def test_negative_quarter_line_no_invert(self):
+        assert convert_nowgoal_line_to_software("-0.5/1", invert_sign=False) == -0.75
+
+    def test_simple_positive_inverted(self):
+        assert convert_nowgoal_line_to_software("0.5") == -0.5
+
+    def test_simple_negative_inverted(self):
+        assert convert_nowgoal_line_to_software("-0.5") == 0.5
+
+    def test_zero_line(self):
+        assert convert_nowgoal_line_to_software("0") == 0.0
+
+    def test_positive_quarter_line_inverted(self):
+        # "0/0.5" → 0.25, inverted → -0.25
+        assert convert_nowgoal_line_to_software("0/0.5") == -0.25
+
+    def test_negative_integer_quarter_line(self):
+        # "-1/1.5" → both negative: -1 and -1.5 → average -1.25, inverted → 1.25
+        assert convert_nowgoal_line_to_software("-1/1.5") == pytest.approx(1.25)
+
+    def test_both_negative_explicit(self):
+        # "-0.5/-1" → average -0.75, inverted → 0.75
+        assert convert_nowgoal_line_to_software("-0.5/-1") == 0.75
+
+    def test_numeric_input(self):
+        assert convert_nowgoal_line_to_software(0.5) == -0.5
+        assert convert_nowgoal_line_to_software(-0.75, invert_sign=False) == -0.75
+
+
+class TestFormTrendDirection:
+    """form_trend positivo = miglioramento (recenti meglio delle vecchie)."""
+
+    def test_improving_form_positive_trend(self):
+        """Squadra che migliora: ultime partite meglio delle prime → trend positivo."""
+        # h_data reverse-cronologico: [:5] = recenti, [-5:] = vecchie
+        # Recenti: 5 vittorie (15 punti). Vecchie: 5 sconfitte (0 punti).
+        results = [(2, 0)] * 5 + [(0, 0)] * 5 + [(0, 2)] * 5  # 15 partite
+        # [:5] = 5 vittorie (15 pts), [-5:] = 5 sconfitte (0 pts)
+        recent5 = results[:5]
+        older5 = results[-5:]
+        recent5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in recent5)
+        older5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in older5)
+        trend = (recent5_pts - older5_pts) / 15.0
+        assert trend > 0, f"Improving form should give positive trend, got {trend}"
+
+    def test_declining_form_negative_trend(self):
+        """Squadra in calo: ultime partite peggio delle prime → trend negativo."""
+        results = [(0, 2)] * 5 + [(0, 0)] * 5 + [(2, 0)] * 5
+        recent5 = results[:5]
+        older5 = results[-5:]
+        recent5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in recent5)
+        older5_pts = sum(3 if gf > gs else (1 if gf == gs else 0) for gf, gs in older5)
+        trend = (recent5_pts - older5_pts) / 15.0
+        assert trend < 0, f"Declining form should give negative trend, got {trend}"
 
 
 class TestMergeInjuryPlayerLists:
