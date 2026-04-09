@@ -59,6 +59,54 @@ def run_analysis_pipeline(
             p_under_15=u15 if u15 is not None else risultati.p_under_15,
         )
 
+    # Upgrade 2: Calibrazione cross-validated (Platt scaling) dal prediction_log.
+    # Corregge bias sistematici del modello usando la curva di calibrazione storica.
+    if state.minuto == 0:
+        try:
+            from src.models.calibration_curve import build_calibration_maps, apply_calibration
+            _cal_maps = build_calibration_maps()
+            if _cal_maps:
+                _cp1, _cpx, _cp2, _cpo, _cpu, _cpb = apply_calibration(
+                    risultati.p1, risultati.px, risultati.p2,
+                    risultati.p_over, risultati.p_under, risultati.p_btts,
+                    _cal_maps,
+                )
+                risultati = replace(
+                    risultati, p1=_cp1, px=_cpx, p2=_cp2,
+                    p_over=_cpo, p_under=_cpu, p_btts=_cpb,
+                )
+        except Exception:
+            pass  # Calibration is best-effort; don't break pipeline
+
+    # Upgrade 6: Parametri appresi dallo storico (draw shrinkage).
+    # Se il prediction_log ha abbastanza dati, usa i parametri ottimizzati.
+    # Nota: il draw shrinkage è già applicato in engine.py; qui applichiamo
+    # una micro-correzione se il parametro appreso differisce dal default.
+    if state.minuto == 0:
+        try:
+            from src.models.parameter_learning import learn_draw_shrinkage
+            _learned_ds = learn_draw_shrinkage()
+            if _learned_ds is not None and abs(_learned_ds - 0.97) > 0.005:
+                # Applica la differenza come micro-correzione
+                _ds_delta = _learned_ds - 0.97  # positivo = meno shrinkage
+                _px_adj = risultati.px * (1.0 + _ds_delta)
+                _surplus = risultati.px - _px_adj
+                _p1p2 = risultati.p1 + risultati.p2
+                if _p1p2 > 1e-9:
+                    _p1_adj = risultati.p1 + _surplus * (risultati.p1 / _p1p2)
+                    _p2_adj = risultati.p2 + _surplus * (risultati.p2 / _p1p2)
+                else:
+                    _p1_adj = risultati.p1 + _surplus * 0.5
+                    _p2_adj = risultati.p2 + _surplus * 0.5
+                _s = _p1_adj + _px_adj + _p2_adj
+                if _s > 0:
+                    risultati = replace(
+                        risultati,
+                        p1=_p1_adj / _s, px=_px_adj / _s, p2=_p2_adj / _s,
+                    )
+        except Exception:
+            pass  # Parameter learning is best-effort
+
     q1, qx, q2, qo, qu, qb, qo15, qu15 = shrink_outcome_probs(
         risultati.p1,
         risultati.px,
