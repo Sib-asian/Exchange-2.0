@@ -12,7 +12,6 @@ L'effetto è leggero e conservativo per evitare overreaction a varianza normale.
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # Costanti
 # ---------------------------------------------------------------------------

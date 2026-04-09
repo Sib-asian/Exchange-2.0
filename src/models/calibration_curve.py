@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import math
 
-
 # ---------------------------------------------------------------------------
 # Costanti
 # ---------------------------------------------------------------------------
@@ -54,7 +53,7 @@ def _fit_platt_params(
         return None
 
     # Filtra predizioni degeneri
-    valid = [(p, o) for p, o in zip(predictions, outcomes) if 0.01 < p < 0.99]
+    valid = [(p, o) for p, o in zip(predictions, outcomes, strict=True) if 0.01 < p < 0.99]
     if len(valid) < MIN_RECORDS_FOR_CALIBRATION:
         return None
 
@@ -85,7 +84,7 @@ def _log_loss(
 ) -> float:
     """Log-loss con parametri Platt (a, b)."""
     total = 0.0
-    for p, o in zip(predictions, outcomes):
+    for p, o in zip(predictions, outcomes, strict=True):
         p_cal = _apply_platt(p, a, b)
         p_cal = max(1e-9, min(1.0 - 1e-9, p_cal))
         total -= o * math.log(p_cal) + (1.0 - o) * math.log(1.0 - p_cal)

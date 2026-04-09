@@ -593,7 +593,7 @@ def analizza(
         # 2c-bis. Strength model blend (Upgrade 3) — xG indipendente dal mercato.
         # Usa solo dati storici (gol segnati/subiti, casa/trasferta, forma)
         # per rompere la dipendenza circolare xG←mercato.
-        from src.models.strength_model import compute_strength_xg, blend_strength_with_market
+        from src.models.strength_model import blend_strength_with_market, compute_strength_xg
         _strength_xg = compute_strength_xg(
             state.prev_avg_scored_h, state.prev_avg_conceded_h,
             state.prev_avg_scored_a, state.prev_avg_conceded_a,

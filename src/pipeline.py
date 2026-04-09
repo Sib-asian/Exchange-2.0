@@ -63,7 +63,7 @@ def run_analysis_pipeline(
     # Corregge bias sistematici del modello usando la curva di calibrazione storica.
     if state.minuto == 0:
         try:
-            from src.models.calibration_curve import build_calibration_maps, apply_calibration
+            from src.models.calibration_curve import apply_calibration, build_calibration_maps
             _cal_maps = build_calibration_maps()
             if _cal_maps:
                 _cp1, _cpx, _cp2, _cpo, _cpu, _cpb = apply_calibration(
