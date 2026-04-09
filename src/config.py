@@ -654,6 +654,10 @@ class CopulaConfig:
     THETA_TOT_REF: float = 2.5
     # Riduzione θ per tempo avanzato
     THETA_TIME_SCALE: float = -0.20
+    # θ risponde al dominio tiri (partite sbilanciate → leggera coda congiunta)
+    THETA_SHOT_DOM_SCALE: float = 0.32
+    THETA_SHOT_DOM_TIME_DAMP: float = 0.35  # early game: meno peso al shot_dom
+    THETA_MAX: float = 3.45
 
     # Soglie numeriche per stabilità della copula Frank
     # Se |θ| < THETA_NEAR_ZERO, la copula degenera in indipendenza (C(u,v) = u*v)
@@ -672,6 +676,11 @@ class HawkesConfig:
     MAX_BOOST: float = 0.03
     # Tasso gol di riferimento (top-5 leagues: ~2.7/90')
     RATE_REF_PER_90: float = 2.7
+    # Prior sulla media gol/90′ (Gamma–Poisson): λ_post = (k + λ_ref·w) / (u + w), u=minuto/90
+    BAYES_PRIOR_GAMES: float = 0.32
+    # Squadre con molti gol tardi (profilo “volatile”) → Hawkes meno aggressivo
+    LATE_GOALS_HAWKES_THRESHOLD: float = 36.0
+    LATE_GOALS_HAWKES_DAMP: float = 0.38  # riduzione max su ALPHA efficace
 
     # Minuto minimo per attivare Hawkes boost
     # Sotto questo minuto il campione è troppo piccolo (rumore).
@@ -738,6 +747,12 @@ class ConsensusConfig:
     DRAW_SHRINKAGE_TOT_REF: float = 2.5       # totale di riferimento
     DRAW_SHRINKAGE_MIN_FACTOR: float = 0.010  # min: shrinkage=0.990 (tot basso)
     DRAW_SHRINKAGE_MAX_FACTOR: float = 0.055  # max: shrinkage=0.945 (tot alto)
+    # Spread 1X2 tra i 3 modelli (prima dell’isotonica): basso accordo → draw shrinkage più forte
+    AGREEMENT_1X2_SPREAD_SCALE: float = 4.5
+    DRAW_AGREEMENT_SHRINK_BONUS: float = 0.042
+    DRAW_SHRINKAGE_ABS_FLOOR: float = 0.882
+    # Uncertainty shrink: tirare il pareggio verso 1/3 più dei risultati se accordo basso
+    DRAW_UNCERTAINTY_EXTRA: float = 0.032
 
     # Logistic sharpening: α > 1 rende le probabilità estreme più estreme
     # calibrate su dati Poisson vs reali: modello sottostima certezza agli estremi
@@ -951,6 +966,9 @@ class FormAnalysisConfig:
 
     # Penalità per squadra "senza obiettivi" (posizione centrale in classifica)
     NO_STAKES_PENALTY: float = -0.02            # -2% xG per squadra senza motivazione
+    # Retrocessione + distacco PPG netto rispetto all’avversario → urgenza tattica extra
+    RELEGATION_PPG_GAP_THRESHOLD: float = 0.28
+    RELEGATION_UNDERDOG_BONUS: float = 0.018
 
     # === LAST 6 GAMES (Forma recente specifica) ===
     # Dalle ultime 6 partite, calcoliamo punti, gol fatti, gol subiti.

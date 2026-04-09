@@ -196,6 +196,24 @@ def per_model_market_probs(
     }
 
 
+def agreement_1x2_from_per_raw(per_raw: dict[str, dict[str, float]]) -> float:
+    """
+    Accordo [0,1] tra i tre modelli sul 1X2, dalla media degli spread (max-min) su p1/px/p2.
+    Usato prima della calibrazione isotonica per modulare il draw shrinkage.
+    """
+    spreads: list[float] = []
+    for key in ("p1", "px", "p2"):
+        v = [
+            per_raw["bp"][key],
+            per_raw["copula"][key],
+            per_raw["markov"][key],
+        ]
+        spreads.append(max(v) - min(v))
+    mean_sp = sum(spreads) / 3.0
+    scale = CONSENSUS.AGREEMENT_1X2_SPREAD_SCALE
+    return max(0.0, min(1.0, 1.0 - mean_sp * scale))
+
+
 # ---------------------------------------------------------------------------
 # Intervalli di credibilità (basati sullo spread tra modelli)
 # ---------------------------------------------------------------------------

@@ -466,6 +466,7 @@ def analizza(
     from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
     from src.models.consensus import (
         _logistic_sharpen,
+        agreement_1x2_from_per_raw,
         calibrate_probabilities,
         compute_consensus,
         compute_model_credible_intervals,
@@ -649,6 +650,19 @@ def analizza(
                 if _mid_start <= state.standings_rank_a <= _mid_end:
                     _motivation_mult_a += FORM_ANALYSIS.NO_STAKES_PENALTY
 
+            # Retrocessione + netto svantaggio PPG: urgenza oltre il semplice bonus zona
+            _ph = state.standings_played_h
+            _pa = state.standings_played_a
+            if _ph > 0 and _pa > 0:
+                _pph = state.standings_points_h / _ph
+                _ppa = state.standings_points_a / _pa
+                _gap = _pph - _ppa
+                _rel_z = state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE
+                if state.standings_rank_h > _rel_z and _gap < -FORM_ANALYSIS.RELEGATION_PPG_GAP_THRESHOLD:
+                    _motivation_mult_h += FORM_ANALYSIS.RELEGATION_UNDERDOG_BONUS
+                if state.standings_rank_a > _rel_z and _gap > FORM_ANALYSIS.RELEGATION_PPG_GAP_THRESHOLD:
+                    _motivation_mult_a += FORM_ANALYSIS.RELEGATION_UNDERDOG_BONUS
+
         # === 2d.2 LAST 6 GAMES - Forma recente specifica ===
         # Calcola punti per partita (PPG) nelle ultime 6 e applica boost/penalità.
         _last6_mult_h = 1.0
@@ -786,6 +800,8 @@ def analizza(
         gialli_trasf=state.gialli_trasf,
         falli_casa=state.falli_casa,
         falli_trasf=state.falli_trasf,
+        late_goals_pct_h=state.late_goals_pct_h,
+        late_goals_pct_a=state.late_goals_pct_a,
     )
 
     # 4a. Live recalibration (Upgrade 5): correggi xG residui se il modello
@@ -822,9 +838,21 @@ def analizza(
 
     # Parametri per il modello Copula
     frac_giocata = state.minuto / 90.0
-    copula_theta = max(0.1, COPULA.THETA_BASE
-                       + COPULA.THETA_TOT_SCALE * max(0.0, tot_cur_eff - COPULA.THETA_TOT_REF)
-                       + COPULA.THETA_TIME_SCALE * frac_giocata)
+    _theta_shot = (
+        COPULA.THETA_SHOT_DOM_SCALE
+        * shot_dom
+        * (1.0 - COPULA.THETA_SHOT_DOM_TIME_DAMP * frac_giocata)
+    )
+    copula_theta = max(
+        0.1,
+        min(
+            COPULA.THETA_MAX,
+            COPULA.THETA_BASE
+            + COPULA.THETA_TOT_SCALE * max(0.0, tot_cur_eff - COPULA.THETA_TOT_REF)
+            + COPULA.THETA_TIME_SCALE * frac_giocata
+            + _theta_shot,
+        ),
+    )
     nu_dynamic = max(CMP.NU_MIN, min(CMP.NU_MAX,
                                      CMP.NU + CMP.NU_TOT_SCALE * (tot_cur_eff - CMP.NU_TOT_REF)))
 
@@ -946,6 +974,7 @@ def analizza(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
     )
+    _agree_1x2_pre = agreement_1x2_from_per_raw(_per_raw)
     consensus_probs = compute_consensus(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
@@ -984,6 +1013,11 @@ def analizza(
     _draw_factor = CONSENSUS.DRAW_SHRINKAGE_BASE * (tot_cur_eff / CONSENSUS.DRAW_SHRINKAGE_TOT_REF)
     _draw_factor = max(CONSENSUS.DRAW_SHRINKAGE_MIN_FACTOR, min(CONSENSUS.DRAW_SHRINKAGE_MAX_FACTOR, _draw_factor))
     _draw_shrinkage_dyn = 1.0 - _draw_factor
+    _draw_shrinkage_dyn *= 1.0 - CONSENSUS.DRAW_AGREEMENT_SHRINK_BONUS * (1.0 - _agree_1x2_pre)
+    _draw_shrinkage_dyn = max(
+        CONSENSUS.DRAW_SHRINKAGE_ABS_FLOOR,
+        min(1.0, _draw_shrinkage_dyn),
+    )
 
     p1, px, p2, p_over, p_under, p_btts = calibrate_probabilities(
         consensus_probs["p1"], consensus_probs["px"], consensus_probs["p2"],
@@ -1172,7 +1206,9 @@ def analizza(
     # strength_diff alto → pronostico più affidabile.
     if state.minuto == 0 and state.strength_home > 0 and state.strength_away > 0:
         _strength_diff = abs(state.strength_home - state.strength_away) / 100.0
-        _strength_boost = 1.0 + _strength_diff * 0.10  # max +10% boost
+        _cov_sc = max(0.0, min(1.0, state.extraction_coverage))
+        _str_w = 0.10 * (0.72 + 0.38 * (1.0 - _cov_sc))
+        _strength_boost = 1.0 + _strength_diff * _str_w
         model_confidence = min(1.0, model_confidence * _strength_boost)
 
     # L'utente usa sempre le linee di apertura/chiusura manualmente inserite
