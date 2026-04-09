@@ -152,8 +152,12 @@ def rho_dc_dinamico(
     Returns:
         rho_DC in [RHO_DC_MIN, RHO_DC_MAX].
     """
-    # Effetto total: basso total → struttura difensiva → più negativo
-    tot_factor = max(0.0, DC.RHO_DC_TOT_REF - min(tot_cur, DC.RHO_DC_TOT_REF)) / DC.RHO_DC_TOT_REF
+    # Effetto total: basso total → struttura difensiva → più negativo.
+    # Usa sigmoide soft al posto di hard clip: evita discontinuità a tot_cur=TOT_REF
+    # dove il fattore passava da ~0.003 a 0.0 in modo netto.
+    import math as _math
+    tot_ratio = tot_cur / DC.RHO_DC_TOT_REF
+    tot_factor = 1.0 / (1.0 + _math.exp(4.0 * (tot_ratio - 1.0)))
     # Effetto tempo: late game → più negativo
     time_factor = minuto / 90.0
     # Effetto gol: alto punteggio → partita aperta → meno negativo

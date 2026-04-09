@@ -22,7 +22,11 @@ def shrink_outcome_probs(
     p_under_15: float | None = None,
 ) -> tuple[float, float, float, float, float, float, float | None, float | None]:
     """
-    Tira leggermente verso uniforme (1X2) e verso 0.5 (O/U, BTTS).
+    Tira leggermente verso base rate storiche (1X2) e verso 0.5 (O/U, BTTS).
+
+    Prior 1X2: base rate storiche del calcio (~46% casa, ~27% pari, ~27% trasf)
+    invece di uniforme 1/3. Questo riflette il vantaggio casa strutturale e
+    produce uno shrinkage più realistico quando il modello ha bassa confidenza.
 
     `extraction_coverage` e `model_agreement` attesi in [0, 1].
     """
@@ -32,10 +36,12 @@ def shrink_outcome_probs(
     lam_1x2 = max(0.0, 1.0 - strength) * max_mass_pull_1x2
     lam_bi = max(0.0, 1.0 - strength) * max_mass_pull_binary
 
-    u = 1.0 / 3.0
-    q1 = (1.0 - lam_1x2) * p1 + lam_1x2 * u
-    qx = (1.0 - lam_1x2) * px + lam_1x2 * u
-    q2 = (1.0 - lam_1x2) * p2 + lam_1x2 * u
+    # Prior 1X2: base rate storiche (media top-5 leghe europee 2018-2024).
+    # Fonte: Transfermarkt aggregate — H≈46%, D≈27%, A≈27%.
+    prior_h, prior_d, prior_a = 0.46, 0.27, 0.27
+    q1 = (1.0 - lam_1x2) * p1 + lam_1x2 * prior_h
+    qx = (1.0 - lam_1x2) * px + lam_1x2 * prior_d
+    q2 = (1.0 - lam_1x2) * p2 + lam_1x2 * prior_a
     s12 = q1 + qx + q2
     if s12 > 0:
         q1, qx, q2 = q1 / s12, qx / s12, q2 / s12
