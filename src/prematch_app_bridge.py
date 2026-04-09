@@ -274,6 +274,12 @@ def build_match_state_from_prematch_analysis(
     _ts_cor_a = float(getattr(pa, "team_stats_away_corners", 0.0)) if pa else 0.0
     _ts_pos_h = float(getattr(pa, "team_stats_home_possession", 0.0)) if pa else 0.0
     _ts_pos_a = float(getattr(pa, "team_stats_away_possession", 0.0)) if pa else 0.0
+    _ts_yel_h = float(getattr(pa, "team_stats_home_yellows", 0.0)) if pa else 0.0
+    _ts_yel_a = float(getattr(pa, "team_stats_away_yellows", 0.0)) if pa else 0.0
+    _ts_foul_h = float(getattr(pa, "team_stats_home_fouls", 0.0)) if pa else 0.0
+    _ts_foul_a = float(getattr(pa, "team_stats_away_fouls", 0.0)) if pa else 0.0
+    _prev_over_h = float(getattr(pa, "home_prev_over_pct", 0.0)) if pa else 0.0
+    _prev_over_a = float(getattr(pa, "away_prev_over_pct", 0.0)) if pa else 0.0
 
     state = build_match_state(
         match, lines, linea_ou, bankroll, comm_rate,
@@ -347,5 +353,11 @@ def build_match_state_from_prematch_analysis(
         team_stats_away_corners=_ts_cor_a,
         team_stats_home_possession=_ts_pos_h,
         team_stats_away_possession=_ts_pos_a,
+        team_stats_home_yellows=_ts_yel_h,
+        team_stats_away_yellows=_ts_yel_a,
+        team_stats_home_fouls=_ts_foul_h,
+        team_stats_away_fouls=_ts_foul_a,
+        prev_over_pct_h=_prev_over_h,
+        prev_over_pct_a=_prev_over_a,
     )
     return state, _lega, _coverage

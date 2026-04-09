@@ -81,22 +81,13 @@ def markov_score_distribution(
             if prob < 1e-15:
                 continue
 
-            # Score-dependent rates: il punteggio cumulativo (attuali + rimanenti)
-            # influenza le rates. La squadra in svantaggio preme, quella in vantaggio difende.
-            # FIX: Usa SCORE_PRESS_MULTIPLIER per coerenza con time_decay.py
-            diff = (gol_h + gh) - (gol_a + ga)
-            if diff > 0:
-                # Casa in vantaggio → riduce attacco, avversario preme
-                se = min(0.15, abs(diff) * score_effect_rate)
-                lh = base_rate_h * (1.0 - se * SCORE_PRESS_MULTIPLIER)  # difende
-                la = base_rate_a * (1.0 + se * SCORE_PRESS_MULTIPLIER)  # preme
-            elif diff < 0:
-                se = min(0.15, abs(diff) * score_effect_rate)
-                lh = base_rate_h * (1.0 + se * SCORE_PRESS_MULTIPLIER)  # preme
-                la = base_rate_a * (1.0 - se * SCORE_PRESS_MULTIPLIER)  # difende
-            else:
-                lh = base_rate_h
-                la = base_rate_a
+            # Upgrade 4: Score effect rimosso dal Markov per eliminare double-counting.
+            # Il time_decay.py è l'unica sorgente di score effect e già riduce il
+            # residuo tramite market_absorption. Gli xG passati a questa funzione
+            # (mu_h, mu_a) sono già corretti da time_decay.
+            # Il Markov propaga i rate puri, senza duplicare l'aggiustamento tattico.
+            lh = base_rate_h
+            la = base_rate_a
 
             # Probabilità di transizione base (cap per evitare > 1)
             p_h_raw = min(0.20, lh * dt)

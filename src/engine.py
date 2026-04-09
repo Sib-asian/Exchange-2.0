@@ -100,6 +100,16 @@ class MatchState:
     team_stats_home_possession: float = 0.0
     team_stats_away_possession: float = 0.0
 
+    # Team stats prematch aggiuntivi (da Nowgoal, ultimi 10)
+    team_stats_home_yellows: float = 0.0
+    team_stats_away_yellows: float = 0.0
+    team_stats_home_fouls: float = 0.0
+    team_stats_away_fouls: float = 0.0
+
+    # Previous scores Over% per squadra (0-100, da Nowgoal)
+    prev_over_pct_h: float = 0.0
+    prev_over_pct_a: float = 0.0
+
     # Scala di confidenza delle quote OCR (da validatore Gemini). Range [0.70, 1.0].
     # 1.0 = quote verificate concordi col mercato; < 1.0 = quote sospette/anomale.
     ocr_confidence_scale: float = 1.0
@@ -580,6 +590,24 @@ def analizza(
         xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
         xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
 
+        # 2c-bis. Strength model blend (Upgrade 3) — xG indipendente dal mercato.
+        # Usa solo dati storici (gol segnati/subiti, casa/trasferta, forma)
+        # per rompere la dipendenza circolare xG←mercato.
+        from src.models.strength_model import blend_strength_with_market, compute_strength_xg
+        _strength_xg = compute_strength_xg(
+            state.prev_avg_scored_h, state.prev_avg_conceded_h,
+            state.prev_avg_scored_a, state.prev_avg_conceded_a,
+            home_gf_h=state.home_gf_h, home_ga_h=state.home_ga_h,
+            away_gf_a=state.away_gf_a, away_ga_a=state.away_ga_a,
+            last6_gf_h=state.last6_gf_h, last6_ga_h=state.last6_ga_h,
+            last6_gf_a=state.last6_gf_a, last6_ga_a=state.last6_ga_a,
+        )
+        if _strength_xg is not None:
+            xg_h_blend, xg_a_blend = blend_strength_with_market(
+                xg_h_blend, xg_a_blend,
+                _strength_xg[0], _strength_xg[1],
+            )
+
     # 2d. Form Analysis - Standings, Last6, Home/Away Performance (solo prematch).
     # RIDUCE la dipendenza dalle linee manuali utilizzando dati estratti da Nowgoal.
     # Questi aggiustamenti sono applicati DOPO previous scores per non interferire.
@@ -760,15 +788,36 @@ def analizza(
         falli_trasf=state.falli_trasf,
     )
 
+    # 4a. Live recalibration (Upgrade 5): correggi xG residui se il modello
+    # sovra/sotto-stima i gol osservati finora.
+    if state.minuto > 0:
+        from src.models.live_recalibration import compute_live_recalibration_factor
+        _live_recal = compute_live_recalibration_factor(
+            state.tot_op,
+            state.gol_casa + state.gol_trasf,
+            state.minuto,
+        )
+        if _live_recal != 1.0:
+            xg_h_final = max(DECAY.XG_FLOOR, xg_h_final * _live_recal)
+            xg_a_final = max(DECAY.XG_FLOOR, xg_a_final * _live_recal)
+
     # 4b. Stale line detection: se le linee non si sono mosse dopo >15 minuti
     # di partita, il mercato è potenzialmente illiquido o sospeso.
     stale_line = flat_lines and state.minuto >= STALE.THRESHOLD_MINUTES
 
     # 5. Calcola parametri condivisi tra i modelli
     from src.models.poisson import rho_dc_dinamico as _calc_rho_dc
+    # Upgrade 1: In prematch, usa le statistiche gialli/falli da team_stats come proxy.
+    # In live, usa i gialli reali della partita.
+    _gialli_for_rho = state.gialli_casa + state.gialli_trasf
+    if state.minuto == 0 and _gialli_for_rho == 0:
+        # Proxy prematch: media gialli per partita delle due squadre (arrotondato)
+        _prematch_yellows = state.team_stats_home_yellows + state.team_stats_away_yellows
+        if _prematch_yellows > 0:
+            _gialli_for_rho = int(round(_prematch_yellows))
     _rho_dc_shared = _calc_rho_dc(
         tot_cur_eff, state.minuto, state.gol_casa + state.gol_trasf,
-        gialli_totali=state.gialli_casa + state.gialli_trasf,
+        gialli_totali=_gialli_for_rho,
     )
 
     # Parametri per il modello Copula
@@ -1037,6 +1086,27 @@ def analizza(
         _p_over_h2h = state.h2h_over_pct / 100.0
         p_over_25_ref = (1.0 - _alpha_over_h2h) * p_over_25_ref + _alpha_over_h2h * _p_over_h2h
         p_under_25_ref = 1.0 - p_over_25_ref
+
+    # 9e. Previous Scores Over% blend (solo prematch) — Upgrade 1.
+    # Il dato prev_over_pct indica la % di Over nelle ultime 10 partite per squadra.
+    # È un segnale indipendente dall'H2H: cattura la tendenza recente della squadra.
+    if state.minuto == 0:
+        _prev_over_avg = 0.0
+        _prev_over_count = 0
+        if state.prev_over_pct_h > 0:
+            _prev_over_avg += state.prev_over_pct_h / 100.0
+            _prev_over_count += 1
+        if state.prev_over_pct_a > 0:
+            _prev_over_avg += state.prev_over_pct_a / 100.0
+            _prev_over_count += 1
+        if _prev_over_count > 0:
+            _prev_over_avg /= _prev_over_count
+            _alpha_prev_over = 0.08  # conservativo: 8% peso
+            p_over = (1.0 - _alpha_prev_over) * p_over + _alpha_prev_over * _prev_over_avg
+            p_under = 1.0 - p_over
+            if abs(state.linea_ou - 2.5) < 1e-6:
+                p_over_25_ref = (1.0 - _alpha_prev_over) * p_over_25_ref + _alpha_prev_over * _prev_over_avg
+                p_under_25_ref = 1.0 - p_over_25_ref
 
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
     # Fix #2.7: Usa funzione helper per costruire la matrice consensus (pesi dinamici)

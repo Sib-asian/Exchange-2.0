@@ -1031,6 +1031,12 @@ def build_match_state(
     h2h_ht_home_win_pct: float = 0.0,
     h2h_ht_draw_pct: float = 0.0,
     h2h_ht_away_win_pct: float = 0.0,
+    team_stats_home_yellows: float = 0.0,
+    team_stats_away_yellows: float = 0.0,
+    team_stats_home_fouls: float = 0.0,
+    team_stats_away_fouls: float = 0.0,
+    prev_over_pct_h: float = 0.0,
+    prev_over_pct_a: float = 0.0,
 ) -> MatchState:
     """
     Costruisce il MatchState validato dai valori dei widget.
@@ -1152,6 +1158,12 @@ def build_match_state(
         h2h_ht_home_win_pct=h2h_ht_home_win_pct,
         h2h_ht_draw_pct=h2h_ht_draw_pct,
         h2h_ht_away_win_pct=h2h_ht_away_win_pct,
+        team_stats_home_yellows=team_stats_home_yellows,
+        team_stats_away_yellows=team_stats_away_yellows,
+        team_stats_home_fouls=team_stats_home_fouls,
+        team_stats_away_fouls=team_stats_away_fouls,
+        prev_over_pct_h=prev_over_pct_h,
+        prev_over_pct_a=prev_over_pct_a,
         bankroll=bankroll,
         comm_rate=comm_rate,
     )
