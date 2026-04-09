@@ -100,6 +100,29 @@ class TestTimeDecay:
         reduction_away = 1.0 - xg_t_away_red
         assert reduction_away > reduction_home, "Asimmetria rosso in trasferta non applicata"
 
+    def test_bayesian_pace_less_extreme_than_raw_mle(self):
+        """Campione corto: posterior pace più vicina a λ_ref del MLE grezzo."""
+        from src.config import HAWKES
+
+        minuto = 18
+        gol_tot = 2
+        u = minuto / 90.0
+        w = HAWKES.BAYES_PRIOR_GAMES
+        lam_ref = HAWKES.RATE_REF_PER_90
+        pace_post = (gol_tot + lam_ref * w) / (u + w)
+        raw_90 = gol_tot / minuto * 90.0
+        assert abs(pace_post - lam_ref) < abs(raw_90 - lam_ref)
+
+    def test_late_goals_profile_dampens_hawkes_boost(self):
+        """Profilo gol tardi alto → boost Hawkes non supera il caso neutro (stessi gol/minuto)."""
+        xg_lo, _ = time_decay_dinamico(
+            1.0, 1.0, 22, 1, 1, 0, 0, late_goals_pct_h=48.0, late_goals_pct_a=5.0
+        )
+        xg_hi, _ = time_decay_dinamico(
+            1.0, 1.0, 22, 1, 1, 0, 0, late_goals_pct_h=5.0, late_goals_pct_a=5.0
+        )
+        assert xg_lo <= xg_hi + 1e-9
+
 
 # ---------------------------------------------------------------------------
 # calcola_momentum_mercato

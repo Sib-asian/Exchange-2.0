@@ -5,6 +5,8 @@ tra modelli è basso (evita overconfidence sui margini/kelly impliciti).
 
 from __future__ import annotations
 
+from src.config import CONSENSUS
+
 
 def shrink_outcome_probs(
     p1: float,
@@ -35,12 +37,16 @@ def shrink_outcome_probs(
     strength = 0.45 * cov + 0.55 * ag
     lam_1x2 = max(0.0, 1.0 - strength) * max_mass_pull_1x2
     lam_bi = max(0.0, 1.0 - strength) * max_mass_pull_binary
+    # Pareggio: shrink asimmetrico extra quando accordo/copertura sono bassi
+    lam_px_extra = (1.0 - ag) * (0.55 + 0.45 * (1.0 - cov)) * CONSENSUS.DRAW_UNCERTAINTY_EXTRA
+    lam_px_extra = max(0.0, min(0.12, lam_px_extra))
 
     # Prior 1X2: base rate storiche (media top-5 leghe europee 2018-2024).
     # Fonte: Transfermarkt aggregate — H≈46%, D≈27%, A≈27%.
     prior_h, prior_d, prior_a = 0.46, 0.27, 0.27
     q1 = (1.0 - lam_1x2) * p1 + lam_1x2 * prior_h
-    qx = (1.0 - lam_1x2) * px + lam_1x2 * prior_d
+    # Pareggio: massa extra verso prior_d se accordo/copertura bassi
+    qx = (1.0 - lam_1x2 - lam_px_extra) * px + (lam_1x2 + lam_px_extra) * prior_d
     q2 = (1.0 - lam_1x2) * p2 + lam_1x2 * prior_a
     s12 = q1 + qx + q2
     if s12 > 0:

@@ -337,6 +337,7 @@ def _calcola_ht_probs(
     late_goals_pct_a: float = 0.0,
     early_conceded_pct_h: float = 0.0,
     early_conceded_pct_a: float = 0.0,
+    extraction_coverage: float = 1.0,
 ) -> tuple[float, float, float, float, bool] | None:
     """
     Stima le probabilità del risultato al 1° tempo usando tutti i segnali disponibili:
@@ -347,7 +348,8 @@ def _calcola_ht_probs(
     - **Goal timing** (MatchState): chi segna tardi → λ 1T leggermente più basso; chi subisce
       presto → λ avversario 1T leggermente più alto.
     - **Standings HT** + **matrice HT/FT** (stesso schema delle marginali standings) + **H2H HT**
-      (peso ridotto con pochi match).
+      (peso ridotto con pochi match; max ~10% con n≥4).
+    - **Strength tilt** modulato da `extraction_coverage` (Nowgoal debole → il delta strength pesa di più).
     - **Ancoraggio 1X2 FT** del modello + **p_over_1.5** per calibrare Over 0.5 a HT.
 
     Restituisce (p_ht1, p_htx, p_ht2, p_ht_over05, is_estimate) o None se nessun dato.
@@ -397,8 +399,11 @@ def _calcola_ht_probs(
     sa = int(getattr(prematch, "strength_away", 0) or 0)
     if sh > 0 or sa > 0:
         delta = max(-0.4, min(0.4, (sh - sa) / 160.0))
-        lam_h *= 1.0 + 0.11 * delta
-        lam_a *= 1.0 - 0.11 * delta
+        _cov_ht = max(0.0, min(1.0, float(extraction_coverage)))
+        _str_lam = 0.08 + 0.045 * (1.0 - _cov_ht)
+        _str_lam = max(0.07, min(0.125, _str_lam))
+        lam_h *= 1.0 + _str_lam * delta
+        lam_a *= 1.0 - _str_lam * delta
 
     # Goal timing (effetto sul 1T)
     if late_goals_pct_h > 18.0:
@@ -558,11 +563,11 @@ def _calcola_ht_probs(
         h2h_p2 = h2h_a_pct / _tot_h2h
         _n_ht_m = int(getattr(prematch, "h2h_ht_matches_count", 0) or 0)
         if _n_ht_m > 0:
-            h2h_scale = min(1.0, _n_ht_m / 5.0)
+            h2h_scale = min(1.0, _n_ht_m / 4.0)
         else:
             # Conteggio sconosciuto: non dare pieno peso a percentuali H2H HT spesso rumorose
-            h2h_scale = 0.55
-        alpha_h2h = 0.20 * h2h_scale
+            h2h_scale = 0.40
+        alpha_h2h = 0.10 * h2h_scale
         if has_xg or has_standings_ht:
             p_ht1 = (1 - alpha_h2h) * p_ht1 + alpha_h2h * h2h_p1
             p_htx = (1 - alpha_h2h) * p_htx + alpha_h2h * h2h_px
@@ -744,6 +749,7 @@ def render_pronostici_rapidi(
             late_goals_pct_a=float(getattr(_ms, "late_goals_pct_a", 0.0) or 0.0) if _ms else 0.0,
             early_conceded_pct_h=float(getattr(_ms, "early_conceded_pct_h", 0.0) or 0.0) if _ms else 0.0,
             early_conceded_pct_a=float(getattr(_ms, "early_conceded_pct_a", 0.0) or 0.0) if _ms else 0.0,
+            extraction_coverage=float(getattr(prematch, "extraction_coverage", 1.0) or 1.0),
         )
         if ht is not None:
             p_ht1, p_htx, p_ht2, p_ht_o05, ht_is_est = ht

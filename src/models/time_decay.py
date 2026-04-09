@@ -72,6 +72,8 @@ def time_decay_dinamico(
     gialli_trasf: int = 0,
     falli_casa: int = 0,
     falli_trasf: int = 0,
+    late_goals_pct_h: float = 0.0,
+    late_goals_pct_a: float = 0.0,
 ) -> tuple[float, float]:
     """
     Aggiustamenti tattico-comportamentali sugli xG proiettati al tempo rimanente.
@@ -108,6 +110,7 @@ def time_decay_dinamico(
         rossi_casa, rossi_trasf: Cartellini rossi attuali.
         momentum: Indice momentum mercato.
         delta_ah: Variazione AH (ah_cur_full - ah_op) per calcolare reazione mercato.
+        late_goals_pct_h, late_goals_pct_a: profilo gol tardi (%); Hawkes più conservativo se alti.
 
     Returns:
         (xg_casa_adj, xg_trasf_adj): xG aggiustati, con floor XG_FLOOR.
@@ -208,18 +211,28 @@ def time_decay_dinamico(
         xg_c *= subst_boost_c
         xg_t *= subst_boost_t
 
-    # 4. Hawkes self-exciting: se il tasso gol osservato è superiore all'atteso,
-    # la partita è "calda" → boost leggero al rate rimanente.
-    # Cattura il clustering dei gol (dopo un gol è più probabile un altro).
+    # 4. Hawkes / clustering: pace gol/90′ con shrink Bayesiano verso λ_ref (meno rumore early)
+    # + smorzamento se entrambe le squadre hanno profilo “gol tardi” (volatilità strutturale).
     gol_tot = gol_casa + gol_trasf
     # Floor HAWKES.MIN_MINUTE: sotto questo minuto il campione è troppo piccolo.
     # Esempio: 2 gol al 6' → rate = 2/6 × 90 = 30 gol/90'. Con ALPHA=0.01 e MAX_BOOST=0.03
     # il cap scatta comunque, ma il segnale è rumore puro.
     # Al 15', 2 gol → rate = 12/90' (ancora alto ma plausibile in una gara aperta).
     if gol_tot > 0 and minuto >= HAWKES.MIN_MINUTE:
-        rate_obs_90 = gol_tot / max(minuto, 1) * 90.0
-        excess = max(0.0, rate_obs_90 / HAWKES.RATE_REF_PER_90 - 1.0)
-        hawkes_boost = 1.0 + min(HAWKES.MAX_BOOST, excess * HAWKES.ALPHA)
+        # Pace gol/90′ con shrink Bayesiano (prior su λ_ref) invece del solo MLE grezzo.
+        u = max(minuto, 1) / 90.0
+        w = max(HAWKES.BAYES_PRIOR_GAMES, 1e-6)
+        lam_ref = HAWKES.RATE_REF_PER_90
+        pace_post = (gol_tot + lam_ref * w) / (u + w)
+        excess = max(0.0, pace_post / lam_ref - 1.0)
+        alpha_eff = HAWKES.ALPHA
+        late_max = max(float(late_goals_pct_h), float(late_goals_pct_a))
+        if late_max > HAWKES.LATE_GOALS_HAWKES_THRESHOLD:
+            damp = HAWKES.LATE_GOALS_HAWKES_DAMP * min(
+                1.0, (late_max - HAWKES.LATE_GOALS_HAWKES_THRESHOLD) / 24.0
+            )
+            alpha_eff *= max(0.35, 1.0 - damp)
+        hawkes_boost = 1.0 + min(HAWKES.MAX_BOOST, excess * alpha_eff)
         xg_c *= hawkes_boost
         xg_t *= hawkes_boost
 
