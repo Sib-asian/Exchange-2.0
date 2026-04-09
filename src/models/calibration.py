@@ -574,13 +574,16 @@ def calcola_xg_bayesiani(
         # Newton-Raphson con derivata numerica (convergenza O(log log 1/ε) ≈ 5-6 iter)
         # Fallback a bisection se Newton diverge o non converge.
         delta_star = 0.5 * (lo + hi)
-        h_nr = BAYES.NEWTON_H
         converged = False
         for _ in range(BAYES.NEWTON_MAX_ITER):
             em = _ev(delta_star)
             if abs(em) < POISSON.BISECTION_TOL:
                 converged = True
                 break
+            # Step adattivo: scala h con |delta_star| per stabilità numerica.
+            # Per delta_star grandi, h fisso è troppo piccolo (errori di cancellazione).
+            # Per delta_star piccoli, h fisso è adeguato → floor a NEWTON_H.
+            h_nr = max(BAYES.NEWTON_H, abs(delta_star) * 1e-7)
             # Derivata numerica (central difference)
             ev_plus = _ev(delta_star + h_nr)
             ev_minus = _ev(delta_star - h_nr)

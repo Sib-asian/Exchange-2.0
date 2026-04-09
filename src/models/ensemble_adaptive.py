@@ -37,10 +37,14 @@ def blend_consensus_weights_with_history(
     w_mk: float,
     *,
     min_completed: int = 10,
-    max_blend: float = 0.28,
+    max_blend: float = 0.45,
 ) -> tuple[float, float, float]:
     """
     Ritorna pesi (bp, cop, mk) fra baseline di fase e stima da storico.
+
+    max_blend=0.45: con 50+ partite completate il sistema si fida al 45%
+    dei pesi empirici. Il restante 55% resta sulla baseline di fase.
+    Alzato da 0.28 per permettere adattamento più rapido.
 
     In live (`minuto > 0`) non modifica (le distribuzioni sono path-dependent).
     """

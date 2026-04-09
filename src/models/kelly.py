@@ -93,12 +93,15 @@ def calcola_stake_kelly(
 
     stake_raw = bankroll * kelly_pct * frazione
 
-    # Cap adattivo per edge
-    if edge_back is not None:
-        if edge_back < KELLY.KELLY_SMALL_EDGE_THRESHOLD:
-            stake_raw = min(stake_raw, bankroll * KELLY.KELLY_SMALL_EDGE_CAP_PCT * frazione)
-        elif edge_back < KELLY.KELLY_MEDIUM_EDGE_THRESHOLD:
-            stake_raw = min(stake_raw, bankroll * KELLY.KELLY_MEDIUM_EDGE_CAP_PCT * frazione)
+    # Cap adattivo per edge — interpolazione lineare continua.
+    # Evita il gradino (edge 4.9% → 2.5% cap, edge 5.1% → 4.0% cap) che crea
+    # discontinuità nella funzione di stake e incentivi perversi.
+    if edge_back is not None and edge_back < KELLY.KELLY_MEDIUM_EDGE_THRESHOLD:
+        # Interpolazione: da SMALL_EDGE_CAP_PCT (edge=0) a MEDIUM_EDGE_CAP_PCT (edge=MEDIUM)
+        t = max(0.0, edge_back / KELLY.KELLY_MEDIUM_EDGE_THRESHOLD)
+        cap_pct = (KELLY.KELLY_SMALL_EDGE_CAP_PCT
+                   + t * (KELLY.KELLY_MEDIUM_EDGE_CAP_PCT - KELLY.KELLY_SMALL_EDGE_CAP_PCT))
+        stake_raw = min(stake_raw, bankroll * cap_pct * frazione)
 
     return stake_raw
 

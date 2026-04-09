@@ -279,11 +279,19 @@ def calibrate_probabilities(
     Returns:
         Tuple (p1, px, p2, p_over, p_under, p_btts) calibrate.
     """
-    # 1. Draw shrinkage
+    # 1. Draw shrinkage — redistribuzione proporzionale.
+    # Il surplus sottratto al pareggio viene redistribuito proporzionalmente
+    # a casa e trasferta (non 50/50). Se casa è favorita 60/40, il surplus
+    # va 60% alla casa e 40% alla trasferta.
     px_cal = px * draw_shrinkage
-    redistrib = px * (1.0 - draw_shrinkage) * 0.5
-    p1_cal = p1 + redistrib
-    p2_cal = p2 + redistrib
+    surplus = px * (1.0 - draw_shrinkage)
+    p1p2 = p1 + p2
+    if p1p2 > 1e-9:
+        p1_cal = p1 + surplus * (p1 / p1p2)
+        p2_cal = p2 + surplus * (p2 / p1p2)
+    else:
+        p1_cal = p1 + surplus * 0.5
+        p2_cal = p2 + surplus * 0.5
 
     # Normalizza 1X2
     sum_1x2 = p1_cal + px_cal + p2_cal

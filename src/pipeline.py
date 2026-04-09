@@ -88,19 +88,42 @@ def run_analysis_pipeline(
     _signals_blocked = False
     _block_reasons: list[str] = []
 
+    _conf = float(risultati.model_confidence)
+    _agree = float(risultati.model_agreement)
+    _div = float(risultati.market_divergence)
+
     _quality_score = max(
         0.0,
         min(
             1.0,
-            0.45 * float(risultati.model_confidence)
-            + 0.35 * float(risultati.model_agreement)
-            + 0.20 * float(max(0.0, 1.0 - risultati.market_divergence)),
+            0.45 * _conf
+            + 0.35 * _agree
+            + 0.20 * max(0.0, 1.0 - _div),
         ),
     )
 
-    if _quality_score < PRECISION.QUALITY_SCORE_MIN:
+    # Penalità interazione: alta confidenza + basso accordo = i modelli sono
+    # "sicuri" di cose diverse → scenario pericoloso che la somma pesata non
+    # cattura. Senza questo termine, conf=0.8 + agree=0.3 dà quality=0.465
+    # (vicino alla soglia), rischiando falsi positivi.
+    if _conf > 0.70 and _agree < 0.50:
+        _quality_score *= 0.75
+
+    # Firewall graduato: hard block solo sotto QUALITY_HARD_BLOCK_MIN (0.20).
+    # Tra HARD_BLOCK e QUALITY_SCORE_MIN: degrada model_confidence proporzionalmente
+    # → soglie segnali più alte + Kelly fraction ridotta, ma non silenzio totale.
+    # Sopra QUALITY_SCORE_MIN: nessuna penalità.
+    if _quality_score < PRECISION.QUALITY_HARD_BLOCK_MIN:
         _signals_blocked = True
-        _block_reasons.append(f"quality<{PRECISION.QUALITY_SCORE_MIN:.2f}")
+        _block_reasons.append(f"quality<{PRECISION.QUALITY_HARD_BLOCK_MIN:.2f}")
+    elif _quality_score < PRECISION.QUALITY_SCORE_MIN:
+        # Degradazione graduata: scala confidence linearmente
+        # quality=0.20 → multiplier=0.0, quality=0.50 → multiplier=1.0
+        _q_range = PRECISION.QUALITY_SCORE_MIN - PRECISION.QUALITY_HARD_BLOCK_MIN
+        _q_mult = (_quality_score - PRECISION.QUALITY_HARD_BLOCK_MIN) / max(_q_range, 1e-9)
+        _conf *= _q_mult
+        _block_reasons.append(f"quality_degraded({_quality_score:.2f})")
+
     if float(risultati.model_confidence) < PRECISION.MODEL_CONFIDENCE_MIN:
         _signals_blocked = True
         _block_reasons.append(f"conf<{PRECISION.MODEL_CONFIDENCE_MIN:.2f}")
@@ -117,10 +140,15 @@ def run_analysis_pipeline(
         _signals_blocked = True
         _block_reasons.append("stale_line")
 
+    # Applica confidence degradata al risultato se quality è intermedia.
+    # La confidence ridotta fluisce nei segnali → Kelly fraction minore e soglie più alte.
+    _effective_conf = min(_conf, float(risultati.model_confidence))
+
     if PRECISION.HARD_BLOCK_ON_FIREWALL and _signals_blocked:
         risultati = replace(
             risultati,
             quality_score=_quality_score,
+            model_confidence=_effective_conf,
             signals_blocked=True,
             signals_block_reason=", ".join(_block_reasons),
         )
@@ -128,8 +156,9 @@ def run_analysis_pipeline(
         risultati = replace(
             risultati,
             quality_score=_quality_score,
+            model_confidence=_effective_conf,
             signals_blocked=False,
-            signals_block_reason="",
+            signals_block_reason=", ".join([r for r in _block_reasons if "degraded" in r]) if _block_reasons else "",
         )
 
     return risultati, cal_sig

@@ -1055,6 +1055,9 @@ class PrecisionConfig:
     # === Fase 4/5: No-Bet + Data Quality Firewall ===
     # Score minimo complessivo per consentire segnali operativi.
     QUALITY_SCORE_MIN: float = 0.50
+    # Soglia dura sotto la quale si blocca completamente (hard block).
+    # Tra HARD_BLOCK e QUALITY_SCORE_MIN: degradazione graduata (riduce confidence).
+    QUALITY_HARD_BLOCK_MIN: float = 0.20
     # Confidenza minima del modello (oltre al gate già presente nei segnali).
     MODEL_CONFIDENCE_MIN: float = 0.45
     # Accordo minimo tra modelli consensus.
