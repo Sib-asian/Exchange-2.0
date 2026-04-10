@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     pass
 
+from src.config import CONSENSUS
+
 
 # ---------------------------------------------------------------------------
 # Costanti
@@ -76,7 +78,7 @@ def learn_draw_shrinkage() -> float | None:
     if len(completed) < MIN_RECORDS_FOR_LEARNING:
         return None
 
-    best_shrinkage = 0.97  # default
+    best_shrinkage = float(CONSENSUS.DRAW_SHRINKAGE)
     best_brier = float("inf")
 
     # Grid search

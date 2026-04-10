@@ -117,6 +117,8 @@ class PredictionRecord:
     signals_block_reason: str = ""
     tot_band: str = ""
     software_version: str = ""
+    # Revisione motore/pipeline (config ENGINE.MODEL_REVISION) per audit e champion/challenger.
+    model_revision: str = ""
     consensus_w_bp: float = 0.0
     consensus_w_cop: float = 0.0
     consensus_w_mk: float = 0.0
@@ -413,6 +415,7 @@ def create_record_from_analysis(
         signals_block_reason=str(meta.get("signals_block_reason", "")),
         tot_band=str(meta.get("tot_band", tot_op_band(tot_op_val))),
         software_version=str(meta.get("software_version", "")),
+        model_revision=str(meta.get("model_revision", "")),
         consensus_w_bp=float(meta.get("consensus_w_bp", 0.0)),
         consensus_w_cop=float(meta.get("consensus_w_cop", 0.0)),
         consensus_w_mk=float(meta.get("consensus_w_mk", 0.0)),

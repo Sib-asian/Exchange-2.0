@@ -812,6 +812,7 @@ def analizza(
             state.tot_op,
             state.gol_casa + state.gol_trasf,
             state.minuto,
+            tot_cur_remaining=state.tot_cur,
         )
         if _live_recal != 1.0:
             xg_h_final = max(DECAY.XG_FLOOR, xg_h_final * _live_recal)

@@ -849,6 +849,11 @@ class EngineConfig:
     BLEND_CONF_FLAT: float = 0.15
     BLEND_CONF_NORMAL: float = 0.50
 
+    # Revisione motore / pipeline (tracking, champion–challenger, audit log).
+    MODEL_REVISION: str = "2.0-phase2-unified"
+    # Live recalibration: peso sul totale implicito (gol fatti + tot_cur rimanente) vs prior tot_op lineare.
+    LIVE_RECAL_MARKET_BLEND: float = 0.58
+
 
 @dataclass(frozen=True)
 class InputValidationConfig:
@@ -1122,6 +1127,10 @@ class PrecisionConfig:
 
     # ECE: numero bin per report/valutazione
     ECE_BINS: int = 10
+
+    # Micro-correzione draw da learn_draw_shrinkage: i record sono già post-engine shrink;
+    # scala la delta rispetto al baseline CONSENSUS.DRAW_SHRINKAGE per evitare doppio intervento forte.
+    PARAMETER_LEARNING_DRAW_MICRO_SCALE: float = 0.42
 
 
 # Istanze globali immutabili — importare da qui
