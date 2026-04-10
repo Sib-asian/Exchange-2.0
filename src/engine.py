@@ -110,6 +110,27 @@ class MatchState:
     prev_over_pct_h: float = 0.0
     prev_over_pct_a: float = 0.0
 
+    # HT/FT transition counts (da Nowgoal, ultimi ~10 match)
+    # 9 cells per squadra: HTW/HTD/HTL → FTW/FTD/FTL
+    htft_home_htw_ftw: int = 0
+    htft_home_htw_ftd: int = 0
+    htft_home_htw_ftl: int = 0
+    htft_home_htd_ftw: int = 0
+    htft_home_htd_ftd: int = 0
+    htft_home_htd_ftl: int = 0
+    htft_home_htl_ftw: int = 0
+    htft_home_htl_ftd: int = 0
+    htft_home_htl_ftl: int = 0
+    htft_away_htw_ftw: int = 0
+    htft_away_htw_ftd: int = 0
+    htft_away_htw_ftl: int = 0
+    htft_away_htd_ftw: int = 0
+    htft_away_htd_ftd: int = 0
+    htft_away_htd_ftl: int = 0
+    htft_away_htl_ftw: int = 0
+    htft_away_htl_ftd: int = 0
+    htft_away_htl_ftl: int = 0
+
     # Scala di confidenza delle quote OCR (da validatore Gemini). Range [0.70, 1.0].
     # 1.0 = quote verificate concordi col mercato; < 1.0 = quote sospette/anomale.
     ocr_confidence_scale: float = 1.0
@@ -363,6 +384,11 @@ class ProbabilitaModello:
     p_under_25_ref: float = 0.0
     # Dopo pipeline prematch: tightness CI [0,1] per Kelly (1 = modelli concordi).
     pipeline_ci_tightness: float = 0.55
+
+    # Upgrade 8-1: Score di coerenza cross-mercato [0, 1].
+    # 1.0 = probabilità perfettamente coerenti tra mercati.
+    # <0.5 = divergenza significativa tra consensus e matrice punteggio.
+    probability_coherence: float = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -999,6 +1025,23 @@ def analizza(
     _w_1x2, _w_ou, _w_consensus_btts = blend_consensus_weights_with_history(
         state.minuto, _w_bp, _w_cop, _w_mk
     )
+
+    # Upgrade 8-2: Correlation-aware ensemble — aggiusta pesi per correlazione.
+    # Se 2 modelli danno previsioni quasi identiche, riduce il peso combinato
+    # e redistribuisce al terzo (meno correlato → più informativo).
+    try:
+        from src.models.correlation_ensemble import adjust_weights_for_correlation
+        _per_raw_pre = per_model_market_probs(
+            full_bp, full_copula, full_markov,
+            state.gol_casa, state.gol_trasf, state.linea_ou,
+        )
+        _w_bp, _w_cop, _w_mk = adjust_weights_for_correlation(
+            _w_bp, _w_cop, _w_mk,
+            _per_raw_pre["bp"], _per_raw_pre["copula"], _per_raw_pre["markov"],
+        )
+    except Exception:
+        pass  # Best-effort: non rompere il pipeline
+
     _per_raw = per_model_market_probs(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
@@ -1141,6 +1184,45 @@ def analizza(
             px = _px_adj / _sum_1x2
             p2 = _p2_adj / _sum_1x2
 
+    # 9c-bis. Upgrade 8-4: HT/FT predictive model.
+    # Usa i pattern di transizione HT→FT storici delle squadre per calibrare 1X2.
+    # In prematch: distribuzione aggregata. In live (dopo HT): condiziona su stato HT.
+    try:
+        from src.models.htft_model import compute_htft_adjustment
+        _ht_result = ""
+        if state.minuto >= 45:
+            if state.gol_casa > state.gol_trasf:
+                _ht_result = "W"
+            elif state.gol_casa < state.gol_trasf:
+                _ht_result = "L"
+            else:
+                _ht_result = "D"
+        p1, px, p2 = compute_htft_adjustment(
+            p1, px, p2,
+            htft_home_htw_ftw=state.htft_home_htw_ftw,
+            htft_home_htw_ftd=state.htft_home_htw_ftd,
+            htft_home_htw_ftl=state.htft_home_htw_ftl,
+            htft_home_htd_ftw=state.htft_home_htd_ftw,
+            htft_home_htd_ftd=state.htft_home_htd_ftd,
+            htft_home_htd_ftl=state.htft_home_htd_ftl,
+            htft_home_htl_ftw=state.htft_home_htl_ftw,
+            htft_home_htl_ftd=state.htft_home_htl_ftd,
+            htft_home_htl_ftl=state.htft_home_htl_ftl,
+            htft_away_htw_ftw=state.htft_away_htw_ftw,
+            htft_away_htw_ftd=state.htft_away_htw_ftd,
+            htft_away_htw_ftl=state.htft_away_htw_ftl,
+            htft_away_htd_ftw=state.htft_away_htd_ftw,
+            htft_away_htd_ftd=state.htft_away_htd_ftd,
+            htft_away_htd_ftl=state.htft_away_htd_ftl,
+            htft_away_htl_ftw=state.htft_away_htl_ftw,
+            htft_away_htl_ftd=state.htft_away_htl_ftd,
+            htft_away_htl_ftl=state.htft_away_htl_ftl,
+            minuto=state.minuto,
+            ht_result=_ht_result,
+        )
+    except Exception:
+        pass  # Best-effort
+
     # 9d. H2H Over % blend (solo prematch) - Miglioramento #3.
     # Il dato H2H Over% è in genere riferito alla soglia 2.5: applichiamo il blend
     # solo quando la linea analizzata è 2.5 per evitare mismatch di mercato.
@@ -1185,6 +1267,20 @@ def analizza(
     )
     full_matrix = full_consensus if full_consensus else full_bp
     top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
+
+    # 10b. Upgrade 8-1: Riconciliazione cross-mercato via score matrix.
+    # Bilancia le probabilità "libere" del consensus con quelle "vincolate"
+    # derivate dalla matrice di punteggio (coerenti per costruzione).
+    _coherence_score = 1.0
+    try:
+        from src.models.probability_reconciliation import reconcile_probabilities
+        p1, px, p2, p_over, p_under, p_btts, _coherence_score = reconcile_probabilities(
+            p1, px, p2, p_over, p_under, p_btts,
+            full_matrix, state.gol_casa, state.gol_trasf, state.linea_ou,
+            p_over_15=p_over_15, p_under_15=p_under_15,
+        )
+    except Exception:
+        pass  # Best-effort
 
     # 11. Intervalli di credibilità multi-modello
     credible_intervals = compute_model_credible_intervals(
@@ -1248,6 +1344,22 @@ def analizza(
         _str_w = 0.10 * (0.72 + 0.38 * (1.0 - _cov_sc))
         _strength_boost = 1.0 + _strength_diff * _str_w
         model_confidence = min(1.0, model_confidence * _strength_boost)
+
+    # Upgrade 8-5: Calibrazione confidence da dati storici.
+    # Sostituisce la formula euristica con una curva calibrata isotonicamente.
+    if state.minuto == 0:
+        try:
+            from src.models.confidence_calibration import (
+                apply_confidence_calibration,
+                build_confidence_calibration_map,
+            )
+            _conf_cal_map = build_confidence_calibration_map()
+            if _conf_cal_map:
+                model_confidence = apply_confidence_calibration(
+                    model_confidence, _conf_cal_map,
+                )
+        except Exception:
+            pass  # Best-effort
 
     # L'utente usa sempre le linee di apertura/chiusura manualmente inserite
     # e non aggiorna le linee live — l'avviso non ha senso in questo workflow.
@@ -1336,4 +1448,5 @@ def analizza(
         prev_lambda_h=_prev_lambda_h,
         prev_lambda_a=_prev_lambda_a,
         pipeline_ci_tightness=ci_tightness_score(credible_intervals),
+        probability_coherence=_coherence_score,
     )

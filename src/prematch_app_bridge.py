@@ -281,6 +281,26 @@ def build_match_state_from_prematch_analysis(
     _prev_over_h = float(getattr(pa, "home_prev_over_pct", 0.0)) if pa else 0.0
     _prev_over_a = float(getattr(pa, "away_prev_over_pct", 0.0)) if pa else 0.0
 
+    # Upgrade 8-4: HT/FT transition counts (18 campi)
+    _htft_h_hw_fw = int(getattr(pa, "htft_home_htw_ftw", 0)) if pa else 0
+    _htft_h_hw_fd = int(getattr(pa, "htft_home_htw_ftd", 0)) if pa else 0
+    _htft_h_hw_fl = int(getattr(pa, "htft_home_htw_ftl", 0)) if pa else 0
+    _htft_h_hd_fw = int(getattr(pa, "htft_home_htd_ftw", 0)) if pa else 0
+    _htft_h_hd_fd = int(getattr(pa, "htft_home_htd_ftd", 0)) if pa else 0
+    _htft_h_hd_fl = int(getattr(pa, "htft_home_htd_ftl", 0)) if pa else 0
+    _htft_h_hl_fw = int(getattr(pa, "htft_home_htl_ftw", 0)) if pa else 0
+    _htft_h_hl_fd = int(getattr(pa, "htft_home_htl_ftd", 0)) if pa else 0
+    _htft_h_hl_fl = int(getattr(pa, "htft_home_htl_ftl", 0)) if pa else 0
+    _htft_a_hw_fw = int(getattr(pa, "htft_away_htw_ftw", 0)) if pa else 0
+    _htft_a_hw_fd = int(getattr(pa, "htft_away_htw_ftd", 0)) if pa else 0
+    _htft_a_hw_fl = int(getattr(pa, "htft_away_htw_ftl", 0)) if pa else 0
+    _htft_a_hd_fw = int(getattr(pa, "htft_away_htd_ftw", 0)) if pa else 0
+    _htft_a_hd_fd = int(getattr(pa, "htft_away_htd_ftd", 0)) if pa else 0
+    _htft_a_hd_fl = int(getattr(pa, "htft_away_htd_ftl", 0)) if pa else 0
+    _htft_a_hl_fw = int(getattr(pa, "htft_away_htl_ftw", 0)) if pa else 0
+    _htft_a_hl_fd = int(getattr(pa, "htft_away_htl_ftd", 0)) if pa else 0
+    _htft_a_hl_fl = int(getattr(pa, "htft_away_htl_ftl", 0)) if pa else 0
+
     state = build_match_state(
         match, lines, linea_ou, bankroll, comm_rate,
         forma_mult_h=_forma_h,
@@ -359,5 +379,23 @@ def build_match_state_from_prematch_analysis(
         team_stats_away_fouls=_ts_foul_a,
         prev_over_pct_h=_prev_over_h,
         prev_over_pct_a=_prev_over_a,
+        htft_home_htw_ftw=_htft_h_hw_fw,
+        htft_home_htw_ftd=_htft_h_hw_fd,
+        htft_home_htw_ftl=_htft_h_hw_fl,
+        htft_home_htd_ftw=_htft_h_hd_fw,
+        htft_home_htd_ftd=_htft_h_hd_fd,
+        htft_home_htd_ftl=_htft_h_hd_fl,
+        htft_home_htl_ftw=_htft_h_hl_fw,
+        htft_home_htl_ftd=_htft_h_hl_fd,
+        htft_home_htl_ftl=_htft_h_hl_fl,
+        htft_away_htw_ftw=_htft_a_hw_fw,
+        htft_away_htw_ftd=_htft_a_hw_fd,
+        htft_away_htw_ftl=_htft_a_hw_fl,
+        htft_away_htd_ftw=_htft_a_hd_fw,
+        htft_away_htd_ftd=_htft_a_hd_fd,
+        htft_away_htd_ftl=_htft_a_hd_fl,
+        htft_away_htl_ftw=_htft_a_hl_fw,
+        htft_away_htl_ftd=_htft_a_hl_fd,
+        htft_away_htl_ftl=_htft_a_hl_fl,
     )
     return state, _lega, _coverage

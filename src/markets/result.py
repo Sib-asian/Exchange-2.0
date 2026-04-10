@@ -1,15 +1,44 @@
 """
 result.py — Calcolo probabilità 1X2 (risultato finale) e Correct Score.
 
-Utilizza la matrice bivariata indipendente (joint_ind) per il 1X2:
-il termine Z della bivariate Poisson si cancella nella differenza (i-j),
-quindi joint_ind + DC è sufficiente e più veloce della matrice full.
-
-La matrice full è usata per il Correct Score perché include la correlazione
-tra i gol rimanenti (tramite Z).
+La matrice full (blended) è usata per tutti i mercati per garantire
+coerenza cross-market.
 """
 
 from __future__ import annotations
+
+
+def apply_overdispersion(
+    full: dict[tuple[int, int], float],
+) -> dict[tuple[int, int], float]:
+    """
+    Applica correzione overdispersion alla matrice di punteggio.
+
+    Il modello Poisson sottostima i punteggi con molti gol futuri (a+b >= 3)
+    perché la varianza reale supera la media. Questa correzione viene applicata
+    UNA VOLTA alla matrice blended, prima di derivare qualsiasi mercato (1X2,
+    O/U, BTTS, CS), garantendo coerenza tra tutti i mercati.
+
+    Returns:
+        Matrice corretta e rinormalizzata.
+    """
+    from src.config import UI as _UI
+
+    corrected: dict[tuple[int, int], float] = {}
+    for (a, b), p in full.items():
+        future_goals = a + b
+        if future_goals == 3:
+            p *= _UI.CS_OVERDISP_3
+        elif future_goals == 4:
+            p *= _UI.CS_OVERDISP_4
+        elif future_goals >= 5:
+            p *= _UI.CS_OVERDISP_5
+        corrected[(a, b)] = p
+
+    total = sum(corrected.values())
+    if total > 0:
+        corrected = {k: v / total for k, v in corrected.items()}
+    return corrected
 
 
 def calcola_1x2(

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -154,6 +154,12 @@ class PredictionRecord:
     quota_btts_no_close: float = 0.0
     quote_quality: str = "unknown"  # trusted | untrusted | unknown
     quote_quality_reason: str = ""
+
+    # Upgrade 8-8: Temporal updates intra-match.
+    # Lista di snapshot periodici per apprendimento path-dependent.
+    # Ogni entry: {"minuto": int, "p1": float, "px": float, "p2": float,
+    #              "p_over": float, "p_btts": float, "xg_h": float, "xg_a": float}
+    temporal_updates: list[dict[str, float]] = field(default_factory=list)
 
     # Risultato (vuoto fino a fine partita)
     gol_casa: int | None = None

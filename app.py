@@ -463,6 +463,7 @@ if _btn_prematch or _btn_live:
             gol_trasf=_gol_a,
             signals_blocked=bool(getattr(risultati, "signals_blocked", False)),
             ci_tightness=float(getattr(risultati, "pipeline_ci_tightness", 0.55)),
+            credible_intervals=getattr(risultati, "credible_intervals", None) or None,
         )
         if _settled.get("ou_vinto"):
             segnali_av = [s for s in segnali_av if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]
