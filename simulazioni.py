@@ -5,7 +5,11 @@ Simulazioni per verificare:
 """
 
 import sys
-sys.path.insert(0, '/home/z/my-project/Exchange-2.0')
+from pathlib import Path
+
+_root = Path(__file__).resolve().parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
 
 from src.engine import MatchState, ExchangeQuotes, analizza
 from src.signals import (

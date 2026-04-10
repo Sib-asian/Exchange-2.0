@@ -695,6 +695,8 @@ def genera_segnali_avanzati(
         n_shots_tot: Numero tiri totali inseriti.
         momentum: Indice momentum di mercato.
         model_confidence: Score di confidenza del modello [0, 1].
+        ci_tightness: [0,1] da intervalli modelli → scala frazione Kelly base.
+        credible_intervals: se presente, sconto stake per incertezza (kelly_uncertainty).
 
     Returns:
         Lista di Signal con calcoli Kelly/EV completi.
