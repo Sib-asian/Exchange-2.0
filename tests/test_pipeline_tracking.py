@@ -78,7 +78,7 @@ def test_run_analysis_pipeline_prematch_runs():
         tot_cur=2.5,
         linea_ou=2.5,
     )
-    out, sig = run_analysis_pipeline(
+    out, sig, _trace = run_analysis_pipeline(
         st,
         league="",
         apply_prematch_calibration=False,
@@ -105,7 +105,7 @@ def test_run_analysis_pipeline_sets_quality_firewall_fields():
         tot_cur=2.5,
         linea_ou=2.5,
     )
-    out, _ = run_analysis_pipeline(
+    out, _, _trace = run_analysis_pipeline(
         st,
         league="",
         apply_prematch_calibration=False,
@@ -129,7 +129,7 @@ def test_run_analysis_pipeline_blocks_signals_when_quality_firewall_triggers():
         tot_cur=2.5,
         linea_ou=2.5,
     )
-    out, _ = run_analysis_pipeline(
+    out, _, _trace = run_analysis_pipeline(
         st,
         league="",
         apply_prematch_calibration=False,

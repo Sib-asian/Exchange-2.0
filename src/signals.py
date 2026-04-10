@@ -660,6 +660,7 @@ def genera_segnali_avanzati(
     gol_casa: int = 0,
     gol_trasf: int = 0,
     signals_blocked: bool = False,
+    ci_tightness: float = 0.55,
 ) -> list[Signal]:
     """
     Genera segnali avanzati con quote exchange, Kelly criterion e EV.
@@ -689,7 +690,9 @@ def genera_segnali_avanzati(
         return []
 
     soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement)
-    kelly_frac = calcola_kelly_fraction(minuto, n_shots_tot, model_confidence)
+    kelly_frac = calcola_kelly_fraction(
+        minuto, n_shots_tot, model_confidence, ci_tightness=ci_tightness
+    )
 
     # #4: Scala il momentum effettivo per model_agreement.
     # Quando i modelli divergono, la stima xG è già incerta → non amplificare con momentum.

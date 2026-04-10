@@ -78,7 +78,7 @@ def test_full_prematch_flow_returns_normalized_probabilities() -> None:
         bankroll=1000.0,
         comm_rate=0.025,
     )
-    out, cal = run_analysis_pipeline(
+    out, cal, _trace = run_analysis_pipeline(
         state,
         league=league,
         apply_prematch_calibration=True,

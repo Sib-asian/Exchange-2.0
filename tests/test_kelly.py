@@ -190,26 +190,31 @@ class TestKellyFraction:
     def test_base_fraction_early_game(self):
         """La frazione base deve essere quella configurata."""
         from src.config import KELLY
-        frac = calcola_kelly_fraction(0, 10)
+        frac = calcola_kelly_fraction(0, 10, ci_tightness=1.0)
         assert abs(frac - KELLY.KELLY_BASE_FRACTION) < 1e-10
 
     def test_reduced_late_game(self):
         """La frazione deve ridursi oltre il 75'."""
-        frac_early = calcola_kelly_fraction(30, 10)
-        frac_late = calcola_kelly_fraction(80, 10)
+        frac_early = calcola_kelly_fraction(30, 10, ci_tightness=1.0)
+        frac_late = calcola_kelly_fraction(80, 10, ci_tightness=1.0)
         assert frac_late < frac_early
 
     def test_reduced_without_shots(self):
         """La frazione deve ridursi senza dati tiri."""
-        frac_with_shots = calcola_kelly_fraction(30, 10)
-        frac_no_shots = calcola_kelly_fraction(30, 0)
+        frac_with_shots = calcola_kelly_fraction(30, 10, ci_tightness=1.0)
+        frac_no_shots = calcola_kelly_fraction(30, 0, ci_tightness=1.0)
         assert frac_no_shots < frac_with_shots
 
     def test_floor_not_breached(self):
         """La frazione non deve scendere sotto il floor."""
         from src.config import KELLY
-        frac = calcola_kelly_fraction(90, 0)
+        frac = calcola_kelly_fraction(90, 0, ci_tightness=1.0)
         assert frac >= KELLY.KELLY_MIN_FRACTION
+
+    def test_ci_tightness_reduces_when_intervals_wide(self):
+        hi = calcola_kelly_fraction(0, 10, 1.0, ci_tightness=1.0)
+        lo = calcola_kelly_fraction(0, 10, 1.0, ci_tightness=0.2)
+        assert lo < hi
 
 
 # ---------------------------------------------------------------------------

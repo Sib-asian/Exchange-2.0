@@ -21,6 +21,8 @@ def calcola_kelly_fraction(
     minuto: int,
     n_shots_tot: int,
     model_confidence: float = 1.0,
+    *,
+    ci_tightness: float = 0.55,
 ) -> float:
     """
     Calcola la frazione Kelly dinamica in base al contesto di gioco.
@@ -50,6 +52,10 @@ def calcola_kelly_fraction(
     # conf=0.0 → riduzione del (1 - KELLY_CONFIDENCE_SCALE) = 40%
     confidence_factor = KELLY.KELLY_CONFIDENCE_SCALE + (1.0 - KELLY.KELLY_CONFIDENCE_SCALE) * model_confidence
     fraction *= confidence_factor
+    # CI stretti (tightness→1) → meno penalità; larghi → riduzione stake.
+    ct = max(0.0, min(1.0, float(ci_tightness)))
+    ci_factor = (1.0 - KELLY.KELLY_CI_BLEND) + KELLY.KELLY_CI_BLEND * ct
+    fraction *= ci_factor
     return max(KELLY.KELLY_MIN_FRACTION, fraction)
 
 

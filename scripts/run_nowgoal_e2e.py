@@ -105,7 +105,7 @@ def main() -> int:
     print("  prev_avg scored (H/A):", round(state.prev_avg_scored_h, 3), "/", round(state.prev_avg_scored_a, 3))
 
     try:
-        ris, sig = run_analysis_pipeline(
+        ris, sig, _trace = run_analysis_pipeline(
             state,
             league=lega,
             apply_prematch_calibration=True,

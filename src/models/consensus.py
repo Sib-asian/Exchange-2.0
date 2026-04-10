@@ -124,6 +124,8 @@ def compute_consensus(
     gol_trasf: int,
     linea_ou: float,
     weights: tuple[float, float, float] = (0.50, 0.30, 0.20),
+    weights_ou: tuple[float, float, float] | None = None,
+    weights_btts: tuple[float, float, float] | None = None,
 ) -> dict[str, float]:
     """
     Calcola le probabilità consensus come media pesata di 3 modelli.
@@ -134,7 +136,9 @@ def compute_consensus(
         full_markov: Matrice dal Markov chain score-state.
         gol_casa, gol_trasf: Gol attuali.
         linea_ou: Linea Over/Under.
-        weights: Pesi dei 3 modelli (somma = 1).
+        weights: Pesi dei 3 modelli per 1X2 (somma = 1).
+        weights_ou: Pesi per Over/Under; se None → stessi di `weights`.
+        weights_btts: Pesi per BTTS; se None → stessi di `weights`.
 
     Returns:
         Dict con probabilità consensus per tutti i mercati.
@@ -144,13 +148,23 @@ def compute_consensus(
     probs_markov = _probs_from_matrix(full_markov, gol_casa, gol_trasf, linea_ou)
 
     w_bp, w_cop, w_mk = weights
+    w_ou = weights_ou if weights_ou is not None else weights
+    w_bt = weights_btts if weights_btts is not None else weights
     consensus: dict[str, float] = {}
 
     for key in probs_bp:
+        if key in ("p1", "px", "p2"):
+            wb, wc, wm = w_bp, w_cop, w_mk
+        elif key in ("p_over", "p_under"):
+            wb, wc, wm = w_ou
+        elif key == "p_btts":
+            wb, wc, wm = w_bt
+        else:
+            wb, wc, wm = w_bp, w_cop, w_mk
         consensus[key] = (
-            w_bp * probs_bp[key]
-            + w_cop * probs_copula[key]
-            + w_mk * probs_markov[key]
+            wb * probs_bp[key]
+            + wc * probs_copula[key]
+            + wm * probs_markov[key]
         )
 
     # Normalizza 1X2

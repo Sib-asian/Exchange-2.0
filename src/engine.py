@@ -331,6 +331,22 @@ class ProbabilitaModello:
     p1_mk: float = 0.0
     px_mk: float = 0.0
     p2_mk: float = 0.0
+    p_over_bp: float = 0.0
+    p_over_cop: float = 0.0
+    p_over_mk: float = 0.0
+    p_btts_bp: float = 0.0
+    p_btts_cop: float = 0.0
+    p_btts_mk: float = 0.0
+    consensus_w_ou_bp: float = 0.0
+    consensus_w_ou_cop: float = 0.0
+    consensus_w_ou_mk: float = 0.0
+    consensus_w_btts_bp: float = 0.0
+    consensus_w_btts_cop: float = 0.0
+    consensus_w_btts_mk: float = 0.0
+    xg_h_pre_prev_blend: float = 0.0
+    xg_a_pre_prev_blend: float = 0.0
+    prev_lambda_h: float = 0.0
+    prev_lambda_a: float = 0.0
 
     # Intervalli di credibilità multi-modello
     credible_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
@@ -345,6 +361,8 @@ class ProbabilitaModello:
     # Over/Under canonico 2.5 (sempre calcolato dalla stessa distribuzione, indipendente da linea_ou scelta)
     p_over_25_ref: float = 0.0
     p_under_25_ref: float = 0.0
+    # Dopo pipeline prematch: tightness CI [0,1] per Kelly (1 = modelli concordi).
+    pipeline_ci_tightness: float = 0.55
 
 
 # ---------------------------------------------------------------------------
@@ -473,6 +491,7 @@ def analizza(
         logistic_sharpen_over,
         per_model_market_probs,
     )
+    from src.models.prematch_diagnostics import ci_tightness_score
     from src.models.ensemble_adaptive import blend_consensus_weights_with_history
     from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
 
@@ -574,20 +593,25 @@ def analizza(
         xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * _wx_mult)
 
     # 2c. Previous scores blend (Miglioramento #2) - solo prematch.
-    # Se abbiamo dati sulle ultime 10 partite, li usiamo per calibrare gli xG.
-    # Formula: xG stimato = (gol segnati + gol subiti avversario) / 2
-    # Blend conservativo: 85% xG da linee + 15% xG da previous scores.
+    # Snapshot pre-blend per apprendimento alpha da log; alpha effettivo da storico.
+    _xg_h_pre_prev = 0.0
+    _xg_a_pre_prev = 0.0
+    _prev_lambda_h = 0.0
+    _prev_lambda_a = 0.0
     if state.minuto == 0:
-        _prev_alpha = 0.15
-        # xG casa: media tra gol che la casa segna e gol che la trasferta subisce
+        from src.models.parameter_learning import effective_prev_scores_alpha
+
+        _xg_h_pre_prev = xg_h_blend
+        _xg_a_pre_prev = xg_a_blend
+        _prev_alpha = effective_prev_scores_alpha()
         if state.prev_avg_scored_h > 0 and state.prev_avg_conceded_a > 0:
             _xg_h_from_prev = (state.prev_avg_scored_h + state.prev_avg_conceded_a) / 2.0
+            _prev_lambda_h = _xg_h_from_prev
             xg_h_blend = (1.0 - _prev_alpha) * xg_h_blend + _prev_alpha * _xg_h_from_prev
-        # xG trasferta: media tra gol che la trasferta segna e gol che la casa subisce
         if state.prev_avg_scored_a > 0 and state.prev_avg_conceded_h > 0:
             _xg_a_from_prev = (state.prev_avg_scored_a + state.prev_avg_conceded_h) / 2.0
+            _prev_lambda_a = _xg_a_from_prev
             xg_a_blend = (1.0 - _prev_alpha) * xg_a_blend + _prev_alpha * _xg_a_from_prev
-        # Floor di sicurezza
         xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
         xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
 
@@ -972,7 +996,7 @@ def analizza(
             _w_cop /= _w_sum
             _w_mk /= _w_sum
 
-    _w_bp, _w_cop, _w_mk = blend_consensus_weights_with_history(
+    _w_1x2, _w_ou, _w_consensus_btts = blend_consensus_weights_with_history(
         state.minuto, _w_bp, _w_cop, _w_mk
     )
     _per_raw = per_model_market_probs(
@@ -983,13 +1007,17 @@ def analizza(
     consensus_probs = compute_consensus(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
-        weights=(_w_bp, _w_cop, _w_mk),
+        weights=_w_1x2,
+        weights_ou=_w_ou,
+        weights_btts=_w_consensus_btts,
     )
     # O/U 1.5: stesso consensus (gol totali ≥2 vs ≤1). H2H "Over %" Nowgoal è tipicamente su 2.5 → non blendare qui.
     consensus_probs_15 = compute_consensus(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, 1.5,
-        weights=(_w_bp, _w_cop, _w_mk),
+        weights=_w_1x2,
+        weights_ou=_w_ou,
+        weights_btts=_w_consensus_btts,
     )
     _raw_o15 = consensus_probs_15["p_over"]
     p_over_15 = (
@@ -1002,7 +1030,9 @@ def analizza(
     consensus_probs_25 = compute_consensus(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, 2.5,
-        weights=(_w_bp, _w_cop, _w_mk),
+        weights=_w_1x2,
+        weights_ou=_w_ou,
+        weights_btts=_w_consensus_btts,
     )
     _raw_o25 = consensus_probs_25["p_over"]
     p_over_25_ref = (
@@ -1068,8 +1098,8 @@ def analizza(
             # #3: Peso scalato per qualità dell'overround BTTS
             _quality_btts = 1.0 - min(OCR_QUOTES.BTTS_QUALITY_MAX_PENALTY,
                                        max(0.0, (_overround_btts - 1.0) * OCR_QUOTES.BTTS_QUALITY_OVERROUND_RATE))
-            _w_btts = OCR_QUOTES.BTTS_PRIOR_WEIGHT * _quality_btts
-            p_btts = (1.0 - _w_btts) * p_btts + _w_btts * _p_gg_ocr
+            _w_btts_quote = OCR_QUOTES.BTTS_PRIOR_WEIGHT * _quality_btts
+            p_btts = (1.0 - _w_btts_quote) * p_btts + _w_btts_quote * _p_gg_ocr
 
     # 9c. Post-consensus 1X2 correction da market initial odds e H2H prior (solo prematch).
     # Due segnali indipendenti dal modello Poisson/Copula/Markov vengono blended
@@ -1149,8 +1179,10 @@ def analizza(
 
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
     # Fix #2.7: Usa funzione helper per costruire la matrice consensus (pesi dinamici)
-    full_consensus = _build_consensus_matrix(full_bp, full_copula, full_markov,
-                                              _w_bp, _w_cop, _w_mk)
+    full_consensus = _build_consensus_matrix(
+        full_bp, full_copula, full_markov,
+        _w_1x2[0], _w_1x2[1], _w_1x2[2],
+    )
     full_matrix = full_consensus if full_consensus else full_bp
     top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
 
@@ -1274,9 +1306,15 @@ def analizza(
         lines_need_update=lines_need_update,
         market_divergence=_market_divergence,
         market_shock=market_shock,
-        consensus_w_bp=_w_bp,
-        consensus_w_cop=_w_cop,
-        consensus_w_mk=_w_mk,
+        consensus_w_bp=_w_1x2[0],
+        consensus_w_cop=_w_1x2[1],
+        consensus_w_mk=_w_1x2[2],
+        consensus_w_ou_bp=_w_ou[0],
+        consensus_w_ou_cop=_w_ou[1],
+        consensus_w_ou_mk=_w_ou[2],
+        consensus_w_btts_bp=_w_consensus_btts[0],
+        consensus_w_btts_cop=_w_consensus_btts[1],
+        consensus_w_btts_mk=_w_consensus_btts[2],
         p1_bp=_per_raw["bp"]["p1"],
         px_bp=_per_raw["bp"]["px"],
         p2_bp=_per_raw["bp"]["p2"],
@@ -1286,4 +1324,15 @@ def analizza(
         p1_mk=_per_raw["markov"]["p1"],
         px_mk=_per_raw["markov"]["px"],
         p2_mk=_per_raw["markov"]["p2"],
+        p_over_bp=_per_raw["bp"]["p_over"],
+        p_over_cop=_per_raw["copula"]["p_over"],
+        p_over_mk=_per_raw["markov"]["p_over"],
+        p_btts_bp=_per_raw["bp"]["p_btts"],
+        p_btts_cop=_per_raw["copula"]["p_btts"],
+        p_btts_mk=_per_raw["markov"]["p_btts"],
+        xg_h_pre_prev_blend=_xg_h_pre_prev,
+        xg_a_pre_prev_blend=_xg_a_pre_prev,
+        prev_lambda_h=_prev_lambda_h,
+        prev_lambda_a=_prev_lambda_a,
+        pipeline_ci_tightness=ci_tightness_score(credible_intervals),
     )
