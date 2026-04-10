@@ -1190,6 +1190,7 @@ def analizza(
     credible_intervals = compute_model_credible_intervals(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
+        weights=_w_1x2,
     )
 
     # 12. Accordo tra modelli: se i 3 modelli concordano, agreement → 1.0

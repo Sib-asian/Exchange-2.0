@@ -239,6 +239,8 @@ def compute_model_credible_intervals(
     gol_casa: int,
     gol_trasf: int,
     linea_ou: float,
+    *,
+    weights: tuple[float, float, float] | None = None,
 ) -> dict[str, tuple[float, float]]:
     """
     Calcola intervalli di credibilità basati sullo spread tra modelli.
@@ -246,6 +248,9 @@ def compute_model_credible_intervals(
     Lo spread naturale tra modelli diversi è un indicatore di incertezza:
     - Modelli concordi → CI stretto → alta fiducia
     - Modelli discordi → CI largo → bassa fiducia
+
+    Args:
+        weights: pesi (bp, cop, mk) come nel consensus effettivo; se None → pesi fase MID.
 
     Returns:
         Dict {mercato: (ci_low, ci_high)} per ogni mercato.
@@ -259,8 +264,15 @@ def compute_model_credible_intervals(
     # Approccio migliorato: CI = consensus ± k*σ_pesata
     #   - k=1.5: copre ~87% di una distribuzione normale → conservativo ma non esagerato
     #   - I 3 modelli non sono indipendenti (stessi input) → non usare k=2 (troppo largo)
-    # I pesi riflettono l'affidabilità relativa dei modelli.
-    _W = [CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID]
+    # I pesi allineati al consensus evitano CI incoerenti con pesi MID fissi in prematch.
+    if weights is not None:
+        ws = float(weights[0]) + float(weights[1]) + float(weights[2])
+        if ws > 1e-12:
+            _W = [float(weights[0]) / ws, float(weights[1]) / ws, float(weights[2]) / ws]
+        else:
+            _W = [CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID]
+    else:
+        _W = [CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID]
     _K = 1.5   # fattore di copertura (0.87 prob)
 
     ci: dict[str, tuple[float, float]] = {}
