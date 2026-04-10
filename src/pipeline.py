@@ -107,6 +107,32 @@ def run_analysis_pipeline(
         except Exception:
             pass  # Parameter learning is best-effort
 
+    # Upgrade 8-7: Ottimizzazione automatica iperparametri.
+    # Se il prediction_log ha abbastanza dati, ottimizza i parametri chiave
+    # (draw shrinkage, H2H alpha, logistic alpha) via grid search sul Brier score.
+    if state.minuto == 0:
+        try:
+            from src.models.hyperparameter_tuning import tune_hyperparameters
+            _tuned = tune_hyperparameters()
+            if _tuned and "logistic_alpha_over" in _tuned:
+                import math as _hp_math
+                _la = _tuned["logistic_alpha_over"]
+                if abs(_la - 1.03) > 0.005:
+                    # Applica logistic sharpening ottimizzato su O/U
+                    _p = max(1e-9, min(1.0 - 1e-9, risultati.p_over))
+                    _logit = _hp_math.log(_p / (1.0 - _p))
+                    _p_cal = 1.0 / (1.0 + _hp_math.exp(-(_la * _logit)))
+                    _delta = _p_cal - risultati.p_over
+                    # Cap the adjustment to ±5%
+                    _delta = max(-0.05, min(0.05, _delta))
+                    risultati = replace(
+                        risultati,
+                        p_over=risultati.p_over + _delta,
+                        p_under=risultati.p_under - _delta,
+                    )
+        except Exception:
+            pass  # Hyperparameter tuning is best-effort
+
     q1, qx, q2, qo, qu, qb, qo15, qu15 = shrink_outcome_probs(
         risultati.p1,
         risultati.px,
