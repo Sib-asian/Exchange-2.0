@@ -465,12 +465,12 @@ def analizza(
     from src.markets.result import calcola_correct_score
     from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
     from src.models.consensus import (
-        _logistic_sharpen,
         agreement_1x2_from_per_raw,
         calibrate_probabilities,
         compute_consensus,
         compute_model_credible_intervals,
         compute_model_market_divergence,
+        logistic_sharpen_over,
         per_model_market_probs,
     )
     from src.models.ensemble_adaptive import blend_consensus_weights_with_history
@@ -853,8 +853,12 @@ def analizza(
             + _theta_shot,
         ),
     )
-    nu_dynamic = max(CMP.NU_MIN, min(CMP.NU_MAX,
-                                     CMP.NU + CMP.NU_TOT_SCALE * (tot_cur_eff - CMP.NU_TOT_REF)))
+    nu_dynamic = CMP.NU + CMP.NU_TOT_SCALE * (tot_cur_eff - CMP.NU_TOT_REF)
+    if state.minuto == 0 and state.strength_home > 0 and state.strength_away > 0:
+        _sd = abs(float(state.strength_home) - float(state.strength_away))
+        _dom = min(1.0, _sd / max(CMP.NU_STRENGTH_REF, 1e-6))
+        nu_dynamic -= CMP.NU_STRENGTH_SCALE * _dom
+    nu_dynamic = max(CMP.NU_MIN, min(CMP.NU_MAX, nu_dynamic))
 
     # 6. Esegui i 3 modelli in parallelo per performance
     # Ogni modello è computazionalmente indipendente → parallelizzazione efficace
@@ -988,7 +992,7 @@ def analizza(
     )
     _raw_o15 = consensus_probs_15["p_over"]
     p_over_15 = (
-        _logistic_sharpen(_raw_o15, alpha=CONSENSUS.LOGISTIC_ALPHA_OVER)
+        logistic_sharpen_over(_raw_o15)
         if _raw_o15 not in (0.0, 1.0)
         else _raw_o15
     )
@@ -1001,7 +1005,7 @@ def analizza(
     )
     _raw_o25 = consensus_probs_25["p_over"]
     p_over_25_ref = (
-        _logistic_sharpen(_raw_o25, alpha=CONSENSUS.LOGISTIC_ALPHA_OVER)
+        logistic_sharpen_over(_raw_o25)
         if _raw_o25 not in (0.0, 1.0)
         else _raw_o25
     )

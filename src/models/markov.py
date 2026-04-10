@@ -17,7 +17,11 @@ Vantaggi:
 
 from __future__ import annotations
 
-from src.config import DC, DECAY
+from src.config import DECAY
+
+# Dixon–Coles tau applicato una solta sulla distribuzione finale (non per minuto):
+# evita la compounding ~90× sugli stati bassi (0,0)/(1,0)/(0,1).
+from src.models.poisson import dixon_coles_tau
 
 
 # Moltiplicatore per l'effetto pressing (coerente con time_decay.py)
@@ -41,10 +45,9 @@ def markov_score_distribution(
     Propaga minuto per minuto dalla situazione attuale, con rates che
     dipendono dallo stato del punteggio (score-dependent).
 
-    Fix #9: aggiunge approssimazione della correlazione Dixon-Coles.
-    rho_dc < 0 → le squadre tendono a NON segnare simultaneamente.
-    Implementato come correzione della probabilità di doppio gol nello stesso minuto:
-    il joint rate viene scalato per (1 + rho_dc * cap) per i punteggi bassi.
+    Correlazione Dixon–Coles: dopo la propagazione, si applica la tau-correction
+    standard (come in poisson.dixon_coles_tau) una sola volta sulla PMF finale.
+    Non più a ogni minuto sugli stati bassi — evitava compounding eccessivo su P(0,0).
 
     Args:
         mu_h: Lambda casa (gol rimanenti attesi).
@@ -66,12 +69,6 @@ def markov_score_distribution(
     base_rate_h = max(0.0, mu_h / minutes_remaining)
     base_rate_a = max(0.0, mu_a / minutes_remaining)
 
-    # Fattore correlazione DC: rho_dc < 0 → penalizza i gol simultanei.
-    # Si applica solo a punteggi bassi (totale ≤ 1), coerente con la tau-correction DC.
-    # Ai punteggi alti il fattore converge a 1.0 (nessuna correzione).
-    # DC_CORR_FLOOR evita correzioni troppo aggressive che rompono la normalizzazione.
-    dc_corr_low = max(DC.DC_CORR_FLOOR, 1.0 + rho_dc)   # correzione per punteggi bassi (0-0, 1-0, 0-1)
-
     # Stato iniziale: (0, 0) gol rimanenti
     states: dict[tuple[int, int], float] = {(0, 0): 1.0}
 
@@ -92,17 +89,6 @@ def markov_score_distribution(
             # Probabilità di transizione base (cap per evitare > 1)
             p_h_raw = min(0.20, lh * dt)
             p_a_raw = min(0.20, la * dt)
-
-            # Correzione DC per punteggi bassi: quando rho_dc < 0 (correlazione
-            # negativa) i punteggi bassi (0-0) sono PIÙ probabili rispetto alla Poisson
-            # indipendente, e 1-1 è MENO probabile.
-            # In termini di Markov: a stati (gh,ga) bassi riduco la probabilità di
-            # segnare (→ più prob di restare a 0-0), coerente con la tau-correction DC.
-            if gh <= 1 and ga <= 1:
-                # rho_dc < 0 → dc_corr_low < 1 → (1 - dc_corr_low) > 0 → riduco marginals.
-                joint_reduction = p_h_raw * p_a_raw * (1.0 - dc_corr_low)
-                p_h_raw = max(0.0, p_h_raw - joint_reduction * 0.5)
-                p_a_raw = max(0.0, p_a_raw - joint_reduction * 0.5)
 
             p_h = p_h_raw
             p_a = p_a_raw
@@ -128,5 +114,15 @@ def markov_score_distribution(
     total = sum(states.values())
     if total > 0:
         states = {k: v / total for k, v in states.items()}
+
+    # Dixon–Coles (tau) una sola volta sulla PMF dei gol rimanenti, coerente con poisson.py.
+    if abs(rho_dc) > 1e-12:
+        _adj: dict[tuple[int, int], float] = {}
+        for (i, j), pij in states.items():
+            tau_ij = dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=rho_dc)
+            _adj[(i, j)] = max(0.0, pij * tau_ij)
+        _s = sum(_adj.values())
+        if _s > 1e-18:
+            states = {k: v / _s for k, v in _adj.items()}
 
     return states

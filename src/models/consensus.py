@@ -321,9 +321,9 @@ def calibrate_probabilities(
     # 2. Logistic sharpening leggero per O/U e BTTS
     # Fix #1.10: Usa α dal config invece di hardcoded
     # Preserva valori esatti 0.0 / 1.0 per mercati già settled
-    p_over_cal = p_over if p_over in (0.0, 1.0) else _logistic_sharpen(p_over, alpha=CONSENSUS.LOGISTIC_ALPHA_OVER)
+    p_over_cal = p_over if p_over in (0.0, 1.0) else logistic_sharpen_over(p_over)
     p_under_cal = 1.0 - p_over_cal
-    p_btts_cal = p_btts if p_btts in (0.0, 1.0) else _logistic_sharpen(p_btts, alpha=CONSENSUS.LOGISTIC_ALPHA_BTTS)
+    p_btts_cal = p_btts if p_btts in (0.0, 1.0) else logistic_sharpen_btts(p_btts)
 
     return p1_cal, px_cal, p2_cal, p_over_cal, p_under_cal, p_btts_cal
 
@@ -342,6 +342,53 @@ def _logistic_sharpen(p: float, alpha: float = 1.03) -> float:
     logit = math.log(p / (1.0 - p))
     cal_logit = alpha * logit
     return 1.0 / (1.0 + math.exp(-cal_logit))
+
+
+def _logistic_sharpen_tails(
+    p: float,
+    *,
+    alpha_mid: float,
+    alpha_high: float,
+    alpha_low: float,
+    p_threshold_high: float,
+    p_threshold_low: float,
+) -> float:
+    """α più alto vicino a 1, più basso vicino a 0 (calibrazione empirica code)."""
+    if p in (0.0, 1.0):
+        return p
+    if p >= p_threshold_high:
+        w = min(1.0, (p - p_threshold_high) / max(1e-9, 1.0 - p_threshold_high))
+        alpha = alpha_mid + w * (alpha_high - alpha_mid)
+    elif p <= p_threshold_low:
+        w = min(1.0, (p_threshold_low - p) / max(1e-9, p_threshold_low))
+        alpha = alpha_mid + w * (alpha_low - alpha_mid)
+    else:
+        alpha = alpha_mid
+    return _logistic_sharpen(p, alpha=alpha)
+
+
+def logistic_sharpen_over(p: float) -> float:
+    """Sharpening O/U: code alta più aggressive, bassa più soft."""
+    return _logistic_sharpen_tails(
+        p,
+        alpha_mid=CONSENSUS.LOGISTIC_ALPHA_OVER,
+        alpha_high=CONSENSUS.LOGISTIC_ALPHA_OVER_HIGH,
+        alpha_low=CONSENSUS.LOGISTIC_ALPHA_OVER_LOW,
+        p_threshold_high=CONSENSUS.LOGISTIC_EXTREME_HIGH,
+        p_threshold_low=CONSENSUS.LOGISTIC_EXTREME_LOW,
+    )
+
+
+def logistic_sharpen_btts(p: float) -> float:
+    """Sharpening BTTS con stessa logica asimmetrica."""
+    return _logistic_sharpen_tails(
+        p,
+        alpha_mid=CONSENSUS.LOGISTIC_ALPHA_BTTS,
+        alpha_high=CONSENSUS.LOGISTIC_ALPHA_BTTS_HIGH,
+        alpha_low=CONSENSUS.LOGISTIC_ALPHA_BTTS_LOW,
+        p_threshold_high=CONSENSUS.LOGISTIC_EXTREME_HIGH,
+        p_threshold_low=CONSENSUS.LOGISTIC_EXTREME_LOW,
+    )
 
 
 # ---------------------------------------------------------------------------
