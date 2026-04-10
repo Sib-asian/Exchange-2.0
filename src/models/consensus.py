@@ -116,6 +116,40 @@ def _p_under_from_matrix(
 # Consensus multi-modello
 # ---------------------------------------------------------------------------
 
+def blend_matrices(
+    full_bp: dict[tuple[int, int], float],
+    full_copula: dict[tuple[int, int], float],
+    full_markov: dict[tuple[int, int], float],
+    weights: tuple[float, float, float] = (0.50, 0.30, 0.20),
+) -> dict[tuple[int, int], float]:
+    """
+    Blend 3 score matrices into a single coherent probability distribution.
+
+    Instead of deriving per-model probabilities and averaging (which violates
+    probability axioms when marginals disagree), this blends the underlying
+    matrices FIRST, then all markets are derived from one consistent distribution.
+
+    Returns:
+        Single blended matrix, normalized to sum=1.
+    """
+    w_bp, w_cop, w_mk = weights
+    blended: dict[tuple[int, int], float] = {}
+
+    all_keys = set(full_bp) | set(full_copula) | set(full_markov)
+    for key in all_keys:
+        blended[key] = (
+            w_bp * full_bp.get(key, 0.0)
+            + w_cop * full_copula.get(key, 0.0)
+            + w_mk * full_markov.get(key, 0.0)
+        )
+
+    total = sum(blended.values())
+    if total > 0:
+        blended = {k: v / total for k, v in blended.items()}
+
+    return blended
+
+
 def compute_consensus(
     full_bp: dict[tuple[int, int], float],
     full_copula: dict[tuple[int, int], float],
@@ -126,7 +160,10 @@ def compute_consensus(
     weights: tuple[float, float, float] = (0.50, 0.30, 0.20),
 ) -> dict[str, float]:
     """
-    Calcola le probabilità consensus come media pesata di 3 modelli.
+    Calcola le probabilità consensus blendando le matrici PRIMA di derivare i mercati.
+
+    Questo garantisce coerenza cross-market: 1X2, O/U, BTTS escono tutti dalla
+    stessa distribuzione congiunta → P(Over) implicata dal 1X2 == P(Over) diretto.
 
     Args:
         full_bp: Matrice dal modello bivariate Poisson + DC.
@@ -139,35 +176,16 @@ def compute_consensus(
     Returns:
         Dict con probabilità consensus per tutti i mercati.
     """
-    probs_bp = _probs_from_matrix(full_bp, gol_casa, gol_trasf, linea_ou)
-    probs_copula = _probs_from_matrix(full_copula, gol_casa, gol_trasf, linea_ou)
-    probs_markov = _probs_from_matrix(full_markov, gol_casa, gol_trasf, linea_ou)
+    blended = blend_matrices(full_bp, full_copula, full_markov, weights)
 
-    w_bp, w_cop, w_mk = weights
-    consensus: dict[str, float] = {}
+    # Applica overdispersion alla matrice blended PRIMA di derivare i mercati.
+    # Garantisce coerenza: 1X2, O/U, BTTS, CS usano tutti la stessa distribuzione corretta.
+    from src.markets.result import apply_overdispersion
+    blended = apply_overdispersion(blended)
 
-    for key in probs_bp:
-        consensus[key] = (
-            w_bp * probs_bp[key]
-            + w_cop * probs_copula[key]
-            + w_mk * probs_markov[key]
-        )
-
-    # Normalizza 1X2
-    sum_1x2 = consensus["p1"] + consensus["px"] + consensus["p2"]
-    if sum_1x2 > 0:
-        consensus["p1"] /= sum_1x2
-        consensus["px"] /= sum_1x2
-        consensus["p2"] /= sum_1x2
-
-    # Normalizza O/U
-    sum_ou = consensus["p_over"] + consensus["p_under"]
-    if sum_ou > 0:
-        consensus["p_over"] /= sum_ou
-        consensus["p_under"] /= sum_ou
+    consensus = _probs_from_matrix(blended, gol_casa, gol_trasf, linea_ou)
 
     # Clamp BTTS (snap to exact 1.0/0.0 for settled markets)
-    # Fix #6.2: Usa BTTS_CLAMP_EPSILON dal config invece di hardcoded 1e-12
     btts_raw = consensus["p_btts"]
     if btts_raw > 1.0 - CONSENSUS.BTTS_CLAMP_EPSILON:
         consensus["p_btts"] = 1.0

@@ -163,7 +163,11 @@ def rho_dc_dinamico(
     # Effetto gol: alto punteggio → partita aperta → meno negativo
     goal_factor = max(0.0, 1.0 - gol_totali * DC.RHO_DC_GOAL_DAMPEN)
 
-    rho_dc = DC.RHO_DC_BASE + DC.RHO_DC_TOT_SCALE * tot_factor * goal_factor \
+    # Forma additiva: evita double-counting tra tot_factor e goal_factor
+    # (gol alti correlano con tot alti → l'interazione moltiplicativa sovraccorregge).
+    rho_dc = DC.RHO_DC_BASE \
+        + DC.RHO_DC_TOT_SCALE * tot_factor \
+        + DC.RHO_DC_TOT_SCALE * 0.5 * goal_factor \
         + DC.RHO_DC_TIME_SCALE * time_factor
 
     # #9: Partita tesa (molti gialli) → struttura difensiva → rho_DC più negativo.
@@ -278,12 +282,14 @@ def build_bivariate_matrix(
     rho_dc_val = rho_dc_preset if rho_dc_preset is not None else rho_dc_dinamico(tot_cur, minuto, gol_totali)
 
     # lambda0: correlazione tra gol delle due squadre (componente comune Z)
-    # Media geometrica: sqrt(mu_h * mu_a) è più robusta di min() per partite sbilanciate
+    # Media armonica: 2*mu_h*mu_a/(mu_h+mu_a) è più robusta della geometrica
+    # per matchup asimmetrici (top vs bottom). Con mu_h=3.0, mu_a=0.8:
+    #   geometrica = sqrt(2.4) = 1.55 → sovrastima componente condivisa
+    #   armonica = 2*2.4/3.8 = 1.26 → più conservativa e realistica
     # Cap: lambda0 <= LAMBDA0_CAP_RATIO * min(mu_h, mu_a) (Karlis & Ntzoufras 2003)
-    # Ulteriore sicurezza: lambda0 non può mai superare min(mu_h, mu_a)
-    geom_mu = math.sqrt(mu_h * mu_a)
+    harmon_mu = 2.0 * mu_h * mu_a / (mu_h + mu_a) if (mu_h + mu_a) > 1e-9 else 0.0
     mu_min = min(mu_h, mu_a)
-    lambda0 = min(rho * geom_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
+    lambda0 = min(rho * harmon_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
     lambda0 = max(0.0, lambda0)
 
     mu_h_ind = max(POISSON.EPS, mu_h - lambda0)
@@ -293,9 +299,9 @@ def build_bivariate_matrix(
     pmf_a = poisson_pmf(mu_a_ind)
     pmf_z = poisson_pmf(lambda0)
 
-    # Matrice indipendente con correzione Dixon-Coles
-    joint_ind: dict[tuple[int, int], float] = {}
-    dc_sum = 0.0
+    # Matrice indipendente (senza DC — DC applicato post-convoluzione)
+    joint_ind_raw: dict[tuple[int, int], float] = {}
+    raw_sum = 0.0
 
     for i, pi in enumerate(pmf_h):
         if pi < POISSON.PROB_SKIP_THRESHOLD:
@@ -303,26 +309,47 @@ def build_bivariate_matrix(
         for j, pj in enumerate(pmf_a):
             if pj < POISSON.PROB_SKIP_THRESHOLD:
                 continue
-            tau = dixon_coles_tau(i, j, mu_h_ind, mu_a_ind, rho_dc=rho_dc_val)
-            val = pi * pj * tau
-            joint_ind[(i, j)] = val
-            dc_sum += val
+            val = pi * pj
+            joint_ind_raw[(i, j)] = val
+            raw_sum += val
 
-    if dc_sum > 0:
-        joint_ind = {k: v / dc_sum for k, v in joint_ind.items()}
+    if raw_sum > 0:
+        joint_ind_raw = {k: v / raw_sum for k, v in joint_ind_raw.items()}
 
     # Matrice full: convoluzione con Z
     # P(X_rem=a, Y_rem=b) = sum_z P(X_ind=a-z, Y_ind=b-z) * P(Z=z)
     full: dict[tuple[int, int], float] = {}
-    for (i, j), pij in joint_ind.items():
+    for (i, j), pij in joint_ind_raw.items():
         for z, pz in enumerate(pmf_z):
             if pz < POISSON.PROB_SKIP_THRESHOLD:
                 continue
             a, b = i + z, j + z
             full[(a, b)] = full.get((a, b), 0.0) + pij * pz
 
-    fj_sum = sum(full.values())
-    if fj_sum > 0:
-        full = {k: v / fj_sum for k, v in full.items()}
+    # Applica Dixon-Coles alla matrice FULL (post-convoluzione).
+    # Brechot & Flepp (2020): applicare DC alla matrice indipendente e poi
+    # convolverla con Z diluisce la correzione del 10-20%. Applicarlo alla
+    # matrice piena preserva l'intero effetto DC sui punteggi bassi.
+    full_dc: dict[tuple[int, int], float] = {}
+    dc_sum = 0.0
+    for (a, b), p in full.items():
+        tau = dixon_coles_tau(a, b, mu_h, mu_a, rho_dc=rho_dc_val)
+        val = p * tau
+        full_dc[(a, b)] = val
+        dc_sum += val
 
-    return joint_ind, full, rho
+    if dc_sum > 0:
+        full_dc = {k: v / dc_sum for k, v in full_dc.items()}
+
+    # joint_ind con DC per backward compatibility (usato da alcune funzioni)
+    joint_ind: dict[tuple[int, int], float] = {}
+    ji_sum = 0.0
+    for (i, j), pij in joint_ind_raw.items():
+        tau = dixon_coles_tau(i, j, mu_h_ind, mu_a_ind, rho_dc=rho_dc_val)
+        val = pij * tau
+        joint_ind[(i, j)] = val
+        ji_sum += val
+    if ji_sum > 0:
+        joint_ind = {k: v / ji_sum for k, v in joint_ind.items()}
+
+    return joint_ind, full_dc, rho

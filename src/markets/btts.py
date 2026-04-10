@@ -136,12 +136,16 @@ def calibra_btts(
         if defense_strong_h and defense_strong_a:
             adjustment += BTTS_CALIBRATION.BOTH_STRONG_DEFENSE_PENALTY
 
-    # === 3. Calibrazione basata su H2H ===
-    if h2h_btts_pct > 0:
-        # Con pochi H2H il segnale è rumoroso: shrink verso 50%.
-        if h2h_btts_n > 0 and h2h_btts_n < 5:
-            _w = h2h_btts_n / 5.0
-            h2h_btts_pct = 50.0 * (1.0 - _w) + h2h_btts_pct * _w
+    # === 3. Calibrazione basata su H2H (Beta-Binomial posterior) ===
+    if h2h_btts_pct > 0 and h2h_btts_n > 0:
+        # Bayesian shrinkage via Beta-Binomial posterior.
+        # Prior: Beta(1,1) = uniforme → posterior mean = (1 + successi) / (2 + n).
+        # Più conservativo del linear shrinkage per piccoli campioni e converge
+        # naturalmente con campioni grandi.
+        _btts_yes = h2h_btts_pct / 100.0 * h2h_btts_n
+        _btts_no = h2h_btts_n - _btts_yes
+        _posterior_mean = (1.0 + _btts_yes) / (2.0 + h2h_btts_n)
+        h2h_btts_pct = _posterior_mean * 100.0
         if h2h_btts_pct >= BTTS_CALIBRATION.H2H_BTTS_HIGH_THRESHOLD * 100:
             # H2H storico con alto BTTS
             adjustment += BTTS_CALIBRATION.H2H_BTTS_BONUS
@@ -173,12 +177,16 @@ def calibra_btts(
     if clean_sheet_streak_a >= 2:
         adjustment += BTTS_CALIBRATION.RECENT_CLEAN_SHEET_PENALTY
 
-    # === 6. Applica calibrazione ===
-    # La calibrazione è più forte in prematch (minuto=0) e si riduce col tempo
-    # perché la partita stessa fornisce evidenza empirica
+    # === 6. Applica calibrazione (moltiplicativa) ===
+    # Calibrazione moltiplicativa anziché additiva: previene double-counting
+    # con le probabilità già incorporate nella matrice bivariata.
+    # adjustment è convertito in fattore moltiplicativo: +0.04 → ×1.04, -0.03 → ×0.97.
     time_factor = 1.0 if minuto == 0 else max(0.3, 1.0 - minuto / 90.0 * 0.7)
 
-    p_btts_calibrated = p_btts + adjustment * time_factor
+    _mult = 1.0 + adjustment * time_factor / max(0.10, p_btts)
+    # Cap il moltiplicatore per evitare estremi
+    _mult = max(0.80, min(1.25, _mult))
+    p_btts_calibrated = p_btts * _mult
 
     # Clamp finale
     p_btts_calibrated = max(BTTS_CALIBRATION.BTTS_MIN,
