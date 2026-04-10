@@ -37,14 +37,14 @@ class TestAHEVInterpolation:
         """Ai valori half-line, _ah_ev deve coincidere con _ah_ev_half (con lambda0)."""
         # FIX: Ora _ah_ev calcola lambda0 internamente e passa lambda indipendenti
         # a _ah_ev_half. Questo è il comportamento corretto per coerenza col modello.
-        # La differenza rispetto a chiamare _ah_ev_half direttamente con lambda totali
-        # è il bias 2-3% che la correzione elimina.
+        # Usa media armonica per coerenza con il modello bivariato.
         for ah in [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5]:
             ev_interp = _ah_ev(1.3, 0.9, ah)
-            # Calcola lambda0 per ottenere i lambda indipendenti
-            geom_mu = math.sqrt(1.3 * 0.9)
+            # Calcola lambda0 con media armonica (coerente con _ah_ev)
+            _mu_sum = 1.3 + 0.9
+            harmon_mu = 2.0 * 1.3 * 0.9 / _mu_sum
             mu_min = min(1.3, 0.9)
-            lambda0 = min(0.10 * geom_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
+            lambda0 = min(0.10 * harmon_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
             mu_h_ind = max(POISSON.EPS, 1.3 - lambda0)
             mu_a_ind = max(POISSON.EPS, 0.9 - lambda0)
             ev_exact = _ah_ev_half(mu_h_ind, mu_a_ind, ah)
@@ -55,10 +55,11 @@ class TestAHEVInterpolation:
     def test_quarter_lines_split(self):
         """Alle quarter lines standard, EV ≈ media dei due half-lines adiacenti (con correzione curvatura)."""
         mu_h, mu_a = 1.2, 0.8
-        # FIX: Calcola lambda0 per coerenza con la nuova implementazione
-        geom_mu = math.sqrt(mu_h * mu_a)
+        # FIX: Calcola lambda0 con media armonica per coerenza con il modello
+        _mu_sum = mu_h + mu_a
+        harmon_mu = 2.0 * mu_h * mu_a / _mu_sum
         mu_min = min(mu_h, mu_a)
-        lambda0 = min(0.10 * geom_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
+        lambda0 = min(0.10 * harmon_mu, POISSON.LAMBDA0_CAP_RATIO * mu_min, mu_min)
         mu_h_ind = max(POISSON.EPS, mu_h - lambda0)
         mu_a_ind = max(POISSON.EPS, mu_a - lambda0)
 
