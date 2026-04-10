@@ -220,6 +220,7 @@ def run_analysis_pipeline(
             p1=q1,
             p2=q2,
             p_over=qo,
+            px=qx,
         )
         trace.pipeline_log = tuple(plog)
 

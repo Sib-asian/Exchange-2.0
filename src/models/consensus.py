@@ -173,9 +173,8 @@ def compute_consensus(
         full_markov: Matrice dal Markov chain score-state.
         gol_casa, gol_trasf: Gol attuali.
         linea_ou: Linea Over/Under.
-        weights: Pesi dei 3 modelli per 1X2 (somma = 1).
-        weights_ou: Pesi per Over/Under; se None → stessi di `weights`.
-        weights_btts: Pesi per BTTS; se None → stessi di `weights`.
+        weights: Pesi dei 3 modelli per il blend della matrice congiunta (somma = 1).
+        weights_ou, weights_btts: ignorati per il joint blend (retrocompat API / metadata).
 
     Returns:
         Dict con probabilità consensus per tutti i mercati.
