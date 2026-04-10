@@ -98,6 +98,66 @@ def _apply_platt(p: float, a: float, b: float) -> float:
     return 1.0 / (1.0 + math.exp(-(a * logit + b)))
 
 
+def _mean_binary_logloss(pairs: list[tuple[float, float]], a: float, b: float) -> float:
+    if not pairs:
+        return float("inf")
+    tot = 0.0
+    for p, o in pairs:
+        pc = _apply_platt(p, a, b)
+        pc = max(1e-9, min(1.0 - 1e-9, pc))
+        tot += -(o * math.log(pc) + (1.0 - o) * math.log(1.0 - pc))
+    return tot / len(pairs)
+
+
+def _platt_improves_on_holdout(
+    test_pairs: list[tuple[float, float]],
+    a: float,
+    b: float,
+) -> bool:
+    """True se Platt riduce log-loss rispetto all'identità sui dati test."""
+    if len(test_pairs) < 5:
+        return True
+    ll_id = _mean_binary_logloss(test_pairs, 1.0, 0.0)
+    ll_pl = _mean_binary_logloss(test_pairs, a, b)
+    return ll_pl < ll_id - 1e-5
+
+
+def _maps_from_record_list(completed: list) -> dict[str, tuple[float, float]]:
+    maps: dict[str, tuple[float, float]] = {}
+
+    preds_1 = [float(r.p1) for r in completed if r.risultato_1x2 in ("1", "X", "2")]
+    outs_1 = [1.0 if r.risultato_1x2 == "1" else 0.0 for r in completed if r.risultato_1x2 in ("1", "X", "2")]
+    params = _fit_platt_params(preds_1, outs_1)
+    if params:
+        maps["p1"] = params
+
+    preds_x = [float(r.px) for r in completed if r.risultato_1x2 in ("1", "X", "2")]
+    outs_x = [1.0 if r.risultato_1x2 == "X" else 0.0 for r in completed if r.risultato_1x2 in ("1", "X", "2")]
+    params = _fit_platt_params(preds_x, outs_x)
+    if params:
+        maps["px"] = params
+
+    preds_2 = [float(r.p2) for r in completed if r.risultato_1x2 in ("1", "X", "2")]
+    outs_2 = [1.0 if r.risultato_1x2 == "2" else 0.0 for r in completed if r.risultato_1x2 in ("1", "X", "2")]
+    params = _fit_platt_params(preds_2, outs_2)
+    if params:
+        maps["p2"] = params
+
+    preds_over = [float(r.p_over_25) for r in completed if r.over_25_hit is not None]
+    outs_over = [1.0 if r.over_25_hit else 0.0 for r in completed if r.over_25_hit is not None]
+    params = _fit_platt_params(preds_over, outs_over)
+    if params:
+        maps["p_over"] = params
+
+    preds_btts = [float(r.p_btts) for r in completed if r.btts_hit is not None]
+    outs_btts = [1.0 if r.btts_hit else 0.0 for r in completed if r.btts_hit is not None]
+    params = _fit_platt_params(preds_btts, outs_btts)
+    if params:
+        maps["p_btts"] = params
+
+    return maps
+
+
 # ---------------------------------------------------------------------------
 # Calibrazione per mercato
 # ---------------------------------------------------------------------------
@@ -106,61 +166,101 @@ def build_calibration_maps() -> dict[str, tuple[float, float]]:
     """
     Costruisce le mappe di calibrazione Platt per ogni mercato.
 
-    Usa i PredictionRecord completati dal prediction_log.
+    Con abbastanza storico, fit su porzione temporale anteriore e valida sull'holdout
+    recente (ordine timestamp); tiene solo mercati che migliorano log-loss sul test.
 
     Returns:
         Dict {mercato: (a, b)} per ogni mercato con dati sufficienti.
-        Mercati senza dati sufficienti non appaiono nel dict.
     """
     try:
+        from src.config import PRECISION
         from src.tracking.prediction_log import get_prediction_log
 
         log = get_prediction_log()
-        completed = [r for r in log.get_completed() if r.is_prematch and r.is_completed()]
+        completed = sorted(
+            (r for r in log.get_completed() if r.is_prematch and r.is_completed()),
+            key=lambda r: r.timestamp,
+        )
     except Exception:
         return {}
 
     if len(completed) < MIN_RECORDS_FOR_CALIBRATION:
         return {}
 
-    maps: dict[str, tuple[float, float]] = {}
+    n = len(completed)
+    min_tot = int(PRECISION.CALIBRATION_TEMPORAL_MIN_TOTAL)
+    min_test = int(PRECISION.CALIBRATION_TEMPORAL_MIN_TEST)
+    train_frac = float(PRECISION.CALIBRATION_TEMPORAL_TRAIN_FRAC)
 
-    # 1X2 — Home win
-    preds_1 = [float(r.p1) for r in completed if r.risultato_1x2 in ("1", "X", "2")]
-    outs_1 = [1.0 if r.risultato_1x2 == "1" else 0.0 for r in completed if r.risultato_1x2 in ("1", "X", "2")]
-    params = _fit_platt_params(preds_1, outs_1)
-    if params:
-        maps["p1"] = params
+    if n < min_tot or n - int(n * train_frac) < min_test:
+        return _maps_from_record_list(list(completed))
 
-    # 1X2 — Draw
-    preds_x = [float(r.px) for r in completed if r.risultato_1x2 in ("1", "X", "2")]
-    outs_x = [1.0 if r.risultato_1x2 == "X" else 0.0 for r in completed if r.risultato_1x2 in ("1", "X", "2")]
-    params = _fit_platt_params(preds_x, outs_x)
-    if params:
-        maps["px"] = params
+    split = max(MIN_RECORDS_FOR_CALIBRATION, int(n * train_frac))
+    train = list(completed[:split])
+    test = list(completed[split:])
+    if len(test) < min_test:
+        return _maps_from_record_list(list(completed))
 
-    # 1X2 — Away win
-    preds_2 = [float(r.p2) for r in completed if r.risultato_1x2 in ("1", "X", "2")]
-    outs_2 = [1.0 if r.risultato_1x2 == "2" else 0.0 for r in completed if r.risultato_1x2 in ("1", "X", "2")]
-    params = _fit_platt_params(preds_2, outs_2)
-    if params:
-        maps["p2"] = params
+    maps_train = _maps_from_record_list(train)
+    out: dict[str, tuple[float, float]] = {}
 
-    # Over/Under
-    preds_over = [float(r.p_over_25) for r in completed if r.over_25_hit is not None]
-    outs_over = [1.0 if r.over_25_hit else 0.0 for r in completed if r.over_25_hit is not None]
-    params = _fit_platt_params(preds_over, outs_over)
-    if params:
-        maps["p_over"] = params
+    def _test_pairs_p1() -> list[tuple[float, float]]:
+        return [
+            (float(r.p1), 1.0 if r.risultato_1x2 == "1" else 0.0)
+            for r in test
+            if r.risultato_1x2 in ("1", "X", "2")
+        ]
 
-    # BTTS
-    preds_btts = [float(r.p_btts) for r in completed if r.btts_hit is not None]
-    outs_btts = [1.0 if r.btts_hit else 0.0 for r in completed if r.btts_hit is not None]
-    params = _fit_platt_params(preds_btts, outs_btts)
-    if params:
-        maps["p_btts"] = params
+    def _test_pairs_px() -> list[tuple[float, float]]:
+        return [
+            (float(r.px), 1.0 if r.risultato_1x2 == "X" else 0.0)
+            for r in test
+            if r.risultato_1x2 in ("1", "X", "2")
+        ]
 
-    return maps
+    def _test_pairs_p2() -> list[tuple[float, float]]:
+        return [
+            (float(r.p2), 1.0 if r.risultato_1x2 == "2" else 0.0)
+            for r in test
+            if r.risultato_1x2 in ("1", "X", "2")
+        ]
+
+    def _test_pairs_over() -> list[tuple[float, float]]:
+        return [
+            (float(r.p_over_25), 1.0 if r.over_25_hit else 0.0)
+            for r in test
+            if r.over_25_hit is not None
+        ]
+
+    def _test_pairs_btts() -> list[tuple[float, float]]:
+        return [
+            (float(r.p_btts), 1.0 if r.btts_hit else 0.0)
+            for r in test
+            if r.btts_hit is not None
+        ]
+
+    checks = [
+        ("p1", _test_pairs_p1),
+        ("px", _test_pairs_px),
+        ("p2", _test_pairs_p2),
+        ("p_over", _test_pairs_over),
+        ("p_btts", _test_pairs_btts),
+    ]
+
+    for key, pair_fn in checks:
+        pr = maps_train.get(key)
+        if not pr:
+            continue
+        a, b = pr
+        pairs = [
+            (p, o)
+            for p, o in pair_fn()
+            if 0.01 < p < 0.99
+        ]
+        if _platt_improves_on_holdout(pairs, a, b):
+            out[key] = pr
+
+    return out if out else _maps_from_record_list(list(completed))
 
 
 def apply_calibration(
@@ -171,12 +271,15 @@ def apply_calibration(
     p_under: float,
     p_btts: float,
     cal_maps: dict[str, tuple[float, float]],
+    *,
+    strength: float = 1.0,
 ) -> tuple[float, float, float, float, float, float]:
     """
     Applica la calibrazione Platt alle probabilità.
 
     La correzione è limitata a ±MAX_PLATT_SHIFT per evitare
     overcorrection con pochi campioni.
+    `strength` ∈ [0,1] scala l'entità dello shift (utile se altre calibrazioni hanno già agito).
 
     Returns:
         (p1, px, p2, p_over, p_under, p_btts) calibrate.
@@ -184,13 +287,14 @@ def apply_calibration(
     if not cal_maps:
         return p1, px, p2, p_over, p_under, p_btts
 
+    st = max(0.0, min(1.0, float(strength)))
+
     def _safe_apply(p: float, key: str) -> float:
         if key not in cal_maps or p <= 0.001 or p >= 0.999:
             return p
         a, b = cal_maps[key]
         p_cal = _apply_platt(p, a, b)
-        # Limita lo shift massimo
-        shift = p_cal - p
+        shift = (p_cal - p) * st
         shift = max(-MAX_PLATT_SHIFT, min(MAX_PLATT_SHIFT, shift))
         return max(0.001, min(0.999, p + shift))
 

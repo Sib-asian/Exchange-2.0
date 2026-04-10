@@ -157,7 +157,7 @@ if _btn_prematch or _btn_live:
 
         _cov_pipe = float(_coverage) if (state.minuto == 0 and _pa) else 1.0
         try:
-            risultati, _cal_sig = run_analysis_pipeline(
+            risultati, _cal_sig, _pipe_trace = run_analysis_pipeline(
                 state,
                 league=_lega,
                 apply_prematch_calibration=(state.minuto == 0),
@@ -187,6 +187,11 @@ if _btn_prematch or _btn_live:
                     )
             else:
                 st.caption("Calibrazione prematch non applicata (lega non disponibile).")
+
+            if _pipe_trace is not None:
+                with st.expander("🔬 Traccia pipeline prematch", expanded=False):
+                    for line in _pipe_trace.summary_lines():
+                        st.caption(line)
 
         if state.minuto == 0:
             st.session_state["prematch_last_model_1x2"] = {
@@ -299,6 +304,16 @@ if _btn_prematch or _btn_live:
         "p1_mk": float(risultati.p1_mk),
         "px_mk": float(risultati.px_mk),
         "p2_mk": float(risultati.p2_mk),
+        "p_over_bp": float(risultati.p_over_bp),
+        "p_over_cop": float(risultati.p_over_cop),
+        "p_over_mk": float(risultati.p_over_mk),
+        "p_btts_bp": float(risultati.p_btts_bp),
+        "p_btts_cop": float(risultati.p_btts_cop),
+        "p_btts_mk": float(risultati.p_btts_mk),
+        "xg_h_pre_prev": float(risultati.xg_h_pre_prev_blend),
+        "xg_a_pre_prev": float(risultati.xg_a_pre_prev_blend),
+        "prev_lambda_h": float(risultati.prev_lambda_h),
+        "prev_lambda_a": float(risultati.prev_lambda_a),
         "quote_source": _quote_source,
     }
     _tracking_record = create_record_from_analysis(
@@ -447,6 +462,8 @@ if _btn_prematch or _btn_live:
             gol_casa=_gol_h,
             gol_trasf=_gol_a,
             signals_blocked=bool(getattr(risultati, "signals_blocked", False)),
+            ci_tightness=float(getattr(risultati, "pipeline_ci_tightness", 0.55)),
+            credible_intervals=getattr(risultati, "credible_intervals", None) or None,
         )
         if _settled.get("ou_vinto"):
             segnali_av = [s for s in segnali_av if "OVER" not in s.mercato.upper() and "UNDER" not in s.mercato.upper()]

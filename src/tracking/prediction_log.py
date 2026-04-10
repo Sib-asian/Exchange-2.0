@@ -132,6 +132,18 @@ class PredictionRecord:
     p1_mk: float = 0.0
     px_mk: float = 0.0
     p2_mk: float = 0.0
+    # Over / BTTS per modello (ensemble adattivo su mercati oltre 1X2)
+    p_over_bp: float = 0.0
+    p_over_cop: float = 0.0
+    p_over_mk: float = 0.0
+    p_btts_bp: float = 0.0
+    p_btts_cop: float = 0.0
+    p_btts_mk: float = 0.0
+    # Previous-scores blend (apprendimento alpha su xG)
+    xg_h_pre_prev: float = 0.0
+    xg_a_pre_prev: float = 0.0
+    prev_lambda_h: float = 0.0
+    prev_lambda_a: float = 0.0
     # Optional closing market snapshots (for CLV proxy)
     quota_1_close: float = 0.0
     quota_x_close: float = 0.0
@@ -434,6 +446,16 @@ def create_record_from_analysis(
         p1_mk=float(meta.get("p1_mk", 0.0)),
         px_mk=float(meta.get("px_mk", 0.0)),
         p2_mk=float(meta.get("p2_mk", 0.0)),
+        p_over_bp=float(meta.get("p_over_bp", 0.0)),
+        p_over_cop=float(meta.get("p_over_cop", 0.0)),
+        p_over_mk=float(meta.get("p_over_mk", 0.0)),
+        p_btts_bp=float(meta.get("p_btts_bp", 0.0)),
+        p_btts_cop=float(meta.get("p_btts_cop", 0.0)),
+        p_btts_mk=float(meta.get("p_btts_mk", 0.0)),
+        xg_h_pre_prev=float(meta.get("xg_h_pre_prev", 0.0)),
+        xg_a_pre_prev=float(meta.get("xg_a_pre_prev", 0.0)),
+        prev_lambda_h=float(meta.get("prev_lambda_h", 0.0)),
+        prev_lambda_a=float(meta.get("prev_lambda_a", 0.0)),
         quota_1_close=float(quotes.get("quota_1_close", 0.0)),
         quota_x_close=float(quotes.get("quota_x_close", 0.0)),
         quota_2_close=float(quotes.get("quota_2_close", 0.0)),

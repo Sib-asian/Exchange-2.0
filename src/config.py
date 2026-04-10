@@ -7,6 +7,9 @@ Modificare solo qui: nessuna costante hardcodata nei moduli.
 
 from dataclasses import dataclass
 
+# Versione unica app / motore (UI.VERSION e ENGINE.MODEL_REVISION devono coincidere).
+MODEL_APP_VERSION: str = "2.0-phase3-seven-upgrades"
+
 
 @dataclass(frozen=True)
 class PoissonConfig:
@@ -384,6 +387,10 @@ class KellyConfig:
     # Riduzione senza dati tiri live
     KELLY_NO_SHOTS_REDUCTION: float = 0.05
 
+    # Intervalli di credibilità stretti (modelli concordi) → meno riduzione Kelly.
+    # tightness ∈ [0,1] da credible_intervals; blend verso 1.0 = nessuna penalità CI.
+    KELLY_CI_BLEND: float = 0.24
+
     # Floor assoluto della frazione Kelly
     KELLY_MIN_FRACTION: float = 0.20
 
@@ -593,7 +600,7 @@ class UIConfig:
 
     PAGE_TITLE: str = "Radar Pro Live"
     PAGE_ICON: str = "⚡"
-    VERSION: str = "2.0.0"
+    VERSION: str = MODEL_APP_VERSION
     LAYOUT: str = "centered"
 
     # Linee U/O disponibili nel selectbox (step 0.25 per coprire Asian quarter lines).
@@ -850,7 +857,7 @@ class EngineConfig:
     BLEND_CONF_NORMAL: float = 0.50
 
     # Revisione motore / pipeline (tracking, champion–challenger, audit log).
-    MODEL_REVISION: str = "2.0-phase2-unified"
+    MODEL_REVISION: str = MODEL_APP_VERSION
     # Live recalibration: peso sul totale implicito (gol fatti + tot_cur rimanente) vs prior tot_op lineare.
     LIVE_RECAL_MARKET_BLEND: float = 0.58
 
@@ -1131,6 +1138,18 @@ class PrecisionConfig:
     # Micro-correzione draw da learn_draw_shrinkage: i record sono già post-engine shrink;
     # scala la delta rispetto al baseline CONSENSUS.DRAW_SHRINKAGE per evitare doppio intervento forte.
     PARAMETER_LEARNING_DRAW_MICRO_SCALE: float = 0.42
+
+    # Riduce forza Platt quando la calibrazione per lega ha già peso alto (anti doppia correzione).
+    PLATT_STRENGTH_DAMP_PER_LEAGUE_WEIGHT: float = 0.38
+    PLATT_STRENGTH_FLOOR: float = 0.34
+
+    # Contributo firewall qualità da intervalli credibilità stretti (prematch).
+    CI_QUALITY_FIREWALL_WEIGHT: float = 0.088
+
+    # Platt con holdout temporale (ordine timestamp): tieni mappa solo se migliora log-loss sul test.
+    CALIBRATION_TEMPORAL_TRAIN_FRAC: float = 0.72
+    CALIBRATION_TEMPORAL_MIN_TEST: int = 10
+    CALIBRATION_TEMPORAL_MIN_TOTAL: int = 40
 
 
 # Istanze globali immutabili — importare da qui

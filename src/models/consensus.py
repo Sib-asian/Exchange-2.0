@@ -158,6 +158,8 @@ def compute_consensus(
     gol_trasf: int,
     linea_ou: float,
     weights: tuple[float, float, float] = (0.50, 0.30, 0.20),
+    weights_ou: tuple[float, float, float] | None = None,
+    weights_btts: tuple[float, float, float] | None = None,
 ) -> dict[str, float]:
     """
     Calcola le probabilità consensus blendando le matrici PRIMA di derivare i mercati.
@@ -171,15 +173,20 @@ def compute_consensus(
         full_markov: Matrice dal Markov chain score-state.
         gol_casa, gol_trasf: Gol attuali.
         linea_ou: Linea Over/Under.
-        weights: Pesi dei 3 modelli (somma = 1).
+        weights: Pesi dei 3 modelli per 1X2 (somma = 1).
+        weights_ou: Pesi per Over/Under; se None → stessi di `weights`.
+        weights_btts: Pesi per BTTS; se None → stessi di `weights`.
 
     Returns:
         Dict con probabilità consensus per tutti i mercati.
     """
+    # Joint blend usa solo `weights`: una sola matrice → mercati cross-coerenti.
+    # weights_ou / weights_btts restano nell'API per tracking (engine salva pesi OU/BTTS
+    # da storico) ma non alterano la distribuzione congiunta.
+    _ = weights_ou, weights_btts
     blended = blend_matrices(full_bp, full_copula, full_markov, weights)
 
     # Applica overdispersion alla matrice blended PRIMA di derivare i mercati.
-    # Garantisce coerenza: 1X2, O/U, BTTS, CS usano tutti la stessa distribuzione corretta.
     from src.markets.result import apply_overdispersion
     blended = apply_overdispersion(blended)
 
@@ -243,6 +250,8 @@ def compute_model_credible_intervals(
     gol_casa: int,
     gol_trasf: int,
     linea_ou: float,
+    *,
+    weights: tuple[float, float, float] | None = None,
 ) -> dict[str, tuple[float, float]]:
     """
     Calcola intervalli di credibilità basati sullo spread tra modelli.
@@ -250,6 +259,9 @@ def compute_model_credible_intervals(
     Lo spread naturale tra modelli diversi è un indicatore di incertezza:
     - Modelli concordi → CI stretto → alta fiducia
     - Modelli discordi → CI largo → bassa fiducia
+
+    Args:
+        weights: pesi (bp, cop, mk) come nel consensus effettivo; se None → pesi fase MID.
 
     Returns:
         Dict {mercato: (ci_low, ci_high)} per ogni mercato.
@@ -263,8 +275,15 @@ def compute_model_credible_intervals(
     # Approccio migliorato: CI = consensus ± k*σ_pesata
     #   - k=1.5: copre ~87% di una distribuzione normale → conservativo ma non esagerato
     #   - I 3 modelli non sono indipendenti (stessi input) → non usare k=2 (troppo largo)
-    # I pesi riflettono l'affidabilità relativa dei modelli.
-    _W = [CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID]
+    # I pesi allineati al consensus evitano CI incoerenti con pesi MID fissi in prematch.
+    if weights is not None:
+        ws = float(weights[0]) + float(weights[1]) + float(weights[2])
+        if ws > 1e-12:
+            _W = [float(weights[0]) / ws, float(weights[1]) / ws, float(weights[2]) / ws]
+        else:
+            _W = [CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID]
+    else:
+        _W = [CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID]
     _K = 1.5   # fattore di copertura (0.87 prob)
 
     ci: dict[str, tuple[float, float]] = {}

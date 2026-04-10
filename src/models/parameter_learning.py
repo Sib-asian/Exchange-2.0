@@ -31,6 +31,14 @@ DRAW_SHRINKAGE_SEARCH_MIN: float = 0.92
 DRAW_SHRINKAGE_SEARCH_MAX: float = 1.00
 DRAW_SHRINKAGE_SEARCH_STEP: float = 0.005
 
+# Previous-scores alpha: grid e default motore
+PREV_SCORES_ALPHA_DEFAULT: float = 0.15
+PREV_SCORES_ALPHA_MIN: float = 0.05
+PREV_SCORES_ALPHA_MAX: float = 0.30
+PREV_SCORES_ALPHA_STEP: float = 0.025
+
+_prev_alpha_cache: tuple[int, float | None] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Brier score per 1X2
@@ -48,6 +56,25 @@ def _binary_brier(pred: float, outcome: bool) -> float:
     """Brier score binario."""
     o = 1.0 if outcome else 0.0
     return (pred - o) ** 2
+
+
+def clear_prev_scores_alpha_cache() -> None:
+    global _prev_alpha_cache
+    _prev_alpha_cache = None
+
+
+def _p_over_indep_poisson(lh: float, la: float, line: float) -> float:
+    """P(gol totali > linea) con due Poisson indipendenti (prematch, linea tipica 2.5)."""
+    from src.models.poisson import poisson_pmf
+
+    ph = poisson_pmf(max(1e-6, lh))
+    pa = poisson_pmf(max(1e-6, la))
+    p = 0.0
+    for i, pi in enumerate(ph):
+        for j, pj in enumerate(pa):
+            if i + j > line:
+                p += pi * pj
+    return min(1.0, max(0.0, p))
 
 
 # ---------------------------------------------------------------------------
@@ -119,51 +146,66 @@ def learn_draw_shrinkage() -> float | None:
 
 def learn_prev_scores_alpha() -> float | None:
     """
-    Trova il peso ottimale del previous-scores blend per xG prematch.
+    Grid search su alpha del blend previous-scores → xG prematch.
 
-    Cerca l'alpha che minimizza l'errore assoluto medio tra xG predetto
-    e gol effettivi osservati.
+    Usa i record con snapshot pre-blend (xg_*_pre_prev, prev_lambda_*) salvati nel log
+    e minimizza il Brier binario su P(Over linea) da Poisson indipendenti sui lambda blendati.
 
     Returns:
-        Alpha ottimale in [0.0, 0.30], o None se dati insufficienti.
+        Alpha in [PREV_SCORES_ALPHA_MIN, PREV_SCORES_ALPHA_MAX], o None se dati insufficienti.
     """
+    global _prev_alpha_cache
+
     try:
         from src.tracking.prediction_log import get_prediction_log
 
         log = get_prediction_log()
-        completed = [
-            r for r in log.get_completed()
-            if r.is_prematch and r.is_completed() and r.gol_casa is not None
+        usable = [
+            r
+            for r in log.get_completed()
+            if r.is_prematch
+            and r.is_completed()
+            and r.over_25_hit is not None
+            and r.xg_h_pre_prev > 1e-6
+            and r.xg_a_pre_prev > 1e-6
+            and r.prev_lambda_h > 1e-6
+            and r.prev_lambda_a > 1e-6
         ]
     except Exception:
         return None
 
-    if len(completed) < MIN_RECORDS_FOR_LEARNING:
+    if len(usable) < MIN_RECORDS_FOR_LEARNING:
         return None
 
-    # Per ogni record, abbiamo xg_h e xg_a (xG finali usati dal modello)
-    # e gol_casa/gol_trasf (risultato reale). L'errore medio ci dice
-    # quanto il modello è calibrato.
-    # Senza accesso ai dati raw (prev_avg), possiamo solo validare il Brier complessivo.
+    cache_key = len(usable)
+    if _prev_alpha_cache is not None and _prev_alpha_cache[0] == cache_key:
+        return _prev_alpha_cache[1]
 
-    # Calcola Brier medio per Over/Under (proxy per calibrazione xG totale)
-    records_with_ou = [r for r in completed if r.over_25_hit is not None]
-    if len(records_with_ou) < MIN_RECORDS_FOR_LEARNING:
-        return None
+    best_a = PREV_SCORES_ALPHA_DEFAULT
+    best_brier = float("inf")
+    a = PREV_SCORES_ALPHA_MIN
+    while a <= PREV_SCORES_ALPHA_MAX + 1e-9:
+        tot = 0.0
+        for r in usable:
+            lh = (1.0 - a) * float(r.xg_h_pre_prev) + a * float(r.prev_lambda_h)
+            la = (1.0 - a) * float(r.xg_a_pre_prev) + a * float(r.prev_lambda_a)
+            line = float(r.ou_line)
+            p_hat = _p_over_indep_poisson(lh, la, line)
+            tot += _binary_brier(p_hat, bool(r.over_25_hit))
+        avg = tot / len(usable)
+        if avg < best_brier:
+            best_brier = avg
+            best_a = a
+        a += PREV_SCORES_ALPHA_STEP
 
-    avg_brier = sum(
-        _binary_brier(float(r.p_over_25), bool(r.over_25_hit))
-        for r in records_with_ou
-    ) / len(records_with_ou)
+    _prev_alpha_cache = (cache_key, best_a)
+    return best_a
 
-    # Se il Brier O/U è alto (>0.25), il modello sottoperforma → aumentare alpha
-    # Se il Brier è basso (<0.20), il modello è calibrato → mantenere alpha basso
-    if avg_brier > 0.25:
-        return 0.20  # Più peso ai dati storici
-    elif avg_brier > 0.22:
-        return 0.15  # Default
-    else:
-        return 0.10  # Buona calibrazione, meno peso allo storico
+
+def effective_prev_scores_alpha() -> float:
+    """Alpha da usare in motore: appreso se possibile, altrimenti default."""
+    v = learn_prev_scores_alpha()
+    return float(v) if v is not None else PREV_SCORES_ALPHA_DEFAULT
 
 
 # ---------------------------------------------------------------------------
@@ -192,4 +234,10 @@ def learn_all_parameters() -> dict[str, float]:
     return params
 
 
-__all__ = ["learn_all_parameters", "learn_draw_shrinkage", "learn_prev_scores_alpha"]
+__all__ = [
+    "clear_prev_scores_alpha_cache",
+    "effective_prev_scores_alpha",
+    "learn_all_parameters",
+    "learn_draw_shrinkage",
+    "learn_prev_scores_alpha",
+]

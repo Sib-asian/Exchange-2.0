@@ -678,6 +678,7 @@ def genera_segnali_avanzati(
     gol_casa: int = 0,
     gol_trasf: int = 0,
     signals_blocked: bool = False,
+    ci_tightness: float = 0.55,
     credible_intervals: dict[str, tuple[float, float]] | None = None,
 ) -> list[Signal]:
     """
@@ -707,10 +708,18 @@ def genera_segnali_avanzati(
     if model_confidence < SIGNALS.MIN_CONFIDENCE_FOR_SIGNALS:
         return []
 
-    soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement,
-                            n_shots_tot=n_shots_tot, model_confidence=model_confidence,
-                            momentum=momentum)
-    kelly_frac = calcola_kelly_fraction(minuto, n_shots_tot, model_confidence)
+    soglie = calcola_soglie(
+        minuto,
+        linea_ou,
+        gol_attuali,
+        model_agreement,
+        n_shots_tot=n_shots_tot,
+        model_confidence=model_confidence,
+        momentum=momentum,
+    )
+    kelly_frac = calcola_kelly_fraction(
+        minuto, n_shots_tot, model_confidence, ci_tightness=ci_tightness
+    )
 
     # #4: Scala il momentum effettivo per model_agreement.
     # Quando i modelli divergono, la stima xG è già incerta → non amplificare con momentum.
