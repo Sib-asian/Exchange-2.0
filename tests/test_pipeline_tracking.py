@@ -36,6 +36,19 @@ def test_record_from_dict_ignores_unknown_keys():
     assert r.id == "x"
     assert r.p1 == 0.4
     assert not hasattr(r, "future_field_xyz")
+    assert r.model_revision == ""
+
+
+def test_record_from_dict_model_revision():
+    r = record_from_dict(
+        {
+            "id": "y",
+            "timestamp": "2026-01-01T00:00:00",
+            "model_revision": "2.0-test",
+            "status": "PENDING",
+        }
+    )
+    assert r.model_revision == "2.0-test"
 
 
 def test_shrink_moves_toward_uniform_when_weak_signal():

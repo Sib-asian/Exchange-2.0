@@ -5,7 +5,7 @@ Flusso: Linee → ANALIZZA  |  ▶ Dati Live → ANALIZZA
 
 import streamlit as st
 
-from src.config import SIGNALS, UI
+from src.config import ENGINE, SIGNALS, UI
 from src.tracking.prediction_log import tot_op_band
 from src.session_storage import (
     PartitaSalvata,
@@ -286,6 +286,7 @@ if _btn_prematch or _btn_live:
         "signals_block_reason": str(getattr(risultati, "signals_block_reason", "")),
         "tot_band": tot_op_band(float(lines["tot_op"])),
         "software_version": str(UI.VERSION),
+        "model_revision": str(ENGINE.MODEL_REVISION),
         "consensus_w_bp": float(risultati.consensus_w_bp),
         "consensus_w_cop": float(risultati.consensus_w_cop),
         "consensus_w_mk": float(risultati.consensus_w_mk),

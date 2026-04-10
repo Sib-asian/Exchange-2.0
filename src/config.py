@@ -328,6 +328,11 @@ class BayesianConfig:
     LINE_MOVE_W_CUR_BOOST_RATE: float = 0.22  # incremento w_cur per unità di movimento oltre soglia
     LINE_MOVE_W_CUR_BOOST_MAX: float = 0.14   # tetto incremento (evita di ignorare del tutto l'apertura)
 
+    # Fallback bisection (stesso segno EV agli estremi): delta ≈ -ah_bayes.
+    # Se P(0,0) implicita è alta (tot_bayes basso), smorza verso split più centrato.
+    FALLBACK_ZERO_ZERO_WEIGHT: float = 0.72
+    FALLBACK_DELTA_MIN_MULT: float = 0.38
+
 
 @dataclass(frozen=True)
 class MomentumConfig:
@@ -609,10 +614,16 @@ class UIConfig:
     # Correzione overdispersion per Correct Score con molti gol.
     # Il modello Poisson sottostima punteggi ad alto totale (i+j ≥ 3) perché
     # la varianza reale dei gol in una partita supera la media (overdispersion).
-    # Fattori moltiplicativi per i+j = 3,4,5+: calibrati su dati top-5 leagues.
-    CS_OVERDISP_3: float = 1.05    # +5% per punteggi a 3 gol (es. 2-1, 1-2, 3-0)
-    CS_OVERDISP_4: float = 1.12    # +12% per 4 gol (es. 2-2, 3-1, 4-0)
-    CS_OVERDISP_5: float = 1.20    # +20% per 5+ gol (es. 3-2, 4-1, 5-0)
+    # Overdispersion correct score: legge continua su gol futuri (monotona, no scalini).
+    # mult = 1 + CS_OVERDISP_ALPHA * max(0, future_goals - CS_OVERDISP_K0)^CS_OVERDISP_EXP,
+    # poi cap CS_OVERDISP_MAX. (Vecchi scalini 3/4/5 restano come commento di calibrazione.)
+    CS_OVERDISP_K0: float = 2.5
+    CS_OVERDISP_ALPHA: float = 0.102
+    CS_OVERDISP_EXP: float = 1.12
+    CS_OVERDISP_MAX: float = 1.24
+    CS_OVERDISP_3: float = 1.05  # legacy / documentazione approssimativa k=3
+    CS_OVERDISP_4: float = 1.12
+    CS_OVERDISP_5: float = 1.20
 
     # Livelli AH da mostrare nell'expander
     AH_LEVELS: tuple = (-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, +0.5, +1.0, +1.5, +2.0, +2.5)
@@ -641,6 +652,9 @@ class CMPConfig:
     NU_MAX: float = 0.98      # ceiling per partite molto difensive
     NU_TOT_REF: float = 2.5   # total di riferimento (nu base)
     NU_TOT_SCALE: float = -0.04  # effetto total: basso → nu ↑, alto → nu ↓
+    # Prematch: forte mismatch strength Nowgoal → più overdispersion (nu più basso)
+    NU_STRENGTH_SCALE: float = 0.024
+    NU_STRENGTH_REF: float = 55.0  # |sh_h - sh_a| su scala strength tipica
 
 
 @dataclass(frozen=True)
@@ -758,6 +772,13 @@ class ConsensusConfig:
     # calibrate su dati Poisson vs reali: modello sottostima certezza agli estremi
     LOGISTIC_ALPHA_OVER: float = 1.03   # sharpening per Over/Under
     LOGISTIC_ALPHA_BTTS: float = 1.02   # sharpening per BTTS (più conservativo)
+    # Code alte: più sharpening; code basse: meno (spesso già conservative)
+    LOGISTIC_ALPHA_OVER_HIGH: float = 1.048
+    LOGISTIC_ALPHA_OVER_LOW: float = 1.014
+    LOGISTIC_ALPHA_BTTS_HIGH: float = 1.036
+    LOGISTIC_ALPHA_BTTS_LOW: float = 1.012
+    LOGISTIC_EXTREME_HIGH: float = 0.85
+    LOGISTIC_EXTREME_LOW: float = 0.15
 
     # BTTS clamp epsilon: probabilità entro questa distanza da 0 o 1 sono clampate
     BTTS_CLAMP_EPSILON: float = 1e-12
@@ -827,6 +848,11 @@ class EngineConfig:
     BLEND_CONF_STALE: float = 0.20
     BLEND_CONF_FLAT: float = 0.15
     BLEND_CONF_NORMAL: float = 0.50
+
+    # Revisione motore / pipeline (tracking, champion–challenger, audit log).
+    MODEL_REVISION: str = "2.0-phase2-unified"
+    # Live recalibration: peso sul totale implicito (gol fatti + tot_cur rimanente) vs prior tot_op lineare.
+    LIVE_RECAL_MARKET_BLEND: float = 0.58
 
 
 @dataclass(frozen=True)
@@ -1101,6 +1127,10 @@ class PrecisionConfig:
 
     # ECE: numero bin per report/valutazione
     ECE_BINS: int = 10
+
+    # Micro-correzione draw da learn_draw_shrinkage: i record sono già post-engine shrink;
+    # scala la delta rispetto al baseline CONSENSUS.DRAW_SHRINKAGE per evitare doppio intervento forte.
+    PARAMETER_LEARNING_DRAW_MICRO_SCALE: float = 0.42
 
 
 # Istanze globali immutabili — importare da qui

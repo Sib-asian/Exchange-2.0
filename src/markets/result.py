@@ -112,19 +112,15 @@ def calcola_correct_score(
         key = (gol_casa + a, gol_trasf + b)
         cs_final[key] = cs_final.get(key, 0.0) + p
 
-    # Correzione overdispersion: il modello Poisson sottostima i punteggi con
-    # molti gol (i+j ≥ 3) perché la varianza reale supera la media.
-    # Applichiamo fattori moltiplicativi calibrati per total goals = 3, 4, 5+.
-    # Il gol_casa/gol_trasf corrente è già accaduto → correggiamo solo i gol futuri (a+b).
+    # Overdispersion: legge continua sui gol futuri (monotona, niente salti 3/4/5).
+    # mult = min(MAX, 1 + α · max(0, future_goals - k0)^β).
     cs_corrected: dict[tuple[int, int], float] = {}
     for (fc, ft), p in cs_final.items():
         future_goals = (fc - gol_casa) + (ft - gol_trasf)
-        if future_goals == 3:
-            p *= _UI.CS_OVERDISP_3
-        elif future_goals == 4:
-            p *= _UI.CS_OVERDISP_4
-        elif future_goals >= 5:
-            p *= _UI.CS_OVERDISP_5
+        if future_goals >= 3:
+            _x = max(0.0, float(future_goals) - _UI.CS_OVERDISP_K0)
+            _mult = 1.0 + _UI.CS_OVERDISP_ALPHA * (_x ** _UI.CS_OVERDISP_EXP)
+            p *= min(_UI.CS_OVERDISP_MAX, _mult)
         cs_corrected[fc, ft] = p
 
     # Rinormalizza dopo la correzione

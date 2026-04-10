@@ -12,6 +12,8 @@ L'effetto è leggero e conservativo per evitare overreaction a varianza normale.
 
 from __future__ import annotations
 
+from src.config import BAYES, ENGINE
+
 # ---------------------------------------------------------------------------
 # Costanti
 # ---------------------------------------------------------------------------
@@ -34,17 +36,22 @@ def compute_live_recalibration_factor(
     xg_total_prematch: float,
     gol_attuali: int,
     minuto: int,
+    *,
+    tot_cur_remaining: float | None = None,
 ) -> float:
     """
     Calcola il fattore di ricalibrazione live basato su osservazioni.
 
-    Confronta i gol attesi al minuto corrente (proporzione lineare del totale
-    prematch) con i gol effettivamente segnati.
+    Confronta i gol segnati con l'atteso al minuto corrente. L'atteso combina:
+    - prior lineare da tot apertura (tot_op);
+    - stima implicita dal mercato: gol fatti + linea Total **rimanente** (tot_cur),
+      ripartita linearmente sul tempo (stessa ipotesi semplice, ancorata al book).
 
     Args:
         xg_total_prematch: Total atteso a inizio partita (tot_op).
         gol_attuali: Gol totali segnati finora.
         minuto: Minuto attuale [0, 90].
+        tot_cur_remaining: Linea Total corrente (gol rimanenti); se assente, solo prior lineare.
 
     Returns:
         Fattore moltiplicativo per xG residui in [1 - MAX, 1 + MAX].
@@ -57,8 +64,22 @@ def compute_live_recalibration_factor(
 
     frac_played = min(minuto / 90.0, 1.0)
 
-    # Gol attesi entro questo minuto (distribuzione uniforme nel tempo, approssimazione)
-    expected_goals_by_now = xg_total_prematch * frac_played
+    # Prior: gol attesi entro ora se il ritmo fosse uniforme sul tot prematch
+    expected_uniform = xg_total_prematch * frac_played
+
+    # Mercato: totale partita implicito ≈ segnati + rimanenti (linea live)
+    expected_market_timeline = expected_uniform
+    if tot_cur_remaining is not None and float(tot_cur_remaining) > BAYES.TOT_BAYES_MIN:
+        implied_full = max(
+            float(gol_attuali) + float(tot_cur_remaining),
+            xg_total_prematch * 0.35,
+        )
+        expected_market_timeline = implied_full * frac_played
+
+    w_m = ENGINE.LIVE_RECAL_MARKET_BLEND
+    if tot_cur_remaining is None or float(tot_cur_remaining) <= BAYES.TOT_BAYES_MIN:
+        w_m = 0.0
+    expected_goals_by_now = w_m * expected_market_timeline + (1.0 - w_m) * expected_uniform
 
     if expected_goals_by_now < 0.3:
         return 1.0

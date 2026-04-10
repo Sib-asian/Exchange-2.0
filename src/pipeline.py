@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from src.config import PRECISION
+from src.config import CONSENSUS, PRECISION
 from src.engine import MatchState, ProbabilitaModello, analizza
 from src.models.prematch_history_calibration import calibrate_prematch_probs
 from src.models.uncertainty_shrink import shrink_outcome_probs
@@ -79,16 +79,18 @@ def run_analysis_pipeline(
             pass  # Calibration is best-effort; don't break pipeline
 
     # Upgrade 6: Parametri appresi dallo storico (draw shrinkage).
-    # Se il prediction_log ha abbastanza dati, usa i parametri ottimizzati.
-    # Nota: il draw shrinkage è già applicato in engine.py; qui applichiamo
-    # una micro-correzione se il parametro appreso differisce dal default.
+    # I record nel log sono già post-engine (draw dinamico + isotonica); learn_draw_shrinkage
+    # stima un fattore globale aggiuntivo sulle px salvate. La micro-correzione usa il
+    # baseline CONSENSUS.DRAW_SHRINKAGE (fallback test) e una scala conservativa.
     if state.minuto == 0:
         try:
             from src.models.parameter_learning import learn_draw_shrinkage
             _learned_ds = learn_draw_shrinkage()
-            if _learned_ds is not None and abs(_learned_ds - 0.97) > 0.005:
-                # Applica la differenza come micro-correzione
-                _ds_delta = _learned_ds - 0.97  # positivo = meno shrinkage
+            _ds_base = float(CONSENSUS.DRAW_SHRINKAGE)
+            if _learned_ds is not None and abs(_learned_ds - _ds_base) > 0.006:
+                _ds_delta = (_learned_ds - _ds_base) * float(
+                    PRECISION.PARAMETER_LEARNING_DRAW_MICRO_SCALE
+                )
                 _px_adj = risultati.px * (1.0 + _ds_delta)
                 _surplus = risultati.px - _px_adj
                 _p1p2 = risultati.p1 + risultati.p2

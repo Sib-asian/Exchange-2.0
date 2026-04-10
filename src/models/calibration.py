@@ -569,13 +569,13 @@ def calcola_xg_bayesiani(
         # Questo accade tipicamente a fine partita con tot_bayes basso e |ah_bayes| significativo:
         # P(0,0) domina e l'AH EV è negativo per qualsiasi split.
         #
-        # Fallback: approssimazione lineare delta ≈ -ah_bayes.
-        # Per Poisson con mu piccolo, E[X-Y] ≈ mu_h - mu_a = delta,
-        # e l'AH EV → 0 quando E[D] → -ah (la differenza attesa bilancia l'handicap).
-        # Questo produce uno split (mu_h, mu_a) molto più equilibrato
-        # rispetto al bound estremo, evitando xG_a ≈ 0 irrealistici.
+        # Fallback: approssimazione lineare delta ≈ -ah_bayes, smorzata se P≈0-0 è alta
+        # (exp(-tot_bayes) come proxy sulla somma dei gol rimanenti attesi).
         delta_linear = -ah_bayes
-        delta_star = max(lo, min(hi, delta_linear))
+        _p0 = math.exp(-max(0.0, tot_bayes)) if tot_bayes > 0 else 1.0
+        _damp = 1.0 - BAYES.FALLBACK_ZERO_ZERO_WEIGHT * min(1.0, _p0)
+        _damp = max(BAYES.FALLBACK_DELTA_MIN_MULT, min(1.0, _damp))
+        delta_star = max(lo, min(hi, delta_linear * _damp))
     else:
         # Newton-Raphson con derivata numerica (convergenza O(log log 1/ε) ≈ 5-6 iter)
         # Fallback a bisection se Newton diverge o non converge.
