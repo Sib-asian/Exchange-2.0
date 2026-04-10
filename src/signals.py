@@ -63,6 +63,10 @@ def calcola_soglie(
     linea_ou: float,
     gol_attuali: int,
     model_agreement: float = 1.0,
+    *,
+    n_shots_tot: int = 0,
+    model_confidence: float = 1.0,
+    momentum: float = 0.0,
 ) -> dict[str, float]:
     """
     Calcola le soglie di probabilità dinamiche per tutti i mercati.
@@ -109,6 +113,20 @@ def calcola_soglie(
             / SIGNALS.MODEL_AGREEMENT_LOW
             * SIGNALS.MODEL_AGREEMENT_PENALTY_MAX
         )
+
+    # Upgrade 8-6: Aggiustamento adattivo basato sulla ricchezza informativa.
+    # Alta ricchezza (molti tiri, alta confidenza) → riduce soglie → più segnali.
+    # Bassa ricchezza (pochi dati) → alza soglie → meno segnali.
+    _info_adj = 0.0
+    try:
+        from src.models.adaptive_thresholds import compute_threshold_adjustment
+        _info_adj = compute_threshold_adjustment(
+            minuto, n_shots_tot, model_confidence, momentum,
+        )
+    except Exception:
+        pass
+    base_1x2 = max(SIGNALS.SOGLIA_BACK_MIN, base_1x2 + _info_adj)
+    base_ou = max(SIGNALS.OVER_BASE_MIN, base_ou + _info_adj)
 
     gol_mancanti = max(0.0, linea_ou - gol_attuali)
     ou_gol_bonus = min(SIGNALS.OVER_GOL_BONUS_CAP, max(0.0, (gol_mancanti - 1.0) * SIGNALS.OVER_GOL_BONUS_RATE))
@@ -660,6 +678,7 @@ def genera_segnali_avanzati(
     gol_casa: int = 0,
     gol_trasf: int = 0,
     signals_blocked: bool = False,
+    credible_intervals: dict[str, tuple[float, float]] | None = None,
 ) -> list[Signal]:
     """
     Genera segnali avanzati con quote exchange, Kelly criterion e EV.
@@ -688,7 +707,9 @@ def genera_segnali_avanzati(
     if model_confidence < SIGNALS.MIN_CONFIDENCE_FOR_SIGNALS:
         return []
 
-    soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement)
+    soglie = calcola_soglie(minuto, linea_ou, gol_attuali, model_agreement,
+                            n_shots_tot=n_shots_tot, model_confidence=model_confidence,
+                            momentum=momentum)
     kelly_frac = calcola_kelly_fraction(minuto, n_shots_tot, model_confidence)
 
     # #4: Scala il momentum effettivo per model_agreement.
@@ -709,6 +730,12 @@ def genera_segnali_avanzati(
 
     segnali: list[Signal] = []
 
+    # Upgrade 8-3: Mappa etichetta → chiave credible interval per Kelly uncertainty.
+    _label_to_ci_key: dict[str, str] = {
+        "1 Casa": "p1", "X Pareggio": "px", "2 Trasf.": "p2",
+        "BTTS Sì": "p_btts", "BTTS No": "p_btts",
+    }
+
     def _valuta(etichetta: str, prob: float, q_exc: float, soglia: float,
                 back_only: bool = False, mf: float | None = None) -> None:
         s = valuta_mercato(
@@ -720,6 +747,23 @@ def genera_segnali_avanzati(
             model_confidence=model_confidence,
         )
         if s is not None:
+            # Upgrade 8-3: Kelly uncertainty discount.
+            # Riduce lo stake se l'intervallo credibile è largo (edge incerto).
+            if credible_intervals and s.stake > 0 and s.edge > 0:
+                try:
+                    from src.models.kelly_uncertainty import compute_edge_uncertainty_discount
+                    _ci_key = _label_to_ci_key.get(etichetta)
+                    if _ci_key is None and "Over" in etichetta:
+                        _ci_key = "p_over"
+                    elif _ci_key is None and "Under" in etichetta:
+                        _ci_key = "p_under"
+                    if _ci_key and _ci_key in credible_intervals:
+                        _ci = credible_intervals[_ci_key]
+                        _discount = compute_edge_uncertainty_discount(s.edge, _ci[1] - _ci[0])
+                        s.stake *= _discount
+                        s.ev_euro *= _discount
+                except Exception:
+                    pass
             segnali.append(s)
 
     # 1X2 — soglia adattiva per penalizzare il BACK sulla squadra già vincente
