@@ -69,9 +69,12 @@ def line_coherence_warnings(
     p1: float,
     p2: float,
     p_over: float,
+    px: float | None = None,
 ) -> tuple[str, ...]:
     """Euristiche leggere AH / total / 1X2 / Over (best-effort, non bloccanti)."""
     out: list[str] = []
+    if px is not None and abs(float(p1) + float(px) + float(p2) - 1.0) > 0.04:
+        out.append("Somma 1X2 lontana da 100% dopo pipeline: controllare output.")
     if ah_op < -0.15 and p2 > p1 + 0.08:
         out.append("Segno AH (casa avanti) vs 1X2: verifica coerenza quote e handicap.")
     if ah_op > 0.15 and p1 > p2 + 0.08:

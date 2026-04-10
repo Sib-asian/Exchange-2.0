@@ -5,6 +5,10 @@ Usa i Brier marginali per modello registrati nei PredictionRecord completati:
 - 1X2: come prima
 - Over/Under (linea salvata): da p_over_* per modello se disponibili
 - BTTS: da p_btts_* per modello se disponibili
+
+Nota: la distribuzione congiunta in motore usa blend_matrices(weights_1x2) unico
+(coerenza cross-mercato). I pesi OU/BTTS appresi restano in metadata per tracking
+e per analisi future; non alterano la matrice blended.
 """
 
 from __future__ import annotations

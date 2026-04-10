@@ -13,6 +13,7 @@ Riferimenti:
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -37,7 +38,8 @@ PREV_SCORES_ALPHA_MIN: float = 0.05
 PREV_SCORES_ALPHA_MAX: float = 0.30
 PREV_SCORES_ALPHA_STEP: float = 0.025
 
-_prev_alpha_cache: tuple[int, float | None] | None = None
+# (len_usable, fingerprint record ids), alpha — fingerprint evita cache stale a parità di n.
+_prev_alpha_cache: tuple[tuple[int, str], float | None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +63,11 @@ def _binary_brier(pred: float, outcome: bool) -> float:
 def clear_prev_scores_alpha_cache() -> None:
     global _prev_alpha_cache
     _prev_alpha_cache = None
+
+
+def _prev_alpha_usable_fingerprint(usable: list) -> tuple[int, str]:
+    blob = "|".join(sorted(r.id for r in usable)).encode("utf-8", errors="replace")
+    return len(usable), hashlib.sha256(blob).hexdigest()[:32]
 
 
 def _p_over_indep_poisson(lh: float, la: float, line: float) -> float:
@@ -177,7 +184,7 @@ def learn_prev_scores_alpha() -> float | None:
     if len(usable) < MIN_RECORDS_FOR_LEARNING:
         return None
 
-    cache_key = len(usable)
+    cache_key = _prev_alpha_usable_fingerprint(usable)
     if _prev_alpha_cache is not None and _prev_alpha_cache[0] == cache_key:
         return _prev_alpha_cache[1]
 
@@ -198,7 +205,7 @@ def learn_prev_scores_alpha() -> float | None:
             best_a = a
         a += PREV_SCORES_ALPHA_STEP
 
-    _prev_alpha_cache = (cache_key, best_a)
+    _prev_alpha_cache = (cache_key, float(best_a))
     return best_a
 
 
