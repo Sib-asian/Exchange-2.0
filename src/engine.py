@@ -211,6 +211,18 @@ class MatchState:
     h2h_ht_draw_pct: float = 0.0       # % pareggi a HT nei H2H (0-100)
     h2h_ht_away_win_pct: float = 0.0   # % volte trasferta in vantaggio a HT nei H2H (0-100)
 
+    # H2H: % partite in cui la casa ha coperto l’Asian Handicap (0–100, da URL)
+    h2h_ah_home_cover_pct: float = 0.0
+    # % vittorie ultime partite (previous scores, 0–100)
+    prev_win_pct_h: float = 0.0
+    prev_win_pct_a: float = 0.0
+    # xG/media gol implicita da partite recente (post OCR, 0 = assente)
+    recent_xg_prior_h: float = 0.0
+    recent_xg_prior_a: float = 0.0
+    # Motivazione qualitativa estratta (high | normal | low)
+    motivation_home: str = "normal"
+    motivation_away: str = "normal"
+
     # === BTTS Calibration - Dati aggiuntivi ===
     h2h_btts_pct: float = 0.0          # % storica partite H2H con BTTS (0-100)
     h2h_matches_count: int = 0         # numero di H2H usati per stimare h2h_btts_pct
@@ -663,6 +675,23 @@ def analizza(
                 _strength_xg[0], _strength_xg[1],
             )
 
+        # 2c-tris. Segnali URL aggiuntivi: xG implicito da partite recenti + tilt H2H AH cover.
+        from src.config import FORM_ANALYSIS as _FA_URL
+        _x_cov = max(0.0, min(1.0, state.extraction_coverage))
+        _rx_amp = _FA_URL.RECENT_XG_PRIOR_ALPHA_MAX * (0.30 + 0.70 * _x_cov)
+        if state.recent_xg_prior_h > 0.08:
+            xg_h_blend = (1.0 - _rx_amp) * xg_h_blend + _rx_amp * state.recent_xg_prior_h
+            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
+        if state.recent_xg_prior_a > 0.08:
+            xg_a_blend = (1.0 - _rx_amp) * xg_a_blend + _rx_amp * state.recent_xg_prior_a
+            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
+        if state.h2h_matches_count >= 5 and state.h2h_ah_home_cover_pct > 1.0:
+            _ahc = max(0.0, min(100.0, state.h2h_ah_home_cover_pct)) / 100.0
+            _ahw = max(0.0, min(1.0, (state.h2h_matches_count - 4) / 10.0))
+            _dh = (_ahc - 0.5) * 2.0 * _FA_URL.H2H_AH_COVER_TILT_MAX * _ahw * (0.45 + 0.55 * _x_cov)
+            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * (1.0 + _dh))
+            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * (1.0 - _dh * 0.62))
+
     # 2d. Form Analysis - Standings, Last6, Home/Away Performance (solo prematch).
     # RIDUCE la dipendenza dalle linee manuali utilizzando dati estratti da Nowgoal.
     # Questi aggiustamenti sono applicati DOPO previous scores per non interferire.
@@ -717,6 +746,18 @@ def analizza(
                 if state.standings_rank_a > _rel_z and _gap > FORM_ANALYSIS.RELEGATION_PPG_GAP_THRESHOLD:
                     _motivation_mult_a += FORM_ANALYSIS.RELEGATION_UNDERDOG_BONUS
 
+        # Motivazione qualitativa dall’URL (affianca classifica; pesi conservativi).
+        _mot_ocr_h = (state.motivation_home or "normal").strip().lower()
+        _mot_ocr_a = (state.motivation_away or "normal").strip().lower()
+        if _mot_ocr_h == "high":
+            _motivation_mult_h += FORM_ANALYSIS.OCR_MOTIVATION_HIGH_BONUS
+        elif _mot_ocr_h == "low":
+            _motivation_mult_h += FORM_ANALYSIS.OCR_MOTIVATION_LOW_ADJ
+        if _mot_ocr_a == "high":
+            _motivation_mult_a += FORM_ANALYSIS.OCR_MOTIVATION_HIGH_BONUS
+        elif _mot_ocr_a == "low":
+            _motivation_mult_a += FORM_ANALYSIS.OCR_MOTIVATION_LOW_ADJ
+
         # === 2d.2 LAST 6 GAMES - Forma recente specifica ===
         # Calcola punti per partita (PPG) nelle ultime 6 e applica boost/penalità.
         _last6_mult_h = 1.0
@@ -748,6 +789,15 @@ def analizza(
                 _pos = (_ppg_a - FORM_ANALYSIS.LAST6_POINTS_POOR) / max(_range, 0.1)
                 _effect = FORM_ANALYSIS.LAST6_MAX_PENALTY + _pos * (FORM_ANALYSIS.LAST6_MAX_BOOST - FORM_ANALYSIS.LAST6_MAX_PENALTY)
                 _last6_mult_a += _effect * FORM_ANALYSIS.LAST6_WEIGHT
+
+        # % vittorie previous scores (URL): rifinitura forma, scalata da extraction_coverage.
+        _ext_w = max(0.0, min(1.0, state.extraction_coverage))
+        if state.prev_win_pct_h >= 53.0:
+            _phw = min(1.0, max(0.0, (state.prev_win_pct_h - 50.0) / 35.0))
+            _last6_mult_h += FORM_ANALYSIS.PREV_WIN_PCT_TILT_MAX * _phw * _ext_w
+        if state.prev_win_pct_a >= 53.0:
+            _paw = min(1.0, max(0.0, (state.prev_win_pct_a - 50.0) / 35.0))
+            _last6_mult_a += FORM_ANALYSIS.PREV_WIN_PCT_TILT_MAX * _paw * _ext_w
 
         # === 2d.3 HOME/AWAY PERFORMANCE ===
         # Rendimento specifico casa/trasferta per le due squadre.

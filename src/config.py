@@ -1034,6 +1034,17 @@ class FormAnalysisConfig:
     AWAY_WEAK_THRESHOLD: float = 0.8      # PPG trasferta < questo = debole fuori
     AWAY_WEAK_PENALTY: float = -0.03      # -3% xG per debole rendimento trasferta
 
+    # === Segnali aggiuntivi da estrazione URL (Nowgoal) ===
+    # Motivazione testuale (high/normal/low) dall’analisi pagina: affianca la motivazione da classifica.
+    OCR_MOTIVATION_HIGH_BONUS: float = 0.022
+    OCR_MOTIVATION_LOW_ADJ: float = -0.014
+    # Ancoraggio xG da media gol nelle partite recenti derivata in post-processing OCR.
+    RECENT_XG_PRIOR_ALPHA_MAX: float = 0.052
+    # Tilt asimmetrico casa/trasferta da % storica copertura AH casa negli H2H.
+    H2H_AH_COVER_TILT_MAX: float = 0.026
+    # Rafforzo forma da % vittorie “previous scores” (ultime 10) se coerente con estrazione.
+    PREV_WIN_PCT_TILT_MAX: float = 0.018
+
     # === GOAL TIMING (Quando segnano) ===
     # Squadre che segnano a fine partita (ultimi 15') possono essere più pericolose
     # in partite aperte, mentre squadre che subiscono a fine partita sono vulnerabili.
