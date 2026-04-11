@@ -344,6 +344,19 @@ def test_create_record_stores_quote_quality():
     assert "ok" in r.quote_quality_reason
 
 
+def test_create_record_stores_prematch_signal_json():
+    payload = '{"h2h_avg_goals_home":1.2,"fixture_historical_total":2.6}'
+    r = create_record_from_analysis(
+        "Alpha",
+        "Beta",
+        "Test",
+        {"tot_op": 2.5},
+        {"p1": 0.34, "px": 0.33, "p2": 0.33},
+        metadata={"prematch_signal_json": payload},
+    )
+    assert r.prematch_signal_json == payload
+
+
 def test_trusted_only_stats_ignore_untrusted_quotes_for_edge():
     recs = [
         PredictionRecord(

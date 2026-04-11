@@ -348,6 +348,9 @@ def calcola_xg_bayesiani(
     team_stats_away_corners: float = 0.0,
     team_stats_home_possession: float = 0.0,
     team_stats_away_possession: float = 0.0,
+    ocr_quota_gg: float = 0.0,
+    ocr_quota_ng: float = 0.0,
+    odds_sharp_signal: float = 0.0,
 ) -> tuple[float, float]:
     """
     Estrae gli xG impliciti dal blend Bayesiano delle linee di mercato.
@@ -451,6 +454,19 @@ def calcola_xg_bayesiani(
         _hist_total = max(1.0, min(6.0, fixture_historical_total))
         tot_op = (1.0 - BAYES.FIXTURE_PRIOR_WEIGHT) * tot_op + BAYES.FIXTURE_PRIOR_WEIGHT * _hist_total
 
+    # GG/NG OCR: nudge conservativo sul totale implicito (coerenza con BTTS prima della bisection).
+    if minuto == 0 and ocr_quota_gg > 1.01 and ocr_quota_ng > 1.01:
+        _pgg = _devig_two_way(ocr_quota_gg, ocr_quota_ng)
+        _cov_gg = max(0.0, min(1.0, extraction_coverage))
+        _adj = (
+            (_pgg - BAYES.BTTS_OCR_TOT_ANCHOR)
+            * BAYES.BTTS_OCR_TOT_ADJ_SCALE
+            * _ocr_cs
+            * _cov_gg
+        )
+        _adj = max(-BAYES.BTTS_OCR_TOT_ADJ_CAP, min(BAYES.BTTS_OCR_TOT_ADJ_CAP, _adj))
+        tot_op = max(BAYES.TOT_BAYES_MIN, min(5.5, tot_op + _adj))
+
     # Prematch micro-prior da team stats (shots/corners/possesso) con gate coverage.
     # Obiettivo: nudge leggero sull'intensità totale senza sostituire il mercato.
     if minuto == 0 and extraction_coverage >= 0.65:
@@ -506,6 +522,14 @@ def calcola_xg_bayesiani(
         _cov_gate = min(1.0, (extraction_coverage - 0.65) / 0.35)
         _raw_move = abs(line_movement_ah_raw) + BAYES.LINE_MOVE_TOT_SCALE * abs(line_movement_total_raw)
         _move_mag += 0.35 * _cov_gate * _raw_move
+    if minuto == 0 and extraction_coverage >= 0.55 and odds_sharp_signal > 0.02:
+        _cov_sh = min(1.0, (extraction_coverage - 0.55) / 0.45)
+        _move_mag += (
+            BAYES.SHARP_LINE_MOVE_EXTRA_RATE
+            * min(1.0, float(odds_sharp_signal))
+            * _cov_sh
+            * (0.42 + 0.58 * _ocr_cs)
+        )
     if _move_mag >= BAYES.LINE_MOVE_BOOST_THRESHOLD:
         _exc = _move_mag - BAYES.LINE_MOVE_BOOST_THRESHOLD
         _bump = min(

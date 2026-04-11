@@ -154,6 +154,8 @@ class PredictionRecord:
     quota_btts_no_close: float = 0.0
     quote_quality: str = "unknown"  # trusted | untrusted | unknown
     quote_quality_reason: str = ""
+    # Snapshot JSON di segnali prematch (URL/OCR) per calibrazione offline.
+    prematch_signal_json: str = ""
 
     # Upgrade 8-8: Temporal updates intra-match.
     # Lista di snapshot periodici per apprendimento path-dependent.
@@ -465,4 +467,5 @@ def create_record_from_analysis(
         quota_btts_no_close=float(quotes.get("quota_btts_no_close", 0.0)),
         quote_quality=str(meta.get("quote_quality", _qq)),
         quote_quality_reason=str(meta.get("quote_quality_reason", _qq_reason)),
+        prematch_signal_json=str(meta.get("prematch_signal_json", "")),
     )

@@ -38,6 +38,7 @@ def compute_htft_adjustment(
     px: float,
     p2: float,
     *,
+    htft_blend_scale: float = 1.0,
     htft_home_htw_ftw: int = 0,
     htft_home_htw_ftd: int = 0,
     htft_home_htw_ftl: int = 0,
@@ -87,6 +88,8 @@ def compute_htft_adjustment(
     if h_total < MIN_MATCHES_HTFT and a_total < MIN_MATCHES_HTFT:
         return p1, px, p2
 
+    _scale = max(0.0, min(1.0, float(htft_blend_scale)))
+
     if minuto >= 45 and ht_result in ("W", "D", "L"):
         return _live_ht_conditioned(
             p1, px, p2, ht_result,
@@ -97,6 +100,7 @@ def compute_htft_adjustment(
             htft_away_htw_ftw, htft_away_htw_ftd, htft_away_htw_ftl,
             htft_away_htd_ftw, htft_away_htd_ftd, htft_away_htd_ftl,
             htft_away_htl_ftw, htft_away_htl_ftd, htft_away_htl_ftl,
+            blend_scale=_scale,
         )
 
     return _prematch_aggregate(
@@ -108,6 +112,7 @@ def compute_htft_adjustment(
         htft_away_htw_ftw, htft_away_htw_ftd, htft_away_htw_ftl,
         htft_away_htd_ftw, htft_away_htd_ftd, htft_away_htd_ftl,
         htft_away_htl_ftw, htft_away_htl_ftd, htft_away_htl_ftl,
+        blend_scale=_scale,
     )
 
 
@@ -120,6 +125,8 @@ def _prematch_aggregate(
     a_htw_ftw: int, a_htw_ftd: int, a_htw_ftl: int,
     a_htd_ftw: int, a_htd_ftd: int, a_htd_ftl: int,
     a_htl_ftw: int, a_htl_ftd: int, a_htl_ftl: int,
+    *,
+    blend_scale: float = 1.0,
 ) -> tuple[float, float, float]:
     """Prematch: usa distribuzione aggregata (media casa+trasf)."""
     # Home: FT win rate from HTFT
@@ -155,8 +162,8 @@ def _prematch_aggregate(
     htft_px /= count
     htft_p2 /= count
 
-    # Blend conservativo
-    alpha = HTFT_PREMATCH_BLEND
+    # Blend conservativo (scala con affidabilità campione HT negli H2H se fornita).
+    alpha = HTFT_PREMATCH_BLEND * max(0.0, min(1.0, blend_scale))
     r1 = (1.0 - alpha) * p1 + alpha * htft_p1
     rx = (1.0 - alpha) * px + alpha * htft_px
     r2 = (1.0 - alpha) * p2 + alpha * htft_p2
@@ -178,6 +185,8 @@ def _live_ht_conditioned(
     a_htw_ftw: int, a_htw_ftd: int, a_htw_ftl: int,
     a_htd_ftw: int, a_htd_ftd: int, a_htd_ftl: int,
     a_htl_ftw: int, a_htl_ftd: int, a_htl_ftl: int,
+    *,
+    blend_scale: float = 1.0,
 ) -> tuple[float, float, float]:
     """Live post-HT: condiziona sullo stato HT osservato."""
     cond_p1 = cond_px = cond_p2 = 0.0
@@ -241,7 +250,7 @@ def _live_ht_conditioned(
     cond_p2 /= count
 
     # Blend più aggressivo in live (dati condizionali molto informativi)
-    alpha = HTFT_LIVE_BLEND
+    alpha = HTFT_LIVE_BLEND * max(0.0, min(1.0, blend_scale))
     r1 = (1.0 - alpha) * p1 + alpha * cond_p1
     rx = (1.0 - alpha) * px + alpha * cond_px
     r2 = (1.0 - alpha) * p2 + alpha * cond_p2
