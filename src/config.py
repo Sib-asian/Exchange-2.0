@@ -1056,6 +1056,12 @@ class FormAnalysisConfig:
     # Media gol H2H per squadra (URL): blend asimmetrico su λ dopo Bayes (prematch).
     H2H_AVG_GOALS_XG_BLEND_MAX: float = 0.078
 
+    # Somma λ vs tot_op (mercato): coerenza soft post-blend prematch (rapporto H/A invariato).
+    LAMBDA_TOT_COHERE_TRIGGER_REL: float = 0.085
+    LAMBDA_TOT_MARKET_COHERE_MAX: float = 0.11
+    LAMBDA_TOT_COHERE_K: float = 0.42
+    LAMBDA_TOT_COHERE_LOW_COV_BOOST: float = 0.35
+
     # === GOAL TIMING (Quando segnano) ===
     # Squadre che segnano a fine partita (ultimi 15') possono essere più pericolose
     # in partite aperte, mentre squadre che subiscono a fine partita sono vulnerabili.

@@ -14,6 +14,7 @@ from src.models.calibration import (
     _devig_two_way,
     _p_home_win_simple,
     _poisson_pmf_k,
+    apply_prematch_lambda_total_coherence,
     blend_xg_shots,
     calcola_xg_bayesiani,
     estrai_segnali_ocr_da_quote,
@@ -409,3 +410,28 @@ class TestCalcolaXGBayesianiNewPrematchSignals:
         )
         assert abs(xg_h1 - xg_h0) < 1e-9
         assert abs(xg_a1 - xg_a0) < 1e-9
+
+
+def test_apply_prematch_lambda_total_coherence_noop_live() -> None:
+    h, a = apply_prematch_lambda_total_coherence(
+        1.4, 1.2, 2.5, minuto=45, extraction_coverage=0.8, xg_floor=0.02,
+    )
+    assert h == 1.4 and a == 1.2
+
+
+def test_apply_prematch_lambda_total_coherence_noop_small_gap() -> None:
+    # Somma già allineata a tot_op
+    h, a = apply_prematch_lambda_total_coherence(
+        1.26, 1.24, 2.5, minuto=0, extraction_coverage=0.85, xg_floor=0.02,
+    )
+    assert abs((h + a) - 2.5) < 1e-9
+
+
+def test_apply_prematch_lambda_total_coherence_pulls_toward_market() -> None:
+    h0, a0 = 1.85, 1.85
+    h, a = apply_prematch_lambda_total_coherence(
+        h0, a0, 2.5, minuto=0, extraction_coverage=0.75, xg_floor=0.02,
+    )
+    assert abs(h / a - h0 / a0) < 1e-9
+    assert (h + a) < (h0 + a0)
+    assert abs((h + a) - 2.5) < abs((h0 + a0) - 2.5)

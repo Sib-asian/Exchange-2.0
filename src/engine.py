@@ -85,6 +85,8 @@ class MatchState:
     h2h_ht_matches_count: int = 0
     # Segnale sharp da movimento linee (Nowgoal), 0 = assente.
     odds_sharp_signal: float = 0.0
+    # Peso sezione H2H (extraction_section_scores), [0,1]. Riduce blend gol medi H2H se basso.
+    h2h_core_weight: float = 1.0
 
     # Qualità del movimento linee (da Gemini). Range [0.80, 1.30], default 1.0.
     # > 1.0 = movimento affidabile (sharp/notizie) → w_cur aumentato.
@@ -616,7 +618,12 @@ def analizza(
         ):
             _cov_h2h = max(0.0, min(1.0, state.extraction_coverage))
             _w_n = min(1.0, state.h2h_matches_count / 10.0)
-            _beta_h2h = FORM_ANALYSIS.H2H_AVG_GOALS_XG_BLEND_MAX * _w_n * _cov_h2h
+            _beta_h2h = (
+                FORM_ANALYSIS.H2H_AVG_GOALS_XG_BLEND_MAX
+                * _w_n
+                * _cov_h2h
+                * max(0.0, min(1.0, float(state.h2h_core_weight)))
+            )
             _S = _h2h_gh + _h2h_ga
             _T = xg_h_base + xg_a_base
             if _S > 1e-6 and _T > 1e-6:
@@ -883,6 +890,19 @@ def analizza(
         # Applica con floor di sicurezza
         xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * _combined_mult_h)
         xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * _combined_mult_a)
+
+    # 2e. Coerenza prematch: avvicina la somma λ alla Total di mercato (tot_op), mantenendo il rapporto H/A.
+    if state.minuto == 0:
+        from src.models.calibration import apply_prematch_lambda_total_coherence
+
+        xg_h_blend, xg_a_blend = apply_prematch_lambda_total_coherence(
+            xg_h_blend,
+            xg_a_blend,
+            float(state.tot_op),
+            minuto=state.minuto,
+            extraction_coverage=state.extraction_coverage,
+            xg_floor=DECAY.XG_FLOOR,
+        )
 
     # 3. Momentum mercato (calcolato PRIMA del time-decay per alimentare lo smorzamento xG)
     # ah_cur è in "gol rimanenti" (conversione full-game già applicata in inputs.py):

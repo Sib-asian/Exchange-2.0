@@ -666,6 +666,42 @@ def calcola_xg_bayesiani(
     return xg_h, xg_a
 
 
+def apply_prematch_lambda_total_coherence(
+    xg_h: float,
+    xg_a: float,
+    tot_op: float,
+    *,
+    minuto: int,
+    extraction_coverage: float,
+    xg_floor: float,
+) -> tuple[float, float]:
+    """
+    Avvicina (xG_h + xG_a) alla linea Total di apertura, scalando entrambi allo stesso fattore.
+
+    Attivo solo in prematch. Utile dopo molti micro-prior URL: evita λ totali lontani dal mercato.
+    """
+    from src.config import FORM_ANALYSIS as FA
+
+    if minuto != 0 or tot_op <= 0.4:
+        return xg_h, xg_a
+    s = xg_h + xg_a
+    if s <= 1e-6:
+        return xg_h, xg_a
+    t = float(tot_op)
+    rel_dev = abs(s - t) / max(t, 0.25)
+    if rel_dev <= FA.LAMBDA_TOT_COHERE_TRIGGER_REL:
+        return xg_h, xg_a
+    cov = max(0.0, min(1.0, extraction_coverage))
+    trust_market = 0.55 + FA.LAMBDA_TOT_COHERE_LOW_COV_BOOST * (1.0 - cov)
+    gamma = min(
+        FA.LAMBDA_TOT_MARKET_COHERE_MAX,
+        FA.LAMBDA_TOT_COHERE_K * rel_dev * trust_market,
+    )
+    s_new = (1.0 - gamma) * s + gamma * t
+    k = s_new / s
+    return max(xg_floor, xg_h * k), max(xg_floor, xg_a * k)
+
+
 # ---------------------------------------------------------------------------
 # Blend xG da tiri + linee
 # ---------------------------------------------------------------------------
