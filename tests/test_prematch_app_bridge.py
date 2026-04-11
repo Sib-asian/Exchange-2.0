@@ -131,6 +131,26 @@ def test_bridge_falls_back_to_live_1x2_when_initial_missing() -> None:
     assert state.mkt_init_2 == 3.10
 
 
+def test_bridge_maps_h2h_marginals_ht_count_and_sharp_signal() -> None:
+    pa = _base_pa(
+        h2h_avg_goals_home=1.35,
+        h2h_avg_goals_away=0.95,
+        h2h_ht_matches_count=7,
+    )
+    state, _, _ = build_match_state_from_prematch_analysis(
+        pa,
+        match=_base_match(),
+        lines=_base_lines(),
+        linea_ou=2.5,
+        bankroll=1000.0,
+        comm_rate=0.025,
+    )
+    assert state.h2h_avg_goals_home == 1.35
+    assert state.h2h_avg_goals_away == 0.95
+    assert state.h2h_ht_matches_count == 7
+    assert state.odds_sharp_signal > 0
+
+
 def test_bridge_maps_url_derived_signals_to_match_state() -> None:
     pa = _base_pa(
         h2h_ah_home_cover_pct=68.0,

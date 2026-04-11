@@ -331,6 +331,14 @@ class BayesianConfig:
     LINE_MOVE_W_CUR_BOOST_RATE: float = 0.22  # incremento w_cur per unità di movimento oltre soglia
     LINE_MOVE_W_CUR_BOOST_MAX: float = 0.14   # tetto incremento (evita di ignorare del tutto l'apertura)
 
+    # GG/NG OCR (prematch): aggiustamento conservativo del totale implicito verso P(both score) fair.
+    BTTS_OCR_TOT_ANCHOR: float = 0.52
+    BTTS_OCR_TOT_ADJ_SCALE: float = 0.48  # × (p_gg - anchor), poi × ocr_cs e coverage
+    BTTS_OCR_TOT_ADJ_CAP: float = 0.22    # max |Δ| sul tot_op prima della bisection
+
+    # Sharp signal (Nowgoal): rafforza il contributo del movimento raw sul boost w_cur.
+    SHARP_LINE_MOVE_EXTRA_RATE: float = 0.14  # × min(1, sharp) × coverage
+
     # Fallback bisection (stesso segno EV agli estremi): delta ≈ -ah_bayes.
     # Se P(0,0) implicita è alta (tot_bayes basso), smorza verso split più centrato.
     FALLBACK_ZERO_ZERO_WEIGHT: float = 0.72
@@ -1044,6 +1052,9 @@ class FormAnalysisConfig:
     H2H_AH_COVER_TILT_MAX: float = 0.026
     # Rafforzo forma da % vittorie “previous scores” (ultime 10) se coerente con estrazione.
     PREV_WIN_PCT_TILT_MAX: float = 0.018
+
+    # Media gol H2H per squadra (URL): blend asimmetrico su λ dopo Bayes (prematch).
+    H2H_AVG_GOALS_XG_BLEND_MAX: float = 0.078
 
     # === GOAL TIMING (Quando segnano) ===
     # Squadre che segnano a fine partita (ultimi 15') possono essere più pericolose

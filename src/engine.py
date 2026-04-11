@@ -78,6 +78,14 @@ class MatchState:
     # Blendato con tot_op al 10% solo in prematch (minuto=0).
     fixture_historical_total: float = 0.0
 
+    # H2H: gol medi per squadra negli scontri diretti (URL Nowgoal, 0 = assente).
+    h2h_avg_goals_home: float = 0.0
+    h2h_avg_goals_away: float = 0.0
+    # Numero match H2H con HT valido (affidabilità HT/FT).
+    h2h_ht_matches_count: int = 0
+    # Segnale sharp da movimento linee (Nowgoal), 0 = assente.
+    odds_sharp_signal: float = 0.0
+
     # Qualità del movimento linee (da Gemini). Range [0.80, 1.30], default 1.0.
     # > 1.0 = movimento affidabile (sharp/notizie) → w_cur aumentato.
     # < 1.0 = movimento rumoroso (pubblico/liquidità) → w_cur diminuito.
@@ -591,7 +599,32 @@ def analizza(
         team_stats_away_corners=state.team_stats_away_corners,
         team_stats_home_possession=state.team_stats_home_possession,
         team_stats_away_possession=state.team_stats_away_possession,
+        ocr_quota_gg=state.ocr_quota_gg,
+        ocr_quota_ng=state.ocr_quota_ng,
+        odds_sharp_signal=state.odds_sharp_signal,
     )
+
+    # 1b. Asimmetria λ da gol medi H2H per squadra (prematch).
+    if state.minuto == 0:
+        from src.config import FORM_ANALYSIS
+        _h2h_gh = float(state.h2h_avg_goals_home)
+        _h2h_ga = float(state.h2h_avg_goals_away)
+        if (
+            _h2h_gh > 0.08
+            and _h2h_ga > 0.08
+            and state.h2h_matches_count >= 4
+        ):
+            _cov_h2h = max(0.0, min(1.0, state.extraction_coverage))
+            _w_n = min(1.0, state.h2h_matches_count / 10.0)
+            _beta_h2h = FORM_ANALYSIS.H2H_AVG_GOALS_XG_BLEND_MAX * _w_n * _cov_h2h
+            _S = _h2h_gh + _h2h_ga
+            _T = xg_h_base + xg_a_base
+            if _S > 1e-6 and _T > 1e-6:
+                _scale = _T / _S
+                _idh = _h2h_gh * _scale
+                _ida = _h2h_ga * _scale
+                xg_h_base = (1.0 - _beta_h2h) * xg_h_base + _beta_h2h * _idh
+                xg_a_base = (1.0 - _beta_h2h) * xg_a_base + _beta_h2h * _ida
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
     n_shots_tot = state.sot_h + state.soff_h + state.sot_a + state.soff_a
@@ -1251,8 +1284,13 @@ def analizza(
                 _ht_result = "L"
             else:
                 _ht_result = "D"
+        if state.h2h_ht_matches_count <= 0:
+            _htft_scale = 0.50
+        else:
+            _htft_scale = min(1.0, max(0.35, state.h2h_ht_matches_count / 10.0))
         p1, px, p2 = compute_htft_adjustment(
             p1, px, p2,
+            htft_blend_scale=_htft_scale,
             htft_home_htw_ftw=state.htft_home_htw_ftw,
             htft_home_htw_ftd=state.htft_home_htw_ftd,
             htft_home_htw_ftl=state.htft_home_htw_ftl,

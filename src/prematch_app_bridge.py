@@ -313,11 +313,21 @@ def build_match_state_from_prematch_analysis(
     _htft_a_hl_fd = int(getattr(pa, "htft_away_htl_ftd", 0)) if pa else 0
     _htft_a_hl_fl = int(getattr(pa, "htft_away_htl_ftl", 0)) if pa else 0
 
+    _h2h_avg_gh = float(getattr(pa, "h2h_avg_goals_home", 0.0)) if pa else 0.0
+    _h2h_avg_ga = float(getattr(pa, "h2h_avg_goals_away", 0.0)) if pa else 0.0
+    _h2h_ht_n_raw = int(getattr(pa, "h2h_ht_matches_count", 0) or 0) if pa else 0
+    _h2h_ht_n = max(0, int(round(_h2h_ht_n_raw * min(1.0, _w_h2h))))
+    _sharp_for_state = max(0.0, _sharp_sig * _global_w)
+
     state = build_match_state(
         match, lines, linea_ou, bankroll, comm_rate,
         forma_mult_h=_forma_h,
         forma_mult_a=_forma_a,
         fixture_historical_total=_hist_tot,
+        h2h_avg_goals_home=_h2h_avg_gh,
+        h2h_avg_goals_away=_h2h_avg_ga,
+        h2h_ht_matches_count=_h2h_ht_n,
+        odds_sharp_signal=_sharp_for_state,
         mkt_init_1=_mkt1,
         mkt_init_x=_mktx,
         mkt_init_2=_mkt2,

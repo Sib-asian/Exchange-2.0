@@ -3,6 +3,8 @@ app.py — Radar Pro Live v2.0
 Flusso: Linee → ANALIZZA  |  ▶ Dati Live → ANALIZZA
 """
 
+import json
+
 import streamlit as st
 
 from src.config import ENGINE, SIGNALS, UI
@@ -282,6 +284,28 @@ if _btn_prematch or _btn_live:
         elif _has_live:
             _quote_source = "live_fallback"
 
+    _p_gg_implied: float | None = None
+    if state.ocr_quota_gg > 1.01 and state.ocr_quota_ng > 1.01:
+        _ig = 1.0 / float(state.ocr_quota_gg)
+        _in = 1.0 / float(state.ocr_quota_ng)
+        _den = _ig + _in
+        if _den > 1e-12:
+            _p_gg_implied = _ig / _den
+    _prematch_sig = {
+        "h2h_avg_goals_home": float(state.h2h_avg_goals_home),
+        "h2h_avg_goals_away": float(state.h2h_avg_goals_away),
+        "h2h_matches_count": int(state.h2h_matches_count),
+        "h2h_ht_matches_count": int(state.h2h_ht_matches_count),
+        "fixture_historical_total": float(state.fixture_historical_total),
+        "odds_sharp_signal": float(state.odds_sharp_signal),
+        "line_movement_ah_raw": float(state.line_movement_ah_raw),
+        "line_movement_total_raw": float(state.line_movement_total_raw),
+        "ocr_quota_gg": float(state.ocr_quota_gg),
+        "ocr_quota_ng": float(state.ocr_quota_ng),
+        "p_gg_implied_devig": _p_gg_implied,
+    }
+    _prematch_signal_json = json.dumps(_prematch_sig, ensure_ascii=False, separators=(",", ":"))
+
     _tracking_meta = {
         "extraction_coverage": float(_coverage),
         "league_source": str(getattr(_pa, "league_source", "")) if _pa else "",
@@ -315,6 +339,7 @@ if _btn_prematch or _btn_live:
         "prev_lambda_h": float(risultati.prev_lambda_h),
         "prev_lambda_a": float(risultati.prev_lambda_a),
         "quote_source": _quote_source,
+        "prematch_signal_json": _prematch_signal_json,
     }
     _tracking_record = create_record_from_analysis(
         squadra_casa=_squadra_casa,
