@@ -70,6 +70,7 @@ def calibra_btts(
     clean_sheet_streak_h: int = 0,
     clean_sheet_streak_a: int = 0,
     minuto: int = 0,
+    signal_trust: float = 1.0,
 ) -> float:
     """
     Calibra la probabilità BTTS grezza con fattori contestuali.
@@ -94,6 +95,7 @@ def calibra_btts(
         scoring_streak_h, scoring_streak_a: Partite consecutive con gol segnato.
         clean_sheet_streak_h, clean_sheet_streak_a: Partite consecutive senza subire.
         minuto: Minuto attuale (la calibrazione è più forte in prematch).
+        signal_trust: [0,1] riduce l'entità degli aggiustamenti contestuali se l'estrazione è dubbia.
 
     Returns:
         Probabilità BTTS calibrata in [BTTS_MIN, BTTS_MAX].
@@ -182,8 +184,9 @@ def calibra_btts(
     # con le probabilità già incorporate nella matrice bivariata.
     # adjustment è convertito in fattore moltiplicativo: +0.04 → ×1.04, -0.03 → ×0.97.
     time_factor = 1.0 if minuto == 0 else max(0.3, 1.0 - minuto / 90.0 * 0.7)
+    _trust_sig = max(0.0, min(1.0, float(signal_trust)))
 
-    _mult = 1.0 + adjustment * time_factor / max(0.10, p_btts)
+    _mult = 1.0 + adjustment * time_factor * _trust_sig / max(0.10, p_btts)
     # Cap il moltiplicatore per evitare estremi
     _mult = max(0.80, min(1.25, _mult))
     p_btts_calibrated = p_btts * _mult

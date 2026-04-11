@@ -1236,6 +1236,7 @@ def analizza(
             clean_sheet_streak_h=state.clean_sheet_streak_h,
             clean_sheet_streak_a=state.clean_sheet_streak_a,
             minuto=state.minuto,
+            signal_trust=max(0.0, min(1.0, float(state.extraction_trust_factor))),
         )
 
     # 9b. Prior BTTS da quote OCR (solo prematch): nudge conservativo.
@@ -1250,16 +1251,22 @@ def analizza(
             # #3: Peso scalato per qualità dell'overround BTTS
             _quality_btts = 1.0 - min(OCR_QUOTES.BTTS_QUALITY_MAX_PENALTY,
                                        max(0.0, (_overround_btts - 1.0) * OCR_QUOTES.BTTS_QUALITY_OVERROUND_RATE))
-            _w_btts_quote = OCR_QUOTES.BTTS_PRIOR_WEIGHT * _quality_btts
+            _w_btts_quote = (
+                OCR_QUOTES.BTTS_PRIOR_WEIGHT
+                * _quality_btts
+                * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+            )
             p_btts = (1.0 - _w_btts_quote) * p_btts + _w_btts_quote * _p_gg_ocr
 
     # 9c. Post-consensus 1X2 correction da market initial odds e H2H prior (solo prematch).
     # Due segnali indipendenti dal modello Poisson/Copula/Markov vengono blended
     # con peso conservativo per ancorare la 1X2 a informazioni esterne.
-    # Pesi: 8% market-implied 1X2 + 5% H2H storico → max 13% totale.
+    # Pesi: 8% market-implied 1X2 + 5% H2H storico → max 13% totale (scalati da trust/core).
     if state.minuto == 0:
-        _alpha_mkt  = 0.08  # peso quote 1X2 iniziali bookmaker
-        _alpha_h2h  = 0.05  # peso H2H storico 1X2
+        _trust_fc = max(0.0, min(1.0, float(state.extraction_trust_factor)))
+        _h2h_core_fc = max(0.0, min(1.0, float(state.h2h_core_weight)))
+        _alpha_mkt = 0.08 * _trust_fc
+        _alpha_h2h = 0.05 * _trust_fc * _h2h_core_fc
         _p1_adj, _px_adj, _p2_adj = p1, px, p2  # partenza dal consensus calibrato
 
         # Market-implied 1X2 (rimuovi vig e normalizza)
