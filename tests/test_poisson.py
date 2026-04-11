@@ -227,7 +227,7 @@ class TestCorrectScore:
         """La somma delle top-5 probabilità deve essere <= 1."""
         from src.markets.result import calcola_correct_score
         _, full, _ = build_bivariate_matrix(1.2, 0.8, 30, 2.0)
-        top_cs, _ = calcola_correct_score(full, 0, 0)
+        top_cs, _, _, _ = calcola_correct_score(full, 0, 0)
         total = sum(p for _, p in top_cs)
         assert total <= 1.0 + 1e-9
 
@@ -235,7 +235,7 @@ class TestCorrectScore:
         """La distribuzione dei gol totali deve sommare a ~1."""
         from src.markets.result import calcola_correct_score
         _, full, _ = build_bivariate_matrix(1.2, 0.8, 30, 2.0)
-        _, gol_dist = calcola_correct_score(full, 0, 0)
+        _, gol_dist, _, _ = calcola_correct_score(full, 0, 0)
         total = sum(gol_dist.values())
         assert abs(total - 1.0) < 1e-9
 
@@ -244,6 +244,6 @@ class TestCorrectScore:
         _, full, _ = build_bivariate_matrix(1.0, 1.0, 45, 2.0)
         from src.markets.result import calcola_correct_score
         # Con gol_casa=2, il punteggio finale minimo è 2-0
-        top_cs, _ = calcola_correct_score(full, 2, 0)
+        top_cs, _, _, _ = calcola_correct_score(full, 2, 0)
         for (fc, ft), _ in top_cs:
             assert fc >= 2, f"Punteggio finale ({fc}-{ft}) ha meno gol della casa"

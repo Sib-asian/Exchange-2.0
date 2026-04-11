@@ -172,7 +172,7 @@ class TestEngineOutput:
             linea_ou=2.5,
         )
         r = analizza(state)
-        assert r.p_btts == 1.0
+        assert r.p_btts == pytest.approx(1.0, abs=1e-9)
 
     def test_over_already_won(self):
         """Se i gol totali superano la linea, Over = già vinto → P(Over) ≈ 1."""
