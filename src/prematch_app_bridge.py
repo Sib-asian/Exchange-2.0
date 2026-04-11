@@ -318,6 +318,9 @@ def build_match_state_from_prematch_analysis(
     _h2h_ht_n_raw = int(getattr(pa, "h2h_ht_matches_count", 0) or 0) if pa else 0
     _h2h_ht_n = max(0, int(round(_h2h_ht_n_raw * min(1.0, _w_h2h))))
     _sharp_for_state = max(0.0, _sharp_sig * _global_w)
+    _h2h_core_w = 1.0
+    if _global_w > 1e-9:
+        _h2h_core_w = max(0.0, min(1.0, _w_h2h / _global_w))
 
     state = build_match_state(
         match, lines, linea_ou, bankroll, comm_rate,
@@ -328,6 +331,7 @@ def build_match_state_from_prematch_analysis(
         h2h_avg_goals_away=_h2h_avg_ga,
         h2h_ht_matches_count=_h2h_ht_n,
         odds_sharp_signal=_sharp_for_state,
+        h2h_core_weight=_h2h_core_w,
         mkt_init_1=_mkt1,
         mkt_init_x=_mktx,
         mkt_init_2=_mkt2,
