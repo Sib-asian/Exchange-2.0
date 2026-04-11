@@ -194,8 +194,9 @@ def _delay_zscore(delay: float, p_event: float) -> float:
 
 def _render_prematch_delay_insight_box(risultati: ProbabilitaModello, prematch: Any) -> None:
     """Specchietto informativo ritardi statistici prematch (non altera il modello)."""
-    home_recent = list(getattr(prematch, "home_recent_results", []) or [])[:12]
-    away_recent = list(getattr(prematch, "away_recent_results", []) or [])[:12]
+    _form_n = 15
+    home_recent = list(getattr(prematch, "home_recent_results", []) or [])[:_form_n]
+    away_recent = list(getattr(prematch, "away_recent_results", []) or [])[:_form_n]
     if not home_recent and not away_recent:
         return
 
@@ -205,6 +206,14 @@ def _render_prematch_delay_insight_box(risultati: ProbabilitaModello, prematch: 
     a_o25 = _event_delay_metrics(away_recent, lambda gf, gs: (gf + gs) >= 3)
     h_btts = _event_delay_metrics(home_recent, lambda gf, gs: gf > 0 and gs > 0)
     a_btts = _event_delay_metrics(away_recent, lambda gf, gs: gf > 0 and gs > 0)
+    h_u25 = _event_delay_metrics(home_recent, lambda gf, gs: (gf + gs) < 3)
+    a_u25 = _event_delay_metrics(away_recent, lambda gf, gs: (gf + gs) < 3)
+    h_draw = _event_delay_metrics(home_recent, lambda gf, gs: gf == gs)
+    a_draw = _event_delay_metrics(away_recent, lambda gf, gs: gf == gs)
+    h_high4 = _event_delay_metrics(home_recent, lambda gf, gs: (gf + gs) >= 4)
+    a_high4 = _event_delay_metrics(away_recent, lambda gf, gs: (gf + gs) >= 4)
+    h_win = _event_delay_metrics(home_recent, lambda gf, gs: gf > gs)
+    a_win = _event_delay_metrics(away_recent, lambda gf, gs: gf > gs)
     h_o25_w = _weighted_event_rate(home_recent, lambda gf, gs: (gf + gs) >= 3)
     a_o25_w = _weighted_event_rate(away_recent, lambda gf, gs: (gf + gs) >= 3)
     h_btts_w = _weighted_event_rate(home_recent, lambda gf, gs: gf > 0 and gs > 0)
@@ -243,11 +252,38 @@ def _render_prematch_delay_insight_box(risultati: ProbabilitaModello, prematch: 
     btts_z = _delay_zscore(float(btts_delay), btts_p_post)
 
     st.divider()
-    st.caption("**Specchietto ritardi statistici (prematch)**")
+    st.caption(f"**Specchietto ritardi statistici (prematch)** — ultime fino a **{_form_n}** partite per squadra")
     c1, c2, c3 = st.columns(3)
     c1.metric("Ritardo gol Casa", f"{int(h_ng['delay'])} gare", delta=f"freq stimata {h_ng['p_hat']:.0%}")
     c2.metric("Ritardo gol Trasf.", f"{int(a_ng['delay'])} gare", delta=f"freq stimata {a_ng['p_hat']:.0%}")
     c3.metric("Ritardo Over 2.5", f"{over_delay} gare", delta=f"base {over_p_struct:.0%} · post {over_p_post:.0%}")
+
+    u25_delay_avg = int(round((h_u25["delay"] + a_u25["delay"]) / 2.0))
+    draw_delay_avg = int(round((h_draw["delay"] + a_draw["delay"]) / 2.0))
+    high4_delay_avg = int(round((h_high4["delay"] + a_high4["delay"]) / 2.0))
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric(
+        "Ritardo Under 2.5",
+        f"{u25_delay_avg} gare",
+        delta=f"freq U2.5 {((h_u25['p_hat'] + a_u25['p_hat']) / 2.0):.0%}",
+    )
+    d2.metric(
+        "Ritardo pareggi",
+        f"{draw_delay_avg} gare",
+        delta=f"freq X {((h_draw['p_hat'] + a_draw['p_hat']) / 2.0):.0%}",
+    )
+    d3.metric(
+        "Ritardo partite 4+ gol",
+        f"{high4_delay_avg} gare",
+        delta=f"freq 4+ {((h_high4['p_hat'] + a_high4['p_hat']) / 2.0):.0%}",
+    )
+    win_delay_avg = int(round((h_win["delay"] + a_win["delay"]) / 2.0))
+    win_freq_avg = (h_win["p_hat"] + a_win["p_hat"]) / 2.0
+    d4.metric(
+        "Ritardo vittoria",
+        f"{win_delay_avg} gare",
+        delta=f"freq W {win_freq_avg:.0%}",
+    )
 
     # Delay Power Score: combina anomalia, concordanza col modello e affidabilità.
     over_idx = (h_o25["ritardo_idx"] + a_o25["ritardo_idx"]) / 2.0
@@ -307,15 +343,37 @@ def _render_prematch_delay_insight_box(risultati: ProbabilitaModello, prematch: 
         align = max(0.0, 1.0 - abs(p_recent - p_model))
         return 100.0 * (0.45 * idx + 0.35 * align + 0.20 * (1.0 - unc))
 
+    u25_idx = (h_u25["ritardo_idx"] + a_u25["ritardo_idx"]) / 2.0
+    draw_idx = (h_draw["ritardo_idx"] + a_draw["ritardo_idx"]) / 2.0
+    high4_idx = (h_high4["ritardo_idx"] + a_high4["ritardo_idx"]) / 2.0
+    p_under25_ref = max(0.0, min(1.0, 1.0 - risultati.p_over_25_ref))
+    u25_struct = (h_u25["p_hat"] + a_u25["p_hat"]) / 2.0
+    u25_unc = _wilson_half_width(u25_struct, max(1, n_eff))
+    draw_struct = (h_draw["p_hat"] + a_draw["p_hat"]) / 2.0
+    draw_unc = _wilson_half_width(draw_struct, max(1, n_eff))
+    high4_struct = (h_high4["p_hat"] + a_high4["p_hat"]) / 2.0
+    high4_unc = _wilson_half_width(high4_struct, max(1, n_eff))
+    p_high4_model = sum(
+        risultati.gol_tot_dist.get(t, 0.0) for t in range(4, max(risultati.gol_tot_dist.keys() or [0]) + 1)
+    )
+    p_high4_model = max(0.0, min(1.0, p_high4_model))
+
     score_over = _event_score(over_idx, over_p_post, risultati.p_over_25_ref, over_unc)
     score_btts = _event_score(btts_idx, btts_p_post, risultati.p_btts, btts_unc)
     score_home_goal = _event_score(h_ng["ritardo_idx"], h_ng["p_hat"], risultati.p1, _wilson_half_width(h_ng["p_hat"], int(max(1, h_ng["n"]))))
     score_away_goal = _event_score(a_ng["ritardo_idx"], a_ng["p_hat"], risultati.p2, _wilson_half_width(a_ng["p_hat"], int(max(1, a_ng["n"]))))
+    score_u25 = _event_score(u25_idx, u25_struct, p_under25_ref, u25_unc)
+    score_draw = _event_score(draw_idx, draw_struct, risultati.px, draw_unc)
+    score_high4 = _event_score(high4_idx, high4_struct, p_high4_model, high4_unc)
     rank = [
         ("Over 2.5", score_over),
         ("BTTS", score_btts),
+        ("Under 2.5", score_u25),
+        ("Pareggio", score_draw),
+        ("4+ gol", score_high4),
         ("Gol Casa", score_home_goal),
         ("Gol Trasf.", score_away_goal),
+        ("Vittoria (forma)", _event_score((h_win["ritardo_idx"] + a_win["ritardo_idx"]) / 2.0, win_freq_avg, max(risultati.p1, risultati.p2), _wilson_half_width(win_freq_avg, max(1, n_eff)))),
     ]
     rank_sorted = sorted(rank, key=lambda x: x[1], reverse=True)
     best_lbl, best_sc = rank_sorted[0]
@@ -1198,7 +1256,8 @@ def render_riepilogo_modello(
 
     # ── Top 3 Correct Score ─────────────────────────────────────────────────
     if risultati.top_cs:
-        st.caption("**Punteggi più probabili**")
+        _t3r = getattr(risultati, "cs_top3_mass", 0.0) or 0.0
+        st.caption(f"**Punteggi più probabili** · massa cumulata top-3: **{_t3r:.0%}**")
         cs_cols = st.columns(min(3, len(risultati.top_cs)))
         for idx, ((fc, ft), prob) in enumerate(risultati.top_cs[:3]):
             cs_cols[idx].metric(
@@ -1217,6 +1276,15 @@ def render_correct_score(
 ) -> None:
     """Render del Correct Score top-N e della distribuzione dei gol totali."""
     with st.expander("Correct Score — Top 5 + Totali"):
+        _ent = getattr(risultati, "cs_entropy_nats", 0.0) or 0.0
+        _t3 = getattr(risultati, "cs_top3_mass", 0.0) or 0.0
+        _sharp = "distribuzione piuttosto concentrata" if _t3 >= 0.42 else (
+            "coda ampia — molti esiti plausibili" if _t3 <= 0.28 else "dispersione media"
+        )
+        st.caption(
+            f"Diagnostica CS: entropia **{_ent:.2f}** nats · massa top-3 **{_t3:.0%}** — {_sharp}. "
+            "Matrice allineata alla stessa overdispersion del consensus (1X2/O/U/BTTS)."
+        )
         cs_cols = st.columns(UI.TOP_CS_COUNT)
         for idx, ((fc, ft), prob) in enumerate(risultati.top_cs):
             cs_cols[idx].metric(

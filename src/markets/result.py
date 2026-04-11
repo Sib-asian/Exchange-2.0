@@ -7,6 +7,8 @@ coerenza cross-market.
 
 from __future__ import annotations
 
+import math
+
 
 def apply_overdispersion(
     full: dict[tuple[int, int], float],
@@ -86,7 +88,9 @@ def calcola_correct_score(
     gol_casa: int,
     gol_trasf: int,
     top_n: int = 5,
-) -> tuple[list[tuple[tuple[int, int], float]], dict[int, float]]:
+    *,
+    score_overdispersion: bool = True,
+) -> tuple[list[tuple[tuple[int, int], float]], dict[int, float], float, float]:
     """
     Calcola la distribuzione del Correct Score e la distribuzione dei gol totali.
 
@@ -98,11 +102,16 @@ def calcola_correct_score(
         gol_casa: Gol attuali della casa.
         gol_trasf: Gol attuali della trasferta.
         top_n: Numero di correct score da restituire ordinati per probabilità.
+        score_overdispersion: Se True, applica la correzione continua sui gol futuri
+            (utile su matrici grezze, es. test). Se False, assume che la matrice sia
+            già stata passata da ``apply_overdispersion`` (allineamento con ``compute_consensus``).
 
     Returns:
-        (top_cs, gol_tot_dist):
+        (top_cs, gol_tot_dist, entropy_nats, top3_mass):
           - top_cs: Lista di ((fc, ft), prob) dei top_n punteggi più probabili.
           - gol_tot_dist: Distribuzione di probabilità dei gol totali finali.
+          - entropy_nats: Entropia di Shannon sulla distribuzione completa dei CS (nats).
+          - top3_mass: Somma delle probabilità dei tre score più probabili.
     """
     from src.config import UI as _UI
 
@@ -112,20 +121,22 @@ def calcola_correct_score(
         key = (gol_casa + a, gol_trasf + b)
         cs_final[key] = cs_final.get(key, 0.0) + p
 
-    # Overdispersion: legge continua sui gol futuri (monotona, niente salti 3/4/5).
-    # mult = min(MAX, 1 + α · max(0, future_goals - k0)^β).
-    cs_corrected: dict[tuple[int, int], float] = {}
-    for (fc, ft), p in cs_final.items():
-        future_goals = (fc - gol_casa) + (ft - gol_trasf)
-        if future_goals >= 3:
-            _x = max(0.0, float(future_goals) - _UI.CS_OVERDISP_K0)
-            _mult = 1.0 + _UI.CS_OVERDISP_ALPHA * (_x ** _UI.CS_OVERDISP_EXP)
-            p *= min(_UI.CS_OVERDISP_MAX, _mult)
-        cs_corrected[fc, ft] = p
-
-    # Rinormalizza dopo la correzione
-    _total_p = sum(cs_corrected.values())
-    cs_final = {k: v / _total_p for k, v in cs_corrected.items()} if _total_p > 0 else cs_corrected
+    if score_overdispersion:
+        # Overdispersion residua: legge continua sui gol futuri (matrici non ancora corrette).
+        cs_corrected: dict[tuple[int, int], float] = {}
+        for (fc, ft), p in cs_final.items():
+            future_goals = (fc - gol_casa) + (ft - gol_trasf)
+            if future_goals >= 3:
+                _x = max(0.0, float(future_goals) - _UI.CS_OVERDISP_K0)
+                _mult = 1.0 + _UI.CS_OVERDISP_ALPHA * (_x ** _UI.CS_OVERDISP_EXP)
+                p *= min(_UI.CS_OVERDISP_MAX, _mult)
+            cs_corrected[fc, ft] = p
+        _total_p = sum(cs_corrected.values())
+        cs_final = {k: v / _total_p for k, v in cs_corrected.items()} if _total_p > 0 else cs_corrected
+    else:
+        _total_p = sum(cs_final.values())
+        if _total_p > 0:
+            cs_final = {k: v / _total_p for k, v in cs_final.items()}
 
     # Ordinamento deterministico: probabilità decrescente, poi per punteggio crescente
     # (evita ordine non-deterministico quando due score hanno la stessa probabilità)
@@ -136,4 +147,11 @@ def calcola_correct_score(
         tot = fc + ft
         gol_tot_dist[tot] = gol_tot_dist.get(tot, 0.0) + p
 
-    return top_cs, gol_tot_dist
+    entropy_nats = 0.0
+    for p in cs_final.values():
+        if p > 0:
+            entropy_nats -= p * math.log(p)
+    _sorted_probs = sorted(cs_final.values(), reverse=True)
+    top3_mass = sum(_sorted_probs[:3])
+
+    return top_cs, gol_tot_dist, entropy_nats, top3_mass

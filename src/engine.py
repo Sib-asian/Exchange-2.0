@@ -390,6 +390,10 @@ class ProbabilitaModello:
     # <0.5 = divergenza significativa tra consensus e matrice punteggio.
     probability_coherence: float = 1.0
 
+    # Correct score: diagnostica sulla distribuzione completa (non solo top-N).
+    cs_entropy_nats: float = 0.0
+    cs_top3_mass: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Helper functions per parallelizzazione
@@ -506,7 +510,7 @@ def analizza(
         ProbabilitaModello con tutte le probabilità e i parametri interni.
     """
     from src.config import CMP, CONSENSUS, COPULA, MOMENTUM, STALE, UI
-    from src.markets.result import calcola_correct_score
+    from src.markets.result import apply_overdispersion, calcola_correct_score
     from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
     from src.models.consensus import (
         agreement_1x2_from_per_raw,
@@ -1266,7 +1270,17 @@ def analizza(
         _w_1x2[0], _w_1x2[1], _w_1x2[2],
     )
     full_matrix = full_consensus if full_consensus else full_bp
-    top_cs, gol_tot_dist = calcola_correct_score(full_matrix, state.gol_casa, state.gol_trasf, UI.TOP_CS_COUNT)
+    # Stessa overdispersion usata in compute_consensus sulla matrice blend:
+    # CS, AH, clean sheet e riconciliazione leggono la stessa legge congiunta dei 1X2/O/U/BTTS.
+    if full_matrix:
+        full_matrix = apply_overdispersion(full_matrix)
+    top_cs, gol_tot_dist, cs_entropy_nats, cs_top3_mass = calcola_correct_score(
+        full_matrix,
+        state.gol_casa,
+        state.gol_trasf,
+        UI.TOP_CS_COUNT,
+        score_overdispersion=False,
+    )
 
     # 10b. Upgrade 8-1: Riconciliazione cross-mercato via score matrix.
     # Bilancia le probabilità "libere" del consensus con quelle "vincolate"
@@ -1449,4 +1463,6 @@ def analizza(
         prev_lambda_a=_prev_lambda_a,
         pipeline_ci_tightness=ci_tightness_score(credible_intervals),
         probability_coherence=_coherence_score,
+        cs_entropy_nats=cs_entropy_nats,
+        cs_top3_mass=cs_top3_mass,
     )
