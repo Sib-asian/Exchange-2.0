@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import math
 
-from src.config import OCR_QUOTES
+from src.config import FORM_ANALYSIS, OCR_QUOTES
 from src.engine import MatchState
 from src.models.ai_adjustments import calcola_assenze_mult
 from src.ocr import PrematchAnalysisExtracted
@@ -322,6 +322,20 @@ def build_match_state_from_prematch_analysis(
     if _global_w > 1e-9:
         _h2h_core_w = max(0.0, min(1.0, _w_h2h / _global_w))
 
+    _bad_notes = frozenset({
+        "market_1x2_missing_or_unreadable",
+        "league_missing",
+        "team_names_partial",
+    })
+    _extraction_trust = 1.0
+    for _note in getattr(pa, "extraction_notes", None) or []:
+        if str(_note).strip() in _bad_notes:
+            _extraction_trust *= FORM_ANALYSIS.EXTRACTION_NOTE_TRUST_PENALTY
+    _extraction_trust = max(
+        FORM_ANALYSIS.EXTRACTION_TRUST_FLOOR,
+        min(1.0, _extraction_trust),
+    )
+
     state = build_match_state(
         match, lines, linea_ou, bankroll, comm_rate,
         forma_mult_h=_forma_h,
@@ -393,6 +407,7 @@ def build_match_state_from_prematch_analysis(
         line_movement_ah_raw=_line_move_ah_raw,
         line_movement_total_raw=_line_move_total_raw,
         extraction_coverage=_coverage,
+        extraction_trust_factor=_extraction_trust,
         team_stats_home_shots=_ts_sh_h,
         team_stats_away_shots=_ts_sh_a,
         team_stats_home_corners=_ts_cor_h,

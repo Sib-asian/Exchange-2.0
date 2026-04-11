@@ -29,11 +29,11 @@ def _base_state(**kwargs) -> MatchState:
     return MatchState(**payload)
 
 
-def test_h2h_over_blend_disabled_for_non_25_line() -> None:
-    """H2H over% should not shift O/U when analyzed line is not 2.5."""
+def test_h2h_over_blend_applies_on_non_25_line_with_shift() -> None:
+    """H2H over% (riferimento tipico 2.5) viene traslata verso linea_ou (qui 2.75) e blendata."""
     no_h2h = analizza(_base_state(h2h_over_pct=0.0))
     with_h2h = analizza(_base_state(h2h_over_pct=70.0))
-    assert abs(no_h2h.p_over - with_h2h.p_over) < 1e-9
+    assert with_h2h.p_over > no_h2h.p_over
 
 
 def test_h2h_over_blend_applies_on_25_line() -> None:

@@ -131,6 +131,20 @@ def test_bridge_falls_back_to_live_1x2_when_initial_missing() -> None:
     assert state.mkt_init_2 == 3.10
 
 
+def test_bridge_extraction_trust_factor_drops_on_critical_notes() -> None:
+    pa = _base_pa(extraction_notes=["market_1x2_missing_or_unreadable", "ok_note"])
+    state, _, _ = build_match_state_from_prematch_analysis(
+        pa,
+        match=_base_match(),
+        lines=_base_lines(),
+        linea_ou=2.5,
+        bankroll=1000.0,
+        comm_rate=0.025,
+    )
+    assert state.extraction_trust_factor < 1.0
+    assert state.extraction_trust_factor >= 0.5
+
+
 def test_bridge_h2h_core_weight_follows_section_score() -> None:
     pa = _base_pa(extraction_section_scores={"h2h_core": 0.28})
     state, _, _ = build_match_state_from_prematch_analysis(

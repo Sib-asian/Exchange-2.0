@@ -101,6 +101,8 @@ class MatchState:
 
     # Copertura estrazione prematch [0,1] per gating dei micro-prior.
     extraction_coverage: float = 0.0
+    # Fiducia sintetica [0.55,1]: penalità se extraction_notes segnala buchi critici.
+    extraction_trust_factor: float = 1.0
 
     # Team stats prematch (ultimi 10): usati con peso conservativo come micro-prior.
     team_stats_home_shots: float = 0.0
@@ -1308,6 +1310,10 @@ def analizza(
             _htft_scale = 0.50
         else:
             _htft_scale = min(1.0, max(0.35, state.h2h_ht_matches_count / 10.0))
+        _cov_htft = max(
+            0.0,
+            min(1.0, float(state.extraction_coverage) * float(state.extraction_trust_factor)),
+        )
         p1, px, p2 = compute_htft_adjustment(
             p1, px, p2,
             htft_blend_scale=_htft_scale,
@@ -1329,25 +1335,43 @@ def analizza(
             htft_away_htl_ftw=state.htft_away_htl_ftw,
             htft_away_htl_ftd=state.htft_away_htl_ftd,
             htft_away_htl_ftl=state.htft_away_htl_ftl,
+            h2h_ht_home_win_pct=state.h2h_ht_home_win_pct,
+            h2h_ht_draw_pct=state.h2h_ht_draw_pct,
+            h2h_ht_away_win_pct=state.h2h_ht_away_win_pct,
+            h2h_ht_matches_count=state.h2h_ht_matches_count,
+            extraction_coverage=_cov_htft,
             minuto=state.minuto,
             ht_result=_ht_result,
         )
     except Exception:
         pass  # Best-effort
 
-    # 9d. H2H Over % blend (solo prematch) - Miglioramento #3.
-    # Il dato H2H Over% è in genere riferito alla soglia 2.5: applichiamo il blend
-    # solo quando la linea analizzata è 2.5 per evitare mismatch di mercato.
-    if state.minuto == 0 and state.h2h_over_pct > 0 and abs(state.linea_ou - 2.5) < 1e-6:
-        _alpha_over_h2h = 0.15
-        _p_over_h2h = state.h2h_over_pct / 100.0  # Converti da % a proporzione
-        p_over = (1.0 - _alpha_over_h2h) * p_over + _alpha_over_h2h * _p_over_h2h
-        p_under = 1.0 - p_over  # Rinormalizza
-    # Applica lo stesso micro-blend H2H anche al canale canonico O/U 2.5.
+    # 9d. H2H Over % blend (solo prematch).
+    # Riferimento tipico Nowgoal = Over 2.5; traslazione euristica verso linea_ou analizzata.
     if state.minuto == 0 and state.h2h_over_pct > 0:
-        _alpha_over_h2h = 0.15
-        _p_over_h2h = state.h2h_over_pct / 100.0
-        p_over_25_ref = (1.0 - _alpha_over_h2h) * p_over_25_ref + _alpha_over_h2h * _p_over_h2h
+        from src.config import FORM_ANALYSIS as _FA_OU
+
+        _p25 = max(0.0, min(1.0, state.h2h_over_pct / 100.0))
+        _half_steps = (float(state.linea_ou) - 2.5) / 0.5
+        _p_over_h2h = max(
+            0.03,
+            min(0.97, _p25 - _half_steps * _FA_OU.H2H_OVER_LINE_SLOPE_PER_HALF),
+        )
+        _f_line = max(0.45, 1.0 - 0.11 * abs(float(state.linea_ou) - 2.5))
+        _alpha_over_h2h = (
+            _FA_OU.H2H_OVER_BLEND_BASE_ALPHA
+            * _f_line
+            * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+        )
+        p_over = (1.0 - _alpha_over_h2h) * p_over + _alpha_over_h2h * _p_over_h2h
+        p_under = 1.0 - p_over
+        _p_over_h2h_raw = max(0.0, min(1.0, state.h2h_over_pct / 100.0))
+        _alpha25 = (
+            _FA_OU.H2H_OVER_BLEND_BASE_ALPHA
+            * 0.92
+            * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+        )
+        p_over_25_ref = (1.0 - _alpha25) * p_over_25_ref + _alpha25 * _p_over_h2h_raw
         p_under_25_ref = 1.0 - p_over_25_ref
 
     # 9e. Previous Scores Over% blend (solo prematch) — Upgrade 1.
@@ -1364,7 +1388,7 @@ def analizza(
             _prev_over_count += 1
         if _prev_over_count > 0:
             _prev_over_avg /= _prev_over_count
-            _alpha_prev_over = 0.08  # conservativo: 8% peso
+            _alpha_prev_over = 0.08 * max(0.0, min(1.0, float(state.extraction_trust_factor)))
             p_over = (1.0 - _alpha_prev_over) * p_over + _alpha_prev_over * _prev_over_avg
             p_under = 1.0 - p_over
             if abs(state.linea_ou - 2.5) < 1e-6:
