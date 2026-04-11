@@ -1062,6 +1062,15 @@ class FormAnalysisConfig:
     LAMBDA_TOT_COHERE_K: float = 0.42
     LAMBDA_TOT_COHERE_LOW_COV_BOOST: float = 0.35
 
+    # H2H: % HT casa / X / trasferta quando manca la matrice HT→FT (fallback prematch).
+    H2H_HT_MARGINAL_PREMATCH_BLEND_MAX: float = 0.058
+    # H2H Over% è spesso vs 2.5: traslazione euristica verso altra linea O/U analizzata.
+    H2H_OVER_LINE_SLOPE_PER_HALF: float = 0.092
+    H2H_OVER_BLEND_BASE_ALPHA: float = 0.175
+    # Moltiplicatore affidabilità per nota parser grave (bridge → extraction_trust_factor).
+    EXTRACTION_NOTE_TRUST_PENALTY: float = 0.88
+    EXTRACTION_TRUST_FLOOR: float = 0.55
+
     # === GOAL TIMING (Quando segnano) ===
     # Squadre che segnano a fine partita (ultimi 15') possono essere più pericolose
     # in partite aperte, mentre squadre che subiscono a fine partita sono vulnerabili.

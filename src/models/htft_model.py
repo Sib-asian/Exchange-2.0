@@ -33,6 +33,57 @@ HTFT_LIVE_BLEND: float = 0.12
 MIN_MATCHES_HTFT: int = 5
 
 
+def _prematch_from_h2h_ht_marginals(
+    p1: float,
+    px: float,
+    p2: float,
+    *,
+    ht_home_pct: float,
+    ht_draw_pct: float,
+    ht_away_pct: float,
+    n_matches: int,
+    blend_scale: float,
+    extraction_coverage: float,
+) -> tuple[float, float, float]:
+    """
+    Fallback quando i conteggi HT→FT (18 celle) sono insufficienti:
+    usa le % H2H di esito al primo tempo (casa avanti / pari / ospite avanti).
+    """
+    from src.config import FORM_ANALYSIS as FA
+
+    s_ht = float(ht_home_pct) + float(ht_draw_pct) + float(ht_away_pct)
+    if s_ht < 5.0 or int(n_matches) < 3:
+        return p1, px, p2
+    ph = float(ht_home_pct) / s_ht
+    pd = float(ht_draw_pct) / s_ht
+    pa = float(ht_away_pct) / s_ht
+    w_n = min(1.0, int(n_matches) / 10.0)
+    cov = max(0.0, min(1.0, float(extraction_coverage)))
+    alpha = (
+        FA.H2H_HT_MARGINAL_PREMATCH_BLEND_MAX
+        * max(0.0, min(1.0, float(blend_scale)))
+        * w_n
+        * cov
+    )
+    if alpha <= 1e-12:
+        return p1, px, p2
+    # Mappa grezza HT → FT (correlazione positiva stato HT e risultato finale).
+    t1 = 0.48 * ph + 0.22 * pd + 0.12 * pa
+    tx = 0.26 * ph + 0.50 * pd + 0.26 * pa
+    t2 = 0.12 * ph + 0.22 * pd + 0.48 * pa
+    ts = t1 + tx + t2
+    if ts <= 1e-12:
+        return p1, px, p2
+    t1, tx, t2 = t1 / ts, tx / ts, t2 / ts
+    r1 = (1.0 - alpha) * p1 + alpha * t1
+    rx = (1.0 - alpha) * px + alpha * tx
+    r2 = (1.0 - alpha) * p2 + alpha * t2
+    s = r1 + rx + r2
+    if s > 0:
+        return r1 / s, rx / s, r2 / s
+    return p1, px, p2
+
+
 def compute_htft_adjustment(
     p1: float,
     px: float,
@@ -57,6 +108,11 @@ def compute_htft_adjustment(
     htft_away_htl_ftw: int = 0,
     htft_away_htl_ftd: int = 0,
     htft_away_htl_ftl: int = 0,
+    h2h_ht_home_win_pct: float = 0.0,
+    h2h_ht_draw_pct: float = 0.0,
+    h2h_ht_away_win_pct: float = 0.0,
+    h2h_ht_matches_count: int = 0,
+    extraction_coverage: float = 1.0,
     minuto: int = 0,
     ht_result: str = "",
 ) -> tuple[float, float, float]:
@@ -86,7 +142,19 @@ def compute_htft_adjustment(
                + htft_away_htl_ftw + htft_away_htl_ftd + htft_away_htl_ftl)
 
     if h_total < MIN_MATCHES_HTFT and a_total < MIN_MATCHES_HTFT:
-        return p1, px, p2
+        if minuto >= 45 and ht_result in ("W", "D", "L"):
+            return p1, px, p2
+        return _prematch_from_h2h_ht_marginals(
+            p1,
+            px,
+            p2,
+            ht_home_pct=h2h_ht_home_win_pct,
+            ht_draw_pct=h2h_ht_draw_pct,
+            ht_away_pct=h2h_ht_away_win_pct,
+            n_matches=h2h_ht_matches_count,
+            blend_scale=float(htft_blend_scale),
+            extraction_coverage=float(extraction_coverage),
+        )
 
     _scale = max(0.0, min(1.0, float(htft_blend_scale)))
 
