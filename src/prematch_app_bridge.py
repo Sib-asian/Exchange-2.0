@@ -88,6 +88,7 @@ def build_match_state_from_prematch_analysis(
     _h2h_home = float(getattr(pa, "h2h_home_win_pct", 0.0)) if pa else 0.0
     _h2h_draw = float(getattr(pa, "h2h_draw_pct", 0.0)) if pa else 0.0
     _h2h_away = float(getattr(pa, "h2h_away_win_pct", 0.0)) if pa else 0.0
+    _h2h_ah_cov = float(getattr(pa, "h2h_ah_home_cover_pct", 0.0)) if pa else 0.0
     _h2h_over = float(getattr(pa, "h2h_over_pct", 0.0)) if pa else 0.0
     _h2h_btts = float(getattr(pa, "h2h_btts_pct", 0.0)) if pa else 0.0
     _h2h_ht_home = float(getattr(pa, "h2h_ht_home_win_pct", 0.0)) if pa else 0.0
@@ -236,6 +237,7 @@ def build_match_state_from_prematch_analysis(
     _h2h_home *= _w_h2h
     _h2h_draw *= _w_h2h
     _h2h_away *= _w_h2h
+    _h2h_ah_cov *= _w_h2h
     _h2h_over *= _w_h2h
     _h2h_btts *= _w_h2h
     _h2h_ht_home *= _w_h2h
@@ -280,6 +282,16 @@ def build_match_state_from_prematch_analysis(
     _ts_foul_a = float(getattr(pa, "team_stats_away_fouls", 0.0)) if pa else 0.0
     _prev_over_h = float(getattr(pa, "home_prev_over_pct", 0.0)) if pa else 0.0
     _prev_over_a = float(getattr(pa, "away_prev_over_pct", 0.0)) if pa else 0.0
+    _prev_win_h = float(getattr(pa, "home_prev_win_pct", 0.0)) if pa else 0.0
+    _prev_win_a = float(getattr(pa, "away_prev_win_pct", 0.0)) if pa else 0.0
+    _rxg_h = float(getattr(pa, "home_xg_from_recent", 0.0)) if pa else 0.0
+    _rxg_a = float(getattr(pa, "away_xg_from_recent", 0.0)) if pa else 0.0
+    _mot_h = str(getattr(pa, "home_motivation", "normal") or "normal").strip().lower()
+    _mot_a = str(getattr(pa, "away_motivation", "normal") or "normal").strip().lower()
+    if _mot_h not in ("high", "normal", "low"):
+        _mot_h = "normal"
+    if _mot_a not in ("high", "normal", "low"):
+        _mot_a = "normal"
 
     # Upgrade 8-4: HT/FT transition counts (18 campi)
     _htft_h_hw_fw = int(getattr(pa, "htft_home_htw_ftw", 0)) if pa else 0
@@ -379,6 +391,13 @@ def build_match_state_from_prematch_analysis(
         team_stats_away_fouls=_ts_foul_a,
         prev_over_pct_h=_prev_over_h,
         prev_over_pct_a=_prev_over_a,
+        h2h_ah_home_cover_pct=_h2h_ah_cov,
+        prev_win_pct_h=_prev_win_h,
+        prev_win_pct_a=_prev_win_a,
+        recent_xg_prior_h=_rxg_h,
+        recent_xg_prior_a=_rxg_a,
+        motivation_home=_mot_h,
+        motivation_away=_mot_a,
         htft_home_htw_ftw=_htft_h_hw_fw,
         htft_home_htw_ftd=_htft_h_hw_fd,
         htft_home_htw_ftl=_htft_h_hw_fl,
