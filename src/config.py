@@ -1070,6 +1070,20 @@ class FormAnalysisConfig:
     # O/U europeo canonico 2.5: integra informazione dalla linea selezionata (es. 3.0).
     O25_FROM_SELECTED_LINE_SHIFT_PER_HALF: float = 0.105
     O25_FROM_SELECTED_LINE_BLEND_ALPHA: float = 0.30
+    # Reconciliazione finale O/U 2.5 con distribuzione gol (coerenza probabilistica).
+    O25_DIST_RECON_ALPHA_BASE: float = 0.24
+    # Coerenza O/U ladder (Over 1.5 e Over 2.5) vs distribuzione gol del consensus.
+    OU_DIST_RECON_ALPHA_BASE: float = 0.26
+    # 1X2 prematch: alphas base adattivi (market + H2H), poi scalati da trust/coverage/campione.
+    PREMATCH_1X2_MKT_ALPHA_BASE: float = 0.08
+    PREMATCH_1X2_H2H_ALPHA_BASE: float = 0.05
+    # Cap del peso totale dei prior esterni 1X2 (market+H2H) in prematch.
+    PREMATCH_1X2_EXTERNAL_ALPHA_CAP: float = 0.16
+    # Coerenza soft tra ladder O/U e BTTS in prematch (evita combinazioni incoerenti).
+    PREMATCH_OU_BTTS_COHERENCE_ALPHA: float = 0.36
+    # Scenario-mixture prematch: total λ come mix low/mid/high tempo.
+    PREMATCH_TEMPO_MIX_AMPLITUDE: float = 0.12
+    PREMATCH_TEMPO_MIX_BLEND_MAX: float = 0.34
     # Moltiplicatore affidabilità per nota parser grave (bridge → extraction_trust_factor).
     EXTRACTION_NOTE_TRUST_PENALTY: float = 0.88
     EXTRACTION_TRUST_FLOOR: float = 0.55
