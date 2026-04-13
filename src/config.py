@@ -1067,6 +1067,9 @@ class FormAnalysisConfig:
     # H2H Over% è spesso vs 2.5: traslazione euristica verso altra linea O/U analizzata.
     H2H_OVER_LINE_SLOPE_PER_HALF: float = 0.092
     H2H_OVER_BLEND_BASE_ALPHA: float = 0.175
+    # O/U europeo canonico 2.5: integra informazione dalla linea selezionata (es. 3.0).
+    O25_FROM_SELECTED_LINE_SHIFT_PER_HALF: float = 0.105
+    O25_FROM_SELECTED_LINE_BLEND_ALPHA: float = 0.30
     # Moltiplicatore affidabilità per nota parser grave (bridge → extraction_trust_factor).
     EXTRACTION_NOTE_TRUST_PENALTY: float = 0.88
     EXTRACTION_TRUST_FLOOR: float = 0.55
