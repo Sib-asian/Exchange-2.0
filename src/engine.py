@@ -1402,6 +1402,24 @@ def analizza(
                 p_over_25_ref = (1.0 - _alpha_prev_over) * p_over_25_ref + _alpha_prev_over * _prev_over_avg
                 p_under_25_ref = 1.0 - p_over_25_ref
 
+    # 9f. O/U canonico europeo (2.5): ingloba informazione della linea analizzata.
+    # Il motore continua a lavorare sulla linea selezionata, ma il canale prematch
+    # principale resta O/U 2.5 per coerenza con i mercati europei più liquidi.
+    if state.minuto == 0 and abs(float(state.linea_ou) - 2.5) > 1e-6:
+        from src.config import FORM_ANALYSIS as _FA_EU
+
+        _half_steps_line = (float(state.linea_ou) - 2.5) / 0.5
+        _p25_from_line = max(
+            0.03,
+            min(0.97, p_over + _half_steps_line * _FA_EU.O25_FROM_SELECTED_LINE_SHIFT_PER_HALF),
+        )
+        _alpha_o25_bridge = (
+            _FA_EU.O25_FROM_SELECTED_LINE_BLEND_ALPHA
+            * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+        )
+        p_over_25_ref = (1.0 - _alpha_o25_bridge) * p_over_25_ref + _alpha_o25_bridge * _p25_from_line
+        p_under_25_ref = 1.0 - p_over_25_ref
+
     # 10. Correct score e distribuzione gol dal consensus (Fix #5).
     # Fix #2.7: Usa funzione helper per costruire la matrice consensus (pesi dinamici)
     full_consensus = _build_consensus_matrix(
