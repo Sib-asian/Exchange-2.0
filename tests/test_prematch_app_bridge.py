@@ -145,6 +145,20 @@ def test_bridge_extraction_trust_factor_drops_on_critical_notes() -> None:
     assert state.extraction_trust_factor >= 0.5
 
 
+def test_bridge_extraction_trust_factor_drops_with_low_section_scores() -> None:
+    pa = _base_pa(extraction_section_scores={"identity": 0.35, "h2h_core": 0.30, "team_stats": 0.40})
+    state, _, _ = build_match_state_from_prematch_analysis(
+        pa,
+        match=_base_match(),
+        lines=_base_lines(),
+        linea_ou=2.5,
+        bankroll=1000.0,
+        comm_rate=0.025,
+    )
+    assert state.extraction_trust_factor < 1.0
+    assert state.extraction_trust_factor >= 0.5
+
+
 def test_bridge_h2h_core_weight_follows_section_score() -> None:
     pa = _base_pa(extraction_section_scores={"h2h_core": 0.28})
     state, _, _ = build_match_state_from_prematch_analysis(

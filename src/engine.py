@@ -557,6 +557,18 @@ def analizza(
     _mins_rem = max(1, 90 - state.minuto)
     _tot_cap = max(BAYES.TOT_BAYES_MIN, _mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
     tot_cur_eff = min(state.tot_cur, _tot_cap)
+    _prematch_line_factor = 1.0
+    if state.minuto == 0:
+        # Coerenza linee manuali prematch: movimento più netto è informativo, ma
+        # contraddizioni AH vs 1X2 riducono l'affidabilità operativa.
+        _move_mag = abs(float(state.ah_cur) - float(state.ah_op)) + 0.5 * abs(float(state.tot_cur) - float(state.tot_op))
+        _prematch_line_factor = 0.92 + min(0.12, _move_mag * 0.08)
+        if state.mkt_init_1 > 1.01 and state.mkt_init_2 > 1.01 and abs(float(state.ah_cur)) >= 0.25:
+            _fav_ah_home = float(state.ah_cur) < 0.0
+            _fav_mkt_home = float(state.mkt_init_1) < float(state.mkt_init_2)
+            if _fav_ah_home != _fav_mkt_home:
+                _prematch_line_factor *= 0.86
+        _prematch_line_factor = max(0.75, min(1.10, _prematch_line_factor))
 
     # 0. Segnali OCR da quote bookmaker (solo prematch, minuto == 0)
     from src.models.calibration import estrai_segnali_ocr_da_quote
@@ -976,6 +988,56 @@ def analizza(
         if _live_recal != 1.0:
             xg_h_final = max(DECAY.XG_FLOOR, xg_h_final * _live_recal)
             xg_a_final = max(DECAY.XG_FLOOR, xg_a_final * _live_recal)
+    elif state.minuto == 0:
+        # Prematch scenario-mixture: combina tre regimi di ritmo (low/mid/high)
+        # e aggiorna solo il totale λ mantenendo il rapporto casa/trasferta.
+        from src.config import FORM_ANALYSIS as _FA_TM
+        _tot_base = xg_h_final + xg_a_final
+        if _tot_base > 1e-9:
+            _share_h = xg_h_final / _tot_base
+            _share_a = xg_a_final / _tot_base
+            _prev_over_avg = 0.0
+            _prev_over_n = 0
+            if state.prev_over_pct_h > 0:
+                _prev_over_avg += state.prev_over_pct_h / 100.0
+                _prev_over_n += 1
+            if state.prev_over_pct_a > 0:
+                _prev_over_avg += state.prev_over_pct_a / 100.0
+                _prev_over_n += 1
+            if _prev_over_n > 0:
+                _prev_over_avg /= _prev_over_n
+            else:
+                _prev_over_avg = 0.50
+            _h2h_over = max(0.0, min(1.0, state.h2h_over_pct / 100.0)) if state.h2h_over_pct > 0 else 0.50
+            _tot_norm = max(0.0, min(1.0, (float(state.tot_op) - 1.8) / 1.8))
+            _tempo_score = (
+                0.40 * _tot_norm
+                + 0.30 * _prev_over_avg
+                + 0.20 * _h2h_over
+                + 0.10 * max(0.0, min(1.0, (float(state.fixture_historical_total) - 1.8) / 1.8))
+            )
+            _tempo_score = max(0.0, min(1.0, _tempo_score))
+            _z = (_tempo_score - 0.5) * 2.0
+            _w_high = max(0.0, _z)
+            _w_low = max(0.0, -_z)
+            _w_mid = max(0.0, 1.0 - _w_high - _w_low)
+            _ws = _w_low + _w_mid + _w_high
+            if _ws > 1e-9:
+                _w_low /= _ws
+                _w_mid /= _ws
+                _w_high /= _ws
+            _amp = _FA_TM.PREMATCH_TEMPO_MIX_AMPLITUDE * max(0.85, min(1.15, _prematch_line_factor))
+            _tot_low = _tot_base * (1.0 - _amp)
+            _tot_mid = _tot_base
+            _tot_high = _tot_base * (1.0 + _amp)
+            _tot_mix = _w_low * _tot_low + _w_mid * _tot_mid + _w_high * _tot_high
+            _blend_mix = (
+                _FA_TM.PREMATCH_TEMPO_MIX_BLEND_MAX
+                * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+            )
+            _tot_new = (1.0 - _blend_mix) * _tot_base + _blend_mix * _tot_mix
+            xg_h_final = max(DECAY.XG_FLOOR, _tot_new * _share_h)
+            xg_a_final = max(DECAY.XG_FLOOR, _tot_new * _share_a)
 
     # 4b. Stale line detection: se le linee non si sono mosse dopo >15 minuti
     # di partita, il mercato è potenzialmente illiquido o sospeso.
@@ -1255,6 +1317,7 @@ def analizza(
                 OCR_QUOTES.BTTS_PRIOR_WEIGHT
                 * _quality_btts
                 * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+                * _prematch_line_factor
             )
             p_btts = (1.0 - _w_btts_quote) * p_btts + _w_btts_quote * _p_gg_ocr
 
@@ -1263,10 +1326,23 @@ def analizza(
     # con peso conservativo per ancorare la 1X2 a informazioni esterne.
     # Pesi: 8% market-implied 1X2 + 5% H2H storico → max 13% totale (scalati da trust/core).
     if state.minuto == 0:
-        _trust_fc = max(0.0, min(1.0, float(state.extraction_trust_factor)))
+        _trust_fc = max(0.0, min(1.0, float(state.extraction_trust_factor) * _prematch_line_factor))
         _h2h_core_fc = max(0.0, min(1.0, float(state.h2h_core_weight)))
-        _alpha_mkt = 0.08 * _trust_fc
-        _alpha_h2h = 0.05 * _trust_fc * _h2h_core_fc
+        _cov_fc = max(0.0, min(1.0, float(state.extraction_coverage)))
+        _mkt_q = 1.0
+        if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
+            _ovr_mkt = 1.0 / state.mkt_init_1 + 1.0 / state.mkt_init_x + 1.0 / state.mkt_init_2
+            _mkt_q = max(0.55, min(1.0, 1.0 - max(0.0, _ovr_mkt - 1.08) * 1.8))
+        from src.config import FORM_ANALYSIS as _FA_1X2
+        _alpha_mkt = _FA_1X2.PREMATCH_1X2_MKT_ALPHA_BASE * _trust_fc * (0.65 + 0.35 * _cov_fc) * _mkt_q
+        _w_h2h_n = min(1.0, max(0.0, float(state.h2h_matches_count) / 10.0))
+        _alpha_h2h = _FA_1X2.PREMATCH_1X2_H2H_ALPHA_BASE * _trust_fc * _h2h_core_fc * _w_h2h_n
+        _alpha_cap = _FA_1X2.PREMATCH_1X2_EXTERNAL_ALPHA_CAP * _trust_fc * (0.70 + 0.30 * _agree_1x2_pre)
+        _alpha_sum = _alpha_mkt + _alpha_h2h
+        if _alpha_sum > _alpha_cap and _alpha_sum > 1e-12:
+            _scale_alpha = _alpha_cap / _alpha_sum
+            _alpha_mkt *= _scale_alpha
+            _alpha_h2h *= _scale_alpha
         _p1_adj, _px_adj, _p2_adj = p1, px, p2  # partenza dal consensus calibrato
 
         # Market-implied 1X2 (rimuovi vig e normalizza)
@@ -1368,6 +1444,7 @@ def analizza(
         _alpha_over_h2h = (
             _FA_OU.H2H_OVER_BLEND_BASE_ALPHA
             * _f_line
+            * (0.55 + 0.45 * min(1.0, max(0.0, float(state.h2h_matches_count) / 10.0)))
             * max(0.0, min(1.0, float(state.extraction_trust_factor)))
         )
         p_over = (1.0 - _alpha_over_h2h) * p_over + _alpha_over_h2h * _p_over_h2h
@@ -1376,6 +1453,7 @@ def analizza(
         _alpha25 = (
             _FA_OU.H2H_OVER_BLEND_BASE_ALPHA
             * 0.92
+            * (0.55 + 0.45 * min(1.0, max(0.0, float(state.h2h_matches_count) / 10.0)))
             * max(0.0, min(1.0, float(state.extraction_trust_factor)))
         )
         p_over_25_ref = (1.0 - _alpha25) * p_over_25_ref + _alpha25 * _p_over_h2h_raw
@@ -1438,6 +1516,17 @@ def analizza(
         UI.TOP_CS_COUNT,
         score_overdispersion=False,
     )
+    # Prematch: riconcilia O/U 2.5 con il totale implicito della distribuzione gol consensus.
+    if state.minuto == 0 and gol_tot_dist:
+        from src.config import FORM_ANALYSIS as _FA_O25
+        _p25_dist = sum(p for g, p in gol_tot_dist.items() if g >= 3)
+        _alpha_o25_dist = (
+            _FA_O25.O25_DIST_RECON_ALPHA_BASE
+            * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+            * (0.70 + 0.30 * _agree_1x2_pre)
+        )
+        p_over_25_ref = (1.0 - _alpha_o25_dist) * p_over_25_ref + _alpha_o25_dist * _p25_dist
+        p_under_25_ref = 1.0 - p_over_25_ref
 
     # 10b. Upgrade 8-1: Riconciliazione cross-mercato via score matrix.
     # Bilancia le probabilità "libere" del consensus con quelle "vincolate"
@@ -1452,6 +1541,41 @@ def analizza(
         )
     except Exception:
         pass  # Best-effort
+
+    # 10c. Coerenza O/U canonici (1.5, 2.5) con la distribuzione totale gol del consensus.
+    if gol_tot_dist:
+        from src.config import FORM_ANALYSIS as _FA_OU_REC
+        _p15_dist = sum(p for g, p in gol_tot_dist.items() if g >= 2)
+        _p25_dist = sum(p for g, p in gol_tot_dist.items() if g >= 3)
+        _alpha_ou_dist = (
+            _FA_OU_REC.OU_DIST_RECON_ALPHA_BASE
+            * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+            * (0.70 + 0.30 * _agree_1x2_pre)
+        )
+        p_over_15 = (1.0 - _alpha_ou_dist) * p_over_15 + _alpha_ou_dist * _p15_dist
+        p_under_15 = 1.0 - p_over_15
+        p_over_25_ref = (1.0 - _alpha_ou_dist) * p_over_25_ref + _alpha_ou_dist * _p25_dist
+        p_under_25_ref = 1.0 - p_over_25_ref
+
+    # 10d. Coerenza prematch O/U + BTTS:
+    # - Over 1.5 >= Over 2.5
+    # - BTTS <= Over 1.5 (necessario)
+    if state.minuto == 0:
+        from src.config import FORM_ANALYSIS as _FA_COH
+        _alpha_coh = (
+            _FA_COH.PREMATCH_OU_BTTS_COHERENCE_ALPHA
+            * max(0.0, min(1.0, float(state.extraction_trust_factor)))
+            * (0.70 + 0.30 * _agree_1x2_pre)
+        )
+        if p_over_25_ref > p_over_15:
+            _mid = 0.5 * (p_over_25_ref + p_over_15)
+            p_over_25_ref = (1.0 - _alpha_coh) * p_over_25_ref + _alpha_coh * _mid
+            p_over_15 = (1.0 - _alpha_coh) * p_over_15 + _alpha_coh * _mid
+            p_under_15 = 1.0 - p_over_15
+            p_under_25_ref = 1.0 - p_over_25_ref
+        _btts_cap = max(0.0, min(1.0, p_over_15 - 0.01))
+        if p_btts > _btts_cap:
+            p_btts = (1.0 - _alpha_coh) * p_btts + _alpha_coh * _btts_cap
 
     # 11. Intervalli di credibilità multi-modello
     credible_intervals = compute_model_credible_intervals(
@@ -1505,6 +1629,8 @@ def analizza(
                    * _time_conf * max(0.01, _agreement_conf))
     # Fix #6.4: Usa parametro dal config per la radice
     model_confidence = min(1.0, _product ** ENGINE.CONFIDENCE_ROOT_POWER)
+    if state.minuto == 0:
+        model_confidence = min(1.0, model_confidence * _prematch_line_factor)
 
     # 13. Strength boost (Miglioramento #4) - solo prematch.
     # Se c'è una grande disparità di forza tra le squadre, aumenta la confidenza.

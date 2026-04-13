@@ -43,6 +43,61 @@ def test_h2h_over_blend_applies_on_25_line() -> None:
     assert with_h2h.p_over > no_h2h.p_over
 
 
+def test_prematch_over25_ref_incorporates_selected_line_signal() -> None:
+    """O/U 2.5 prematch should move with selected analyzed line signal."""
+    low_line = analizza(_base_state(linea_ou=2.0, h2h_over_pct=0.0))
+    high_line = analizza(_base_state(linea_ou=3.0, h2h_over_pct=0.0))
+    assert low_line.p_over_25_ref > high_line.p_over_25_ref
+
+
+def test_h2h_over_blend_scales_with_h2h_sample_size() -> None:
+    """Stesso h2h_over_pct ma campione H2H più grande -> impatto maggiore su p_over."""
+    base = analizza(_base_state(h2h_over_pct=0.0, h2h_matches_count=0))
+    low_n = analizza(_base_state(h2h_over_pct=70.0, h2h_matches_count=2))
+    high_n = analizza(_base_state(h2h_over_pct=70.0, h2h_matches_count=12))
+    assert (high_n.p_over - base.p_over) > (low_n.p_over - base.p_over)
+
+
+def test_prematch_ou_btts_coherence_guards() -> None:
+    """Prematch guards keep O/U ladder and BTTS logically coherent."""
+    r = analizza(
+        _base_state(
+            tot_op=1.75,
+            tot_cur=1.75,
+            linea_ou=2.5,
+            ocr_quota_gg=1.40,
+            ocr_quota_ng=2.80,
+        )
+    )
+    assert r.p_over_15 >= r.p_over_25_ref - 1e-9
+    assert r.p_btts <= r.p_over_15 + 1e-9
+
+
+def test_prematch_tempo_mixture_moves_total_xg_with_signals() -> None:
+    """Scenario-mixture should lift total xG when prematch tempo signals are high."""
+    low = analizza(
+        _base_state(
+            tot_op=2.35,
+            tot_cur=2.35,
+            prev_over_pct_h=35.0,
+            prev_over_pct_a=35.0,
+            h2h_over_pct=35.0,
+            fixture_historical_total=2.1,
+        )
+    )
+    high = analizza(
+        _base_state(
+            tot_op=2.35,
+            tot_cur=2.35,
+            prev_over_pct_h=70.0,
+            prev_over_pct_a=70.0,
+            h2h_over_pct=72.0,
+            fixture_historical_total=3.0,
+        )
+    )
+    assert (high.xg_h_final + high.xg_a_final) > (low.xg_h_final + low.xg_a_final)
+
+
 def test_engine_ocr_uses_extracted_ou_line_when_present(monkeypatch) -> None:
     """
     OCR O/U quotes should be interpreted on the same extracted line (ocr_imp_total)

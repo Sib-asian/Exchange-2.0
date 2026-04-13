@@ -335,6 +335,19 @@ def build_match_state_from_prematch_analysis(
         FORM_ANALYSIS.EXTRACTION_TRUST_FLOOR,
         min(1.0, _extraction_trust),
     )
+    # Qualità sezione: degrada in modo continuo se più blocchi sono deboli.
+    _section_keys = ("identity", "h2h_core", "previous_scores", "team_stats", "injuries", "weather")
+    _sec_vals = []
+    for _k in _section_keys:
+        _sv = _sec(_k, _global_w)
+        _sec_vals.append(max(0.30, min(1.0, float(_sv))))
+    if _sec_vals:
+        _sec_avg = sum(_sec_vals) / len(_sec_vals)
+        _extraction_trust *= 0.72 + 0.28 * _sec_avg
+    _extraction_trust = max(
+        FORM_ANALYSIS.EXTRACTION_TRUST_FLOOR,
+        min(1.0, _extraction_trust),
+    )
 
     state = build_match_state(
         match, lines, linea_ou, bankroll, comm_rate,
