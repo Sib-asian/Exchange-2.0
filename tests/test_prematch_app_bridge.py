@@ -199,6 +199,8 @@ def test_bridge_maps_url_derived_signals_to_match_state() -> None:
         away_prev_win_pct=40.0,
         home_xg_from_recent=1.45,
         away_xg_from_recent=1.05,
+        home_form_trend=0.7,
+        away_form_trend=-0.2,
         home_motivation="high",
         away_motivation="low",
     )
@@ -213,8 +215,25 @@ def test_bridge_maps_url_derived_signals_to_match_state() -> None:
     assert state.h2h_ah_home_cover_pct > 0
     assert state.prev_win_pct_h > 0
     assert state.recent_xg_prior_h > 0.1
+    assert state.url_form_trend_h > 0.1
+    assert state.url_form_trend_a < 0.0
     assert state.motivation_home == "high"
     assert state.motivation_away == "low"
+
+
+def test_bridge_line_quality_factor_reflects_manual_line_warnings() -> None:
+    pa = _base_pa()
+    bad_lines = _base_lines()
+    bad_lines["validation_errors"] = ["warn_1", "warn_2"]
+    state, _, _ = build_match_state_from_prematch_analysis(
+        pa,
+        match=_base_match(),
+        lines=bad_lines,
+        linea_ou=2.5,
+        bankroll=1000.0,
+        comm_rate=0.025,
+    )
+    assert state.line_quality_factor < 1.0
 
 
 def test_bridge_swaps_inverted_1x2_when_ah_says_home_favorite() -> None:
