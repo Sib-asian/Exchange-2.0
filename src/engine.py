@@ -234,6 +234,11 @@ class MatchState:
     # Motivazione qualitativa estratta (high | normal | low)
     motivation_home: str = "normal"
     motivation_away: str = "normal"
+    # Trend forma URL ([-1,1], positivo = forma in miglioramento).
+    url_form_trend_h: float = 0.0
+    url_form_trend_a: float = 0.0
+    # Qualità linee manuali prematch [0,1] da validazioni input.
+    line_quality_factor: float = 1.0
 
     # === BTTS Calibration - Dati aggiuntivi ===
     h2h_btts_pct: float = 0.0          # % storica partite H2H con BTTS (0-100)
@@ -568,7 +573,8 @@ def analizza(
             _fav_mkt_home = float(state.mkt_init_1) < float(state.mkt_init_2)
             if _fav_ah_home != _fav_mkt_home:
                 _prematch_line_factor *= 0.86
-        _prematch_line_factor = max(0.75, min(1.10, _prematch_line_factor))
+        _prematch_line_factor *= max(0.60, min(1.10, float(state.line_quality_factor)))
+        _prematch_line_factor = max(0.70, min(1.10, _prematch_line_factor))
 
     # 0. Segnali OCR da quote bookmaker (solo prematch, minuto == 0)
     from src.models.calibration import estrai_segnali_ocr_da_quote
@@ -739,6 +745,13 @@ def analizza(
         if state.recent_xg_prior_a > 0.08:
             xg_a_blend = (1.0 - _rx_amp) * xg_a_blend + _rx_amp * state.recent_xg_prior_a
             xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
+        # Trend forma URL esplicito (second-order): nudge asimmetrico, piccolo ma persistente.
+        _trend_h = max(-1.0, min(1.0, float(state.url_form_trend_h)))
+        _trend_a = max(-1.0, min(1.0, float(state.url_form_trend_a)))
+        _trend_delta = (_trend_h - _trend_a) * 0.030 * (0.35 + 0.65 * _x_cov)
+        if abs(_trend_delta) > 1e-6:
+            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * (1.0 + _trend_delta))
+            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * (1.0 - 0.82 * _trend_delta))
         if state.h2h_matches_count >= 5 and state.h2h_ah_home_cover_pct > 1.0:
             _ahc = max(0.0, min(100.0, state.h2h_ah_home_cover_pct)) / 100.0
             _ahw = max(0.0, min(1.0, (state.h2h_matches_count - 4) / 10.0))

@@ -286,6 +286,10 @@ def build_match_state_from_prematch_analysis(
     _prev_win_a = float(getattr(pa, "away_prev_win_pct", 0.0)) if pa else 0.0
     _rxg_h = float(getattr(pa, "home_xg_from_recent", 0.0)) if pa else 0.0
     _rxg_a = float(getattr(pa, "away_xg_from_recent", 0.0)) if pa else 0.0
+    _trend_h = float(getattr(pa, "home_form_trend", 0.0)) if pa else 0.0
+    _trend_a = float(getattr(pa, "away_form_trend", 0.0)) if pa else 0.0
+    _trend_h = max(-1.0, min(1.0, _trend_h))
+    _trend_a = max(-1.0, min(1.0, _trend_a))
     _mot_h = str(getattr(pa, "home_motivation", "normal") or "normal").strip().lower()
     _mot_a = str(getattr(pa, "away_motivation", "normal") or "normal").strip().lower()
     if _mot_h not in ("high", "normal", "low"):
@@ -348,6 +352,11 @@ def build_match_state_from_prematch_analysis(
         FORM_ANALYSIS.EXTRACTION_TRUST_FLOOR,
         min(1.0, _extraction_trust),
     )
+    _line_q = 1.0
+    _v_err = len(list(lines.get("validation_errors", []) or []))
+    _b_err = len(list(lines.get("blocking_errors", []) or []))
+    if _v_err > 0 or _b_err > 0:
+        _line_q = max(0.58, 1.0 - 0.08 * _v_err - 0.18 * _b_err)
 
     state = build_match_state(
         match, lines, linea_ou, bankroll, comm_rate,
@@ -440,6 +449,9 @@ def build_match_state_from_prematch_analysis(
         recent_xg_prior_a=_rxg_a,
         motivation_home=_mot_h,
         motivation_away=_mot_a,
+        url_form_trend_h=_trend_h,
+        url_form_trend_a=_trend_a,
+        line_quality_factor=_line_q,
         htft_home_htw_ftw=_htft_h_hw_fw,
         htft_home_htw_ftd=_htft_h_hw_fd,
         htft_home_htw_ftl=_htft_h_hw_fl,

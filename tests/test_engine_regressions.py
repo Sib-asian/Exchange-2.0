@@ -98,6 +98,32 @@ def test_prematch_tempo_mixture_moves_total_xg_with_signals() -> None:
     assert (high.xg_h_final + high.xg_a_final) > (low.xg_h_final + low.xg_a_final)
 
 
+def test_url_form_trend_nudges_prematch_xg_balance() -> None:
+    """Positive home-vs-away URL trend should increase home xG split."""
+    flat = analizza(
+        _base_state(
+            url_form_trend_h=0.0,
+            url_form_trend_a=0.0,
+            extraction_coverage=0.9,
+        )
+    )
+    tilted = analizza(
+        _base_state(
+            url_form_trend_h=0.8,
+            url_form_trend_a=-0.6,
+            extraction_coverage=0.9,
+        )
+    )
+    assert tilted.xg_h_final > flat.xg_h_final
+
+
+def test_line_quality_factor_reduces_prematch_confidence_when_noisy() -> None:
+    """Noisy manual lines should lower prematch confidence via quality factor."""
+    clean = analizza(_base_state(line_quality_factor=1.0))
+    noisy = analizza(_base_state(line_quality_factor=0.6))
+    assert noisy.model_confidence < clean.model_confidence
+
+
 def test_engine_ocr_uses_extracted_ou_line_when_present(monkeypatch) -> None:
     """
     OCR O/U quotes should be interpreted on the same extracted line (ocr_imp_total)
