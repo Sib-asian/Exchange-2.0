@@ -2081,11 +2081,25 @@ DATI DA ESTRARRE:
 
 
 def _is_valid_nowgoal_url(url: str) -> bool:
-    """Verifica che l'URL sia una pagina Analysis/H2H di Nowgoal."""
+    """Verifica che l'URL sia una pagina Analysis/H2H/Odds di Nowgoal."""
     url_lower = url.lower()
     is_nowgoal = any(d in url_lower for d in _NOWGOAL_DOMAINS)
-    has_analysis = any(x in url_lower for x in ("h2h", "analysis"))
+    has_analysis = any(
+        x in url_lower for x in ("h2h", "analysis", "oddscomp")
+    )
     return is_nowgoal and has_analysis
+
+
+def _nowgoal_match_id_from_url(url: str) -> str | None:
+    """Estrae l'ID partita da /match/h2h-ID, /match/live-ID o /oddscomp/ID."""
+    m = re.search(
+        r"/(?:match/(?:h2h|live|detail)-(\d+)|oddscomp/(\d+))",
+        url,
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    return m.group(1) or m.group(2)
 
 
 def _fetch_jina_reader(url: str, timeout: int = 30) -> str:
@@ -4772,6 +4786,19 @@ def _extract_prematch_single_url_attempt(
         cap = min(len(raw_html), _RAW_HTML_APPEND_MAX)
         combined_text = page_text + "\n\n=== RAW HTML ===\n" + raw_html[:cap]
 
+    # Pagina confronto quote (/oddscomp/ID): spesso include Vs_hOdds nell'HTML grezzo
+    # mentre la vista H2H no; la tabella Jina mostra solo "---" se le quote sono JS-driven.
+    if match_id:
+        _dom = (domain_for_fallback or "live5.nowgoal26.com").strip().strip("/")
+        _oddscomp_url = f"https://{_dom}/oddscomp/{match_id}"
+        try:
+            _oc_html = _fetch_raw_html(_oddscomp_url)
+            if _oc_html and len(_oc_html) > 200:
+                _cap_oc = min(len(_oc_html), _RAW_HTML_APPEND_MAX)
+                combined_text += "\n\n=== RAW HTML ODDSCOMP ===\n" + _oc_html[:_cap_oc]
+        except Exception:
+            pass
+
     result = _extract_prematch_analysis_from_text(combined_text)
     u_home, u_away, u_league = _extract_identity_from_url(h2h_url)
     if result.extraction_success:
@@ -4867,8 +4894,7 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
-    match_id_match = re.search(r'/match/(?:h2h|live|detail)-(\d+)', url, re.IGNORECASE)
-    match_id = match_id_match.group(1) if match_id_match else None
+    match_id = _nowgoal_match_id_from_url(url)
 
     domain_match = re.search(r'https?://([^/]+)', url)
     original_domain = domain_match.group(1) if domain_match else "live5.nowgoal26.com"
@@ -4883,8 +4909,8 @@ def extract_prematch_analysis_from_url(url: str) -> PrematchAnalysisExtracted:
             return PrematchAnalysisExtracted(
                 extraction_success=False,
                 error_message=(
-                    "URL non riconosciuto. Usa un link Nowgoal Analysis "
-                    "(es. nowgoal.com/match/h2h-XXXXXX)"
+                    "URL non riconosciuto. Usa un link Nowgoal "
+                    "(es. .../match/h2h-XXXXXX o .../oddscomp/XXXXXX)"
                 ),
             )
 

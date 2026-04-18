@@ -1449,3 +1449,57 @@ class TestMergeInjuryPlayerLists:
         out = _merge_injury_player_lists(html_side, md_side)
         assert len(out) == 3
         assert any("Ruperez" in x for x in out)
+
+
+class TestOddscompUrlPrematchFlow:
+    """URL /oddscomp/ID → fetch H2H Jina + raw oddscomp (Vs_hOdds) come in produzione."""
+
+    def test_nowgoal_match_id_and_valid_url_oddscomp(self):
+        from src.ocr import _is_valid_nowgoal_url, _nowgoal_match_id_from_url
+
+        u = "https://live5.nowgoal26.com/oddscomp/2789454"
+        assert _nowgoal_match_id_from_url(u) == "2789454"
+        assert _is_valid_nowgoal_url(u)
+
+    def test_extract_prematch_from_oddscomp_fetches_oddscomp_html(self, monkeypatch):
+        """Simula rete: Jina su H2H, HTML vuoto su H2H, Vs_hOdds solo su /oddscomp/."""
+        from src.ocr import extract_prematch_analysis_from_url
+
+        calls: list[tuple[str, str]] = []
+
+        def fake_jina(url: str, timeout: int = 30):
+            calls.append(("jina", url))
+            return (
+                "Title: Leeds United VS Wolves - Football Analysis\n"
+                "Football> English Premier League>\n"
+                "Head to Head Statistics\n"
+                "2W 4D 4L\n"
+                "Over 50%\n"
+                + "padding " * 50
+            )
+
+        def fake_raw(url: str, timeout: int = 30):
+            calls.append(("raw", url))
+            if "oddscomp" in url:
+                return (
+                    "<script>Vs_hOdds = [[123, 1, '0.85', '0.5', '1.05', "
+                    "'1.50', '4.20', '6.00', '2.5', '', '0.90', '0.95']];</script>"
+                    + "x" * 400
+                )
+            return "<html></html>" + "y" * 300
+
+        monkeypatch.setattr("src.ocr._fetch_jina_reader", fake_jina)
+        monkeypatch.setattr("src.ocr._fetch_raw_html", fake_raw)
+        monkeypatch.setattr("src.ocr._prematch_needs_live_jina_page", lambda _r: False)
+
+        pa = extract_prematch_analysis_from_url("https://live5.nowgoal26.com/oddscomp/2789454")
+        assert pa.extraction_success
+        assert pa.mkt_init_1 == pytest.approx(1.50)
+        assert pa.mkt_init_x == pytest.approx(4.20)
+        assert pa.mkt_init_2 == pytest.approx(6.00)
+        assert pa.home_team == "Leeds United"
+        assert pa.away_team == "Wolves"
+
+        raw_urls = [u for kind, u in calls if kind == "raw"]
+        assert any("/oddscomp/2789454" in u for u in raw_urls)
+        assert any("/match/h2h-2789454" in u for u in raw_urls)
