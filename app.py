@@ -251,6 +251,8 @@ if _btn_prematch or _btn_live:
         "p_over": risultati.p_over,
         "p_under": risultati.p_under,
         "p_btts": risultati.p_btts,
+        "p_eu_over_25": float(getattr(risultati, "p_over_25_ref", 0.0) or 0.0),
+        "p_eu_under_25": float(getattr(risultati, "p_under_25_ref", 0.0) or 0.0),
         "model_confidence": risultati.model_confidence,
     }
     # Quote nel log: da estrazione prematch / stato (nessun input manuale richiesto).

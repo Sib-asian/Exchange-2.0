@@ -27,6 +27,16 @@ MIN_RECORDS_FOR_CALIBRATION: int = 25
 MAX_PLATT_SHIFT: float = 0.08  # Massimo shift dalla curva Platt (conservativo)
 
 
+def _eu_over_outcome(r) -> bool | None:
+    """Esito Over 2.5 fisso (gol totali > 2) per record completati."""
+    if r.gol_casa is None or r.gol_trasf is None:
+        return None
+    hit = getattr(r, "over_eu_25_hit", None)
+    if hit is not None:
+        return bool(hit)
+    return int(r.gol_casa) + int(r.gol_trasf) > 2
+
+
 # ---------------------------------------------------------------------------
 # Platt scaling (logistic calibration)
 # ---------------------------------------------------------------------------
@@ -149,6 +159,19 @@ def _maps_from_record_list(completed: list) -> dict[str, tuple[float, float]]:
     if params:
         maps["p_over"] = params
 
+    preds_eu: list[float] = []
+    outs_eu: list[float] = []
+    for r in completed:
+        pe = float(getattr(r, "p_eu_over_25", 0.0) or 0.0)
+        eu_o = _eu_over_outcome(r)
+        if eu_o is None or pe <= 1e-6:
+            continue
+        preds_eu.append(pe)
+        outs_eu.append(1.0 if eu_o else 0.0)
+    params_eu = _fit_platt_params(preds_eu, outs_eu)
+    if params_eu:
+        maps["p_eu_over_25"] = params_eu
+
     preds_btts = [float(r.p_btts) for r in completed if r.btts_hit is not None]
     outs_btts = [1.0 if r.btts_hit else 0.0 for r in completed if r.btts_hit is not None]
     params = _fit_platt_params(preds_btts, outs_btts)
@@ -232,6 +255,16 @@ def build_calibration_maps() -> dict[str, tuple[float, float]]:
             if r.over_25_hit is not None
         ]
 
+    def _test_pairs_eu_over() -> list[tuple[float, float]]:
+        pairs: list[tuple[float, float]] = []
+        for r in test:
+            pe = float(getattr(r, "p_eu_over_25", 0.0) or 0.0)
+            eu_o = _eu_over_outcome(r)
+            if eu_o is None or pe <= 1e-6:
+                continue
+            pairs.append((pe, 1.0 if eu_o else 0.0))
+        return pairs
+
     def _test_pairs_btts() -> list[tuple[float, float]]:
         return [
             (float(r.p_btts), 1.0 if r.btts_hit else 0.0)
@@ -244,6 +277,7 @@ def build_calibration_maps() -> dict[str, tuple[float, float]]:
         ("px", _test_pairs_px),
         ("p2", _test_pairs_p2),
         ("p_over", _test_pairs_over),
+        ("p_eu_over_25", _test_pairs_eu_over),
         ("p_btts", _test_pairs_btts),
     ]
 
@@ -273,7 +307,8 @@ def apply_calibration(
     cal_maps: dict[str, tuple[float, float]],
     *,
     strength: float = 1.0,
-) -> tuple[float, float, float, float, float, float]:
+    p_eu_over_25: float | None = None,
+) -> tuple[float, float, float, float, float, float, float | None, float | None]:
     """
     Applica la calibrazione Platt alle probabilità.
 
@@ -282,10 +317,10 @@ def apply_calibration(
     `strength` ∈ [0,1] scala l'entità dello shift (utile se altre calibrazioni hanno già agito).
 
     Returns:
-        (p1, px, p2, p_over, p_under, p_btts) calibrate.
+        (p1, px, p2, p_over, p_under, p_btts, p_eu_over_cal|None, p_eu_under_cal|None).
     """
     if not cal_maps:
-        return p1, px, p2, p_over, p_under, p_btts
+        return p1, px, p2, p_over, p_under, p_btts, None, None
 
     st = max(0.0, min(1.0, float(strength)))
 
@@ -314,7 +349,13 @@ def apply_calibration(
 
     p_btts_cal = _safe_apply(p_btts, "p_btts")
 
-    return p1_cal, px_cal, p2_cal, p_over_cal, p_under_cal, p_btts_cal
+    p_eu_o: float | None = None
+    p_eu_u: float | None = None
+    if p_eu_over_25 is not None and "p_eu_over_25" in cal_maps:
+        p_eu_o = _safe_apply(float(p_eu_over_25), "p_eu_over_25")
+        p_eu_u = 1.0 - p_eu_o
+
+    return p1_cal, px_cal, p2_cal, p_over_cal, p_under_cal, p_btts_cal, p_eu_o, p_eu_u
 
 
 __all__ = ["build_calibration_maps", "apply_calibration"]

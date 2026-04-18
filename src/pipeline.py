@@ -17,7 +17,9 @@ from src.models.prematch_diagnostics import (
     ci_tightness_score,
     line_coherence_warnings,
 )
+from src.models.correct_score_history import blend_top_cs_with_history
 from src.models.prematch_history_calibration import calibrate_prematch_probs
+from src.tracking.prediction_log import tot_op_band
 from src.models.uncertainty_shrink import shrink_outcome_probs
 
 if TYPE_CHECKING:
@@ -44,6 +46,17 @@ def run_analysis_pipeline(
     trace: PrematchPipelineTrace | None = None
     plog: list[str] = []
 
+    if state.minuto == 0 and league.strip() and risultati.top_cs:
+        _band_cs = tot_op_band(float(state.tot_op))
+        _top_new = blend_top_cs_with_history(
+            risultati.top_cs,
+            league=league,
+            tot_band=_band_cs,
+            extraction_trust=float(getattr(state, "extraction_trust_factor", 1.0) or 1.0),
+            model_agreement=float(risultati.model_agreement),
+        )
+        risultati = replace(risultati, top_cs=_top_new)
+
     if state.minuto == 0:
         trace = PrematchPipelineTrace(
             p1_engine=risultati.p1,
@@ -61,7 +74,7 @@ def run_analysis_pipeline(
             risultati.p_under,
             risultati.p_btts,
             league=league,
-            tot_band=f"{float(state.linea_ou):g}",
+            tot_band=tot_op_band(float(state.tot_op)),
             p_over_15=risultati.p_over_15,
             p_under_15=risultati.p_under_15,
         )
@@ -95,7 +108,7 @@ def run_analysis_pipeline(
 
             _cal_maps = build_calibration_maps()
             if _cal_maps:
-                _cp1, _cpx, _cp2, _cpo, _cpu, _cpb = apply_calibration(
+                _cp1, _cpx, _cp2, _cpo, _cpu, _cpb, _ceu_o, _ceu_u = apply_calibration(
                     risultati.p1,
                     risultati.px,
                     risultati.p2,
@@ -104,9 +117,9 @@ def run_analysis_pipeline(
                     risultati.p_btts,
                     _cal_maps,
                     strength=platt_strength,
+                    p_eu_over_25=float(risultati.p_over_25_ref),
                 )
-                risultati = replace(
-                    risultati,
+                _kw: dict = dict(
                     p1=_cp1,
                     px=_cpx,
                     p2=_cp2,
@@ -114,6 +127,10 @@ def run_analysis_pipeline(
                     p_under=_cpu,
                     p_btts=_cpb,
                 )
+                if _ceu_o is not None and _ceu_u is not None:
+                    _kw["p_over_25_ref"] = _ceu_o
+                    _kw["p_under_25_ref"] = _ceu_u
+                risultati = replace(risultati, **_kw)
                 if trace is not None:
                     trace.p_after_platt_p1 = _cp1
                     trace.platt_applied = True

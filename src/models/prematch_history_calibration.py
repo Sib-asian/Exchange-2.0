@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from src.tracking.prediction_log import PredictionRecord, get_prediction_log
 
 _MIN_SAMPLES = 20
-_MAX_WEIGHT = 0.18
-_MIN_WEIGHT_AT_THRESHOLD = 0.04
+_MAX_WEIGHT = 0.21
+_MIN_WEIGHT_AT_THRESHOLD = 0.045
 _RAMP_MATCHES = 120
 _SCALE_MIN = 0.85
 _SCALE_MAX = 1.15

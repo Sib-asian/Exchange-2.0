@@ -24,6 +24,56 @@ def test_tot_op_band():
     assert tot_op_band(3.0) == ">2.75"
 
 
+def test_pipeline_uses_tot_op_band_not_linea_ou_for_league_calibration(monkeypatch):
+    """Calibrazione per lega deve segmentare sulla fascia del totale apertura, non sulla linea O/U analizzata."""
+    captured: dict[str, str] = {}
+
+    def _spy_cal(*_args, tot_band: str = "", **_kwargs):
+        captured["tot_band"] = tot_band
+        from src.models.prematch_history_calibration import CalibrationSignals
+
+        return (0.33, 0.34, 0.33, 0.5, 0.5, 0.5, None, None, CalibrationSignals(weight=0.0))
+
+    monkeypatch.setattr("src.pipeline.calibrate_prematch_probs", _spy_cal)
+    monkeypatch.setattr(
+        "src.pipeline.blend_top_cs_with_history",
+        lambda top_cs, **_kw: top_cs,
+    )
+    st = MatchState(
+        minuto=0,
+        gol_casa=0,
+        gol_trasf=0,
+        rossi_casa=0,
+        rossi_trasf=0,
+        ah_op=-0.25,
+        tot_op=3.0,
+        ah_cur=-0.25,
+        tot_cur=3.0,
+        linea_ou=2.5,
+    )
+    run_analysis_pipeline(
+        st,
+        league="Serie A",
+        apply_prematch_calibration=True,
+        extraction_coverage=1.0,
+    )
+    assert captured.get("tot_band") == ">2.75"
+
+
+def test_prediction_record_sets_over_eu_25_hit():
+    r = PredictionRecord(
+        id="x",
+        timestamp="2026-01-01T00:00:00",
+        gol_casa=2,
+        gol_trasf=1,
+        ou_line=2.5,
+        status="PENDING",
+    )
+    r.compute_derived_fields()
+    assert r.over_eu_25_hit is True
+    assert r.over_25_hit is True
+
+
 def test_record_from_dict_ignores_unknown_keys():
     raw = {
         "id": "x",
