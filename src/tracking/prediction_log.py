@@ -95,6 +95,9 @@ class PredictionRecord:
     p_over_25: float = 0.0
     p_under_25: float = 0.0
     p_btts: float = 0.0
+    # O/U 2.5 "europeo" (canonico) — allineato a p_over_25_ref del motore; per Platt/Brier su 2.5 fissi.
+    p_eu_over_25: float = 0.0
+    p_eu_under_25: float = 0.0
 
     # Quote mercato (per calcolo edge)
     quota_1: float = 0.0
@@ -171,8 +174,9 @@ class PredictionRecord:
 
     # Campi calcolati automaticamente dal risultato
     risultato_1x2: str = ""          # "1", "X", "2"
-    over_25_hit: bool | None = None  # True se Over 2.5 entra
+    over_25_hit: bool | None = None  # True se Over sulla linea `ou_line`
     btts_hit: bool | None = None     # True se entrambe segnano
+    over_eu_25_hit: bool | None = None  # True se gol totali > 2 (Over 2.5 fisso)
 
     def is_completed(self) -> bool:
         return self.status == "COMPLETED" and self.gol_casa is not None
@@ -193,6 +197,7 @@ class PredictionRecord:
         # Over/Under sulla linea salvata (tipicamente 1.5 o 2.5)
         total = self.gol_casa + self.gol_trasf
         self.over_25_hit = total > float(self.ou_line)
+        self.over_eu_25_hit = total > 2
 
         # BTTS
         self.btts_hit = self.gol_casa > 0 and self.gol_trasf > 0
@@ -419,6 +424,8 @@ def create_record_from_analysis(
         p_over_25=predictions.get("p_over", 0.0),
         p_under_25=predictions.get("p_under", 0.0),
         p_btts=predictions.get("p_btts", 0.0),
+        p_eu_over_25=float(predictions.get("p_eu_over_25", 0.0) or 0.0),
+        p_eu_under_25=float(predictions.get("p_eu_under_25", 0.0) or 0.0),
         model_confidence=predictions.get("model_confidence", 0.0),
         quota_1=quotes.get("quota_1", 0.0),
         quota_x=quotes.get("quota_x", 0.0),

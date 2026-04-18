@@ -911,7 +911,7 @@ class OcrQuotesConfig:
 
     # Peso prior BTTS dalla quota GG/NG (solo prematch, mercato due vie).
     # BTTS è efficiente ma ha vig 5-8%: peso conservativo.
-    BTTS_PRIOR_WEIGHT: float = 0.20
+    BTTS_PRIOR_WEIGHT: float = 0.24
 
     # Massimo overround accettabile per considerare le quote valide.
     # >1.30 su 1X2 (30% di vig) → OCR ha probabilmente letto male le quote.
@@ -1204,6 +1204,11 @@ class PrecisionConfig:
     CALIBRATION_TEMPORAL_TRAIN_FRAC: float = 0.72
     CALIBRATION_TEMPORAL_MIN_TEST: int = 10
     CALIBRATION_TEMPORAL_MIN_TOTAL: int = 40
+
+    # Correct score: micro-blend verso frequenze empiriche (lega + fascia tot_op).
+    CORRECT_SCORE_HISTORY_BLEND_MAX: float = 0.14
+    CORRECT_SCORE_HISTORY_MIN_SAMPLES: int = 14
+    CORRECT_SCORE_HISTORY_DIRICHLET_ALPHA: float = 0.12
 
 
 # Istanze globali immutabili — importare da qui
