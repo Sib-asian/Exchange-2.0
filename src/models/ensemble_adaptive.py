@@ -3,7 +3,8 @@ Pesi consensus adattivi da storico (solo prematch).
 
 Usa i Brier marginali per modello registrati nei PredictionRecord completati:
 - 1X2: come prima
-- Over/Under (linea salvata): da p_over_* per modello se disponibili
+- Over/Under: se il log ha abbastanza campioni con p_over_*_eu e over_eu_25_hit,
+  Brier su Over **2.5** per modello; altrimenti fallback su p_over_* vs esito linea salvata.
 - BTTS: da p_btts_* per modello se disponibili
 
 Nota: la distribuzione congiunta in motore usa blend_matrices(weights_1x2) unico
@@ -42,6 +43,23 @@ def _record_has_model_probs(r: PredictionRecord) -> bool:
 
 def _record_has_ou_probs(r: PredictionRecord) -> bool:
     return r.p_over_bp > 1e-9 and r.p_over_cop > 1e-9 and r.p_over_mk > 1e-9
+
+
+def _record_has_ou_probs_eu(r: PredictionRecord) -> bool:
+    return (
+        float(getattr(r, "p_over_bp_eu", 0.0) or 0.0) > 1e-9
+        and float(getattr(r, "p_over_cop_eu", 0.0) or 0.0) > 1e-9
+        and float(getattr(r, "p_over_mk_eu", 0.0) or 0.0) > 1e-9
+    )
+
+
+def _eu_over_hit(r: PredictionRecord) -> bool | None:
+    if r.gol_casa is None or r.gol_trasf is None:
+        return None
+    v = getattr(r, "over_eu_25_hit", None)
+    if v is not None:
+        return bool(v)
+    return int(r.gol_casa) + int(r.gol_trasf) > 2
 
 
 def _record_has_btts_probs(r: PredictionRecord) -> bool:
@@ -114,11 +132,18 @@ def blend_consensus_weights_with_history(
             if r.is_prematch and r.is_completed() and r.risultato_1x2 in ("1", "X", "2")
         ]
         usable_1x2 = [r for r in completed if _record_has_model_probs(r)]
+        usable_ou_eu = [
+            r
+            for r in completed
+            if _record_has_ou_probs_eu(r) and _eu_over_hit(r) is not None
+        ]
         usable_ou = [
             r
             for r in completed
             if _record_has_ou_probs(r) and r.over_25_hit is not None
         ]
+        if len(usable_ou_eu) >= min_completed:
+            usable_ou = usable_ou_eu
         usable_btts = [
             r
             for r in completed
@@ -144,14 +169,24 @@ def blend_consensus_weights_with_history(
 
     losses_ou: list[tuple[float, float, float]] = []
     for r in usable_ou:
-        y_ou = 1.0 if r.over_25_hit else 0.0
-        losses_ou.append(
-            (
-                _binary_brier(float(r.p_over_bp), y_ou),
-                _binary_brier(float(r.p_over_cop), y_ou),
-                _binary_brier(float(r.p_over_mk), y_ou),
+        if _record_has_ou_probs_eu(r) and _eu_over_hit(r) is not None:
+            y_ou = 1.0 if bool(_eu_over_hit(r)) else 0.0
+            losses_ou.append(
+                (
+                    _binary_brier(float(getattr(r, "p_over_bp_eu", 0.0)), y_ou),
+                    _binary_brier(float(getattr(r, "p_over_cop_eu", 0.0)), y_ou),
+                    _binary_brier(float(getattr(r, "p_over_mk_eu", 0.0)), y_ou),
+                )
             )
-        )
+        else:
+            y_ou = 1.0 if r.over_25_hit else 0.0
+            losses_ou.append(
+                (
+                    _binary_brier(float(r.p_over_bp), y_ou),
+                    _binary_brier(float(r.p_over_cop), y_ou),
+                    _binary_brier(float(r.p_over_mk), y_ou),
+                )
+            )
     w_ou = _blend_one_market(
         w_bp, w_cop, w_mk, losses_ou, max_blend=max_blend_ou, min_completed=min_completed
     )

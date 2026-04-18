@@ -384,6 +384,10 @@ class ProbabilitaModello:
     p_over_bp: float = 0.0
     p_over_cop: float = 0.0
     p_over_mk: float = 0.0
+    # Over 2.5 per modello (marginali da matrice a linea 2.5) — ensemble storico EU.
+    p_over_bp_eu: float = 0.0
+    p_over_cop_eu: float = 0.0
+    p_over_mk_eu: float = 0.0
     p_btts_bp: float = 0.0
     p_btts_cop: float = 0.0
     p_btts_mk: float = 0.0
@@ -1230,6 +1234,13 @@ def analizza(
         full_bp, full_copula, full_markov,
         state.gol_casa, state.gol_trasf, state.linea_ou,
     )
+    if abs(float(state.linea_ou) - 2.5) < 1e-6:
+        _per_raw_25_ou = _per_raw
+    else:
+        _per_raw_25_ou = per_model_market_probs(
+            full_bp, full_copula, full_markov,
+            state.gol_casa, state.gol_trasf, 2.5,
+        )
     _agree_1x2_pre = agreement_1x2_from_per_raw(_per_raw)
     consensus_probs = compute_consensus(
         full_bp, full_copula, full_markov,
@@ -1750,6 +1761,9 @@ def analizza(
         p_over_bp=_per_raw["bp"]["p_over"],
         p_over_cop=_per_raw["copula"]["p_over"],
         p_over_mk=_per_raw["markov"]["p_over"],
+        p_over_bp_eu=_per_raw_25_ou["bp"]["p_over"],
+        p_over_cop_eu=_per_raw_25_ou["copula"]["p_over"],
+        p_over_mk_eu=_per_raw_25_ou["markov"]["p_over"],
         p_btts_bp=_per_raw["bp"]["p_btts"],
         p_btts_cop=_per_raw["copula"]["p_btts"],
         p_btts_mk=_per_raw["markov"]["p_btts"],

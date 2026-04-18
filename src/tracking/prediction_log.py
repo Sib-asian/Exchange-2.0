@@ -139,6 +139,9 @@ class PredictionRecord:
     p_over_bp: float = 0.0
     p_over_cop: float = 0.0
     p_over_mk: float = 0.0
+    p_over_bp_eu: float = 0.0
+    p_over_cop_eu: float = 0.0
+    p_over_mk_eu: float = 0.0
     p_btts_bp: float = 0.0
     p_btts_cop: float = 0.0
     p_btts_mk: float = 0.0
@@ -458,6 +461,9 @@ def create_record_from_analysis(
         p_over_bp=float(meta.get("p_over_bp", 0.0)),
         p_over_cop=float(meta.get("p_over_cop", 0.0)),
         p_over_mk=float(meta.get("p_over_mk", 0.0)),
+        p_over_bp_eu=float(meta.get("p_over_bp_eu", 0.0)),
+        p_over_cop_eu=float(meta.get("p_over_cop_eu", 0.0)),
+        p_over_mk_eu=float(meta.get("p_over_mk_eu", 0.0)),
         p_btts_bp=float(meta.get("p_btts_bp", 0.0)),
         p_btts_cop=float(meta.get("p_btts_cop", 0.0)),
         p_btts_mk=float(meta.get("p_btts_mk", 0.0)),
