@@ -25,11 +25,6 @@ from typing import Dict, Tuple
 from src.models.poisson import dixon_coles_tau
 
 
-# Moltiplicatore per l'effetto pressing (coerente con time_decay.py)
-# La squadra in svantaggio preme con più volume ma minore qualità
-SCORE_PRESS_MULTIPLIER = DECAY.SCORE_DOWN_MULTIPLIER  # 0.65
-
-
 # ======================================================================
 # Time-varying goal rate multiplier (empirical goal distribution)
 # ======================================================================
@@ -73,18 +68,18 @@ SCORE_PRESS_MULTIPLIER = DECAY.SCORE_DOWN_MULTIPLIER  # 0.65
 # Chosen at 15-min intervals with values reflecting empirical rates.
 # Linear interpolation between knots avoids discontinuities at boundaries.
 _GOAL_RATE_KNOTS: list[Tuple[int, float]] = [
-    (0,  0.85),   # Settling period — teams cautious, fewer chances
-    (15, 0.85),   # End of settling block
-    (16, 0.95),   # Game develops — transition point
-    (30, 0.95),   # End of development block
-    (31, 1.05),   # Approaching halftime pressure
-    (45, 1.05),   # End of first half
-    (46, 1.00),   # Post-halftime reset
-    (60, 1.00),   # Normal second-half rhythm
-    (61, 1.05),   # Tactical substitutions begin
-    (75, 1.05),   # End of sub-block
-    (76, 1.25),   # Desperation / fatigue / late pressure spike
-    (90, 1.25),   # End of match (including added time)
+    (0,  0.836),   # Settling period — teams cautious, fewer chances
+    (15, 0.836),   # End of settling block
+    (16, 0.934),   # Game develops — transition point
+    (30, 0.934),   # End of development block
+    (31, 1.033),   # Approaching halftime pressure
+    (45, 1.033),   # End of first half
+    (46, 0.984),   # Post-halftime reset
+    (60, 0.984),   # Normal second-half rhythm
+    (61, 1.033),   # Tactical substitutions begin
+    (75, 1.033),   # End of sub-block
+    (76, 1.229),   # Desperation / fatigue / late pressure spike
+    (90, 1.229),   # End of match (including added time)
 ]
 
 
@@ -101,16 +96,16 @@ def _goal_rate_multiplier(minute: int) -> float:
                 clamped to the nearest boundary.
 
     Returns:
-        Multiplier in range ~[0.85, 1.25]. Multiply base per-minute rate
+        Multiplier in range ~[0.836, 1.229]. Multiply base per-minute rate
         by this value to get the time-adjusted rate.
 
     Example:
         >>> _goal_rate_multiplier(5)   # settling period
-        0.85
+        0.836
         >>> _goal_rate_multiplier(80)  # late pressure
-        1.25
+        1.229
         >>> _goal_rate_multiplier(45)  # halftime boundary
-        1.05
+        1.033
     """
     if minute <= 0:
         return _GOAL_RATE_KNOTS[0][1]
@@ -137,7 +132,6 @@ def markov_score_distribution(
     minuto: int,
     gol_h: int,
     gol_a: int,
-    score_effect_rate: float = 0.03,
     max_goals: int = 8,
     rho_dc: float = -0.13,
 ) -> dict[tuple[int, int], float]:
@@ -157,7 +151,6 @@ def markov_score_distribution(
         minuto: Minuto attuale [0, 90].
         gol_h: Gol casa attuali.
         gol_a: Gol trasferta attuali.
-        score_effect_rate: Intensità del score effect per gol di vantaggio.
         max_goals: Massimo gol rimanenti per squadra (troncatura).
         rho_dc: Coefficiente Dixon-Coles (negativo = correlazione negativa).
 
@@ -201,9 +194,9 @@ def markov_score_distribution(
             p_h_raw = min(0.20, lh * dt)
             p_a_raw = min(0.20, la * dt)
 
-            p_h = p_h_raw
-            p_a = p_a_raw
-            p_none = max(0.0, 1.0 - p_h - p_a)
+            p_h_actual = p_h_raw if gh < max_goals else 0.0
+            p_a_actual = p_a_raw if ga < max_goals else 0.0
+            p_none = max(0.0, 1.0 - p_h_actual - p_a_actual)
 
             # Nessun gol
             key = (gh, ga)
@@ -212,12 +205,12 @@ def markov_score_distribution(
             # Gol casa
             if gh + 1 <= max_goals:
                 key = (gh + 1, ga)
-                new_states[key] = new_states.get(key, 0.0) + prob * p_h
+                new_states[key] = new_states.get(key, 0.0) + prob * p_h_actual
 
             # Gol trasferta
             if ga + 1 <= max_goals:
                 key = (gh, ga + 1)
-                new_states[key] = new_states.get(key, 0.0) + prob * p_a
+                new_states[key] = new_states.get(key, 0.0) + prob * p_a_actual
 
         states = new_states
 

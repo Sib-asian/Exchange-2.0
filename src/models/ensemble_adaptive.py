@@ -15,6 +15,7 @@ e per analisi future; non alterano la matrice blended.
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING
 
 _LOG = logging.getLogger("exchange.ensemble_adaptive")
@@ -85,10 +86,10 @@ def _blend_one_market(
     mean_cop = sum(t[1] for t in losses) / len(losses)
     mean_mk = sum(t[2] for t in losses) / len(losses)
 
-    eps = 1e-4
-    raw_bp = 1.0 / (eps + mean_bp)
-    raw_cop = 1.0 / (eps + mean_cop)
-    raw_mk = 1.0 / (eps + mean_mk)
+    # Softmax with temperature β=10 — regularized, bounded weights
+    raw_bp = math.exp(-10.0 * mean_bp)
+    raw_cop = math.exp(-10.0 * mean_cop)
+    raw_mk = math.exp(-10.0 * mean_mk)
     s = raw_bp + raw_cop + raw_mk
     if s <= 0:
         return w_bp, w_cop, w_mk
