@@ -714,6 +714,15 @@ def analizza(
     # 1b. Asimmetria λ da gol medi H2H per squadra (prematch).
     xg_h_base, xg_a_base = _apply_h2h_blend(xg_h_base, xg_a_base, state)
 
+    # FIX PRECISION #3: xG Pipeline Deviation Budget.
+    # Traccia il rapporto xg/xg_base per evitare drift cumulativo > 25%
+    # attraverso la pipeline di aggiustamenti. Ogni step di blend/aggiustamento
+    # può shiftare xG di qualche percento; senza cap, l'effetto cumulativo
+    # può essere 20-30%, distorcendo le probabilità finali.
+    XG_DEVIATION_BUDGET_MAX = 0.25  # max 25% drift totale consentito
+    _xg_h_orig = xg_h_base  # salva baseline PRIMA di qualsiasi blend
+    _xg_a_orig = xg_a_base
+
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
     n_shots_tot = state.sot_h + state.soff_h + state.sot_a + state.soff_a
     if n_shots_tot > 0 and state.minuto > 0:
@@ -890,6 +899,21 @@ def analizza(
             _tot_new = (1.0 - _blend_mix) * _tot_base + _blend_mix * _tot_mix
             xg_h_final = max(DECAY.XG_FLOOR, _tot_new * _share_h)
             xg_a_final = max(DECAY.XG_FLOOR, _tot_new * _share_a)
+
+    # FIX PRECISION #3: Applica deviation budget su xG finali.
+    # Dopo tutti gli aggiustamenti, verifica che il drift cumulativo
+    # xg_final/xg_base non superi il budget. Se lo supera, scala
+    # conservativamente verso il valore originale.
+    if _xg_h_orig > 1e-9 and _xg_a_orig > 1e-9:
+        _drift_h = abs(xg_h_final / _xg_h_orig - 1.0)
+        _drift_a = abs(xg_a_final / _xg_a_orig - 1.0)
+        _max_drift = max(_drift_h, _drift_a)
+        if _max_drift > XG_DEVIATION_BUDGET_MAX:
+            _scale_back = XG_DEVIATION_BUDGET_MAX / _max_drift
+            xg_h_final = _xg_h_orig + (xg_h_final - _xg_h_orig) * _scale_back
+            xg_a_final = _xg_a_orig + (xg_a_final - _xg_a_orig) * _scale_back
+            xg_h_final = max(DECAY.XG_FLOOR, xg_h_final)
+            xg_a_final = max(DECAY.XG_FLOOR, xg_a_final)
 
     # 4b. Stale line detection: se le linee non si sono mosse dopo >15 minuti
     # di partita, il mercato è potenzialmente illiquido o sospeso.
@@ -1139,6 +1163,14 @@ def analizza(
         CONSENSUS.DRAW_SHRINKAGE_ABS_FLOOR,
         min(1.0, _draw_shrinkage_dyn),
     )
+    # FIX PRECISION #4: Applica cap MAX_TOTAL sul draw shrinkage.
+    # Il config definisce DRAW_SHRINKAGE_MAX_TOTAL=0.040 (max 4% riduzione)
+    # ma non era applicato nella pipeline. Ora il draw factor effettivo viene
+    # limitato per evitare correzioni eccessive che sposterebbero troppo
+    # probabilità da Draw a 1/2 (la letteratura Dixon-Coles stima ~2-3% max).
+    _draw_reduction = 1.0 - _draw_shrinkage_dyn
+    if _draw_reduction > CONSENSUS.DRAW_SHRINKAGE_MAX_TOTAL:
+        _draw_shrinkage_dyn = 1.0 - CONSENSUS.DRAW_SHRINKAGE_MAX_TOTAL
 
     p1, px, p2, p_over, p_under, p_btts = calibrate_probabilities(
         consensus_probs["p1"], consensus_probs["px"], consensus_probs["p2"],
@@ -1507,6 +1539,22 @@ def analizza(
         "p_over": p_over, "p_under": p_under,
     }
     _market_divergence = compute_model_market_divergence(_model_probs_for_div, _market_probs)
+
+    # FIX PRECISION #5: BTTS Time-Modulated Damping (solo live, ultimi 15').
+    # Nei minuti finali (75'+), se il punteggio è "settled" (gap >= 2 gol),
+    # la probabilità BTTS viene ridotta progressivamente perché la squadra
+    # in svantaggio ha meno tempo e incentive per segnare.
+    # La matrice Poisson non cattura questo effetto (modella solo le rates,
+    # non la motivazione/fatica psicologica dei giocatori).
+    if state.minuto >= 75 and (state.gol_casa > 0 or state.gol_trasf > 0):
+        _score_gap = abs(state.gol_casa - state.gol_trasf)
+        if _score_gap >= 2:
+            _minutes_left = max(1, 90 - state.minuto)
+            _damp_factor = _minutes_left / 15.0  # 1.0 al 75', 0.07 al 89'
+            _gap_boost = min(1.0, (_score_gap - 1) / 3.0)  # più gap = più damping
+            _btts_damp = 1.0 - (1.0 - _damp_factor) * _gap_boost * 0.35
+            p_btts = p_btts * _btts_damp
+            p_btts = max(0.0, min(1.0, p_btts))
 
     # FINAL: Probability coherence enforcement — ensures final output probabilities
     # are internally consistent after all calibration steps.
