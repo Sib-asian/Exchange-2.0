@@ -781,6 +781,10 @@ class ConsensusConfig:
     AGREEMENT_1X2_SPREAD_SCALE: float = 4.5
     DRAW_AGREEMENT_SHRINK_BONUS: float = 0.042
     DRAW_SHRINKAGE_ABS_FLOOR: float = 0.882
+    # FIX PRECISION #4: Cap massimo sul draw shrinkage totale.
+    # Impedisce riduzioni > 4% del pareggio, anche per partite molto aperte.
+    # La letteratura (Dixon-Coles 1997) suggerisce che il bias Poisson è ~2-3%.
+    DRAW_SHRINKAGE_MAX_TOTAL: float = 0.040  # max 4% draw reduction
     # Uncertainty shrink: tirare il pareggio verso 1/3 più dei risultati se accordo basso
     DRAW_UNCERTAINTY_EXTRA: float = 0.032
 
@@ -1066,8 +1070,9 @@ class FormAnalysisConfig:
     # H2H: % HT casa / X / trasferta quando manca la matrice HT→FT (fallback prematch).
     H2H_HT_MARGINAL_PREMATCH_BLEND_MAX: float = 0.058
     # H2H Over% è spesso vs 2.5: traslazione euristica verso altra linea O/U analizzata.
+    # FIX PRECISION #2: Ridotto da 0.175 a 0.12 per ridurre multi-counting H2H.
     H2H_OVER_LINE_SLOPE_PER_HALF: float = 0.092
-    H2H_OVER_BLEND_BASE_ALPHA: float = 0.175
+    H2H_OVER_BLEND_BASE_ALPHA: float = 0.12
     # O/U europeo canonico 2.5: integra informazione dalla linea selezionata (es. 3.0).
     O25_FROM_SELECTED_LINE_SHIFT_PER_HALF: float = 0.105
     O25_FROM_SELECTED_LINE_BLEND_ALPHA: float = 0.30
@@ -1076,12 +1081,15 @@ class FormAnalysisConfig:
     # Coerenza O/U ladder (Over 1.5 e Over 2.5) vs distribuzione gol del consensus.
     OU_DIST_RECON_ALPHA_BASE: float = 0.26
     # 1X2 prematch: alphas base adattivi (market + H2H), poi scalati da trust/coverage/campione.
-    PREMATCH_1X2_MKT_ALPHA_BASE: float = 0.08
-    PREMATCH_1X2_H2H_ALPHA_BASE: float = 0.05
+    # FIX PRECISION #1: Ridotti da 0.08/0.05/0.16 a 0.04/0.025/0.08 per ridurre
+    # la circular dependency (le probabilità vengono già dalle linee di mercato).
+    PREMATCH_1X2_MKT_ALPHA_BASE: float = 0.04
+    PREMATCH_1X2_H2H_ALPHA_BASE: float = 0.025
     # Cap del peso totale dei prior esterni 1X2 (market+H2H) in prematch.
-    PREMATCH_1X2_EXTERNAL_ALPHA_CAP: float = 0.16
+    PREMATCH_1X2_EXTERNAL_ALPHA_CAP: float = 0.08
     # Coerenza soft tra ladder O/U e BTTS in prematch (evita combinazioni incoerenti).
-    PREMATCH_OU_BTTS_COHERENCE_ALPHA: float = 0.36
+    # FIX PRECISION #3: Ridotto da 0.36 a 0.20 per meno post-processing su O/U 2.5.
+    PREMATCH_OU_BTTS_COHERENCE_ALPHA: float = 0.20
     # Scenario-mixture prematch: total λ come mix low/mid/high tempo.
     PREMATCH_TEMPO_MIX_AMPLITUDE: float = 0.12
     PREMATCH_TEMPO_MIX_BLEND_MAX: float = 0.34

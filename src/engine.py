@@ -544,6 +544,79 @@ def _apply_post_consensus_market_blend(
     return p1, px, p2
 
 
+def _enforce_probability_coherence(
+    p1: float, px: float, p2: float,
+    p_over: float, p_under: float,
+    p_btts: float,
+    full_matrix: dict[tuple[int, int], float],
+    gol_casa: int, gol_trasf: int,
+    *,
+    tol: float = 1e-9,
+    incoherence_threshold: float = 0.005,
+    correction_alpha: float = 0.10,
+) -> tuple[float, float, float, float, float, float]:
+    """
+    Enforce probability coherence on final output probabilities.
+
+    After all calibration steps (consensus, post-consensus market blend,
+    BTTS calibration, OU shrink), the final probabilities can drift from
+    the underlying score matrix. This function:
+
+    a) Ensures p1 + px + p2 = 1.0 (within tolerance)
+    b) Ensures p_over + p_under = 1.0 (within tolerance)
+    c) Cross-checks BTTS consistency with the score matrix
+    d) If incoherence > 0.5%, applies conservative 10% correction toward
+       matrix-derived values
+
+    Returns:
+        (p1, px, p2, p_over, p_under, p_btts) — corrected probabilities.
+    """
+    # a) Normalize 1X2
+    sum_1x2 = p1 + px + p2
+    if sum_1x2 > 0 and abs(sum_1x2 - 1.0) > tol:
+        p1 /= sum_1x2
+        px /= sum_1x2
+        p2 /= sum_1x2
+
+    # b) Normalize Over/Under
+    sum_ou = p_over + p_under
+    if sum_ou > 0 and abs(sum_ou - 1.0) > tol:
+        p_over /= sum_ou
+        p_under /= sum_ou
+
+    # c) Derive BTTS from matrix for cross-check
+    # P(BTTS) = 1 - P(home scores 0) - P(away scores 0) + P(0-0)
+    p_home_0 = 0.0
+    p_away_0 = 0.0
+    p_0_0 = 0.0
+    for (a, b), prob in full_matrix.items():
+        if a == 0:
+            p_away_0 += prob
+        if b == 0:
+            p_home_0 += prob
+        if a == 0 and b == 0:
+            p_0_0 += prob
+    p_btts_matrix = 1.0 - p_home_0 - p_away_0 + p_0_0
+    p_btts_matrix = max(0.0, min(1.0, p_btts_matrix))
+
+    # d) If BTTS incoherence > 0.5%, apply conservative correction.
+    # Skip correction when BTTS is at a definitive boundary (0 or 1),
+    # which typically means the market is already settled (both/none scored).
+    btts_gap = abs(p_btts - p_btts_matrix)
+    if btts_gap > incoherence_threshold and 1e-9 < p_btts < 1.0 - 1e-9:
+        p_btts = (1.0 - correction_alpha) * p_btts + correction_alpha * p_btts_matrix
+
+    # Clamp to [0, 1]
+    p1 = max(0.0, min(1.0, p1))
+    px = max(0.0, min(1.0, px))
+    p2 = max(0.0, min(1.0, p2))
+    p_over = max(0.0, min(1.0, p_over))
+    p_under = max(0.0, min(1.0, p_under))
+    p_btts = max(0.0, min(1.0, p_btts))
+
+    return p1, px, p2, p_over, p_under, p_btts
+
+
 # ---------------------------------------------------------------------------
 # Engine principale
 # ---------------------------------------------------------------------------
@@ -640,6 +713,15 @@ def analizza(
 
     # 1b. Asimmetria λ da gol medi H2H per squadra (prematch).
     xg_h_base, xg_a_base = _apply_h2h_blend(xg_h_base, xg_a_base, state)
+
+    # FIX PRECISION #3: xG Pipeline Deviation Budget.
+    # Traccia il rapporto xg/xg_base per evitare drift cumulativo > 25%
+    # attraverso la pipeline di aggiustamenti. Ogni step di blend/aggiustamento
+    # può shiftare xG di qualche percento; senza cap, l'effetto cumulativo
+    # può essere 20-30%, distorcendo le probabilità finali.
+    XG_DEVIATION_BUDGET_MAX = 0.25  # max 25% drift totale consentito
+    _xg_h_orig = xg_h_base  # salva baseline PRIMA di qualsiasi blend
+    _xg_a_orig = xg_a_base
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
     n_shots_tot = state.sot_h + state.soff_h + state.sot_a + state.soff_a
@@ -749,17 +831,24 @@ def analizza(
 
     # 4a. Live recalibration (Upgrade 5): correggi xG residui se il modello
     # sovra/sotto-stima i gol osservati finora.
+    # FIX PRECISION #2: Usa recalibration ASIMMETRICA (fattori separati per squadra).
     if state.minuto > 0:
-        from src.models.live_recalibration import compute_live_recalibration_factor
-        _live_recal = compute_live_recalibration_factor(
+        from src.models.live_recalibration import compute_live_recalibration_factors
+        _tot_xg = xg_h_final + xg_a_final
+        _xg_h_share = xg_h_final / _tot_xg if _tot_xg > 1e-9 else 0.50
+        _live_recal_h, _live_recal_a = compute_live_recalibration_factors(
             state.tot_op,
             state.gol_casa + state.gol_trasf,
             state.minuto,
+            gol_casa=state.gol_casa,
+            gol_trasf=state.gol_trasf,
+            xg_h_share=_xg_h_share,
             tot_cur_remaining=state.tot_cur,
         )
-        if _live_recal != 1.0:
-            xg_h_final = max(DECAY.XG_FLOOR, xg_h_final * _live_recal)
-            xg_a_final = max(DECAY.XG_FLOOR, xg_a_final * _live_recal)
+        if _live_recal_h != 1.0:
+            xg_h_final = max(DECAY.XG_FLOOR, xg_h_final * _live_recal_h)
+        if _live_recal_a != 1.0:
+            xg_a_final = max(DECAY.XG_FLOOR, xg_a_final * _live_recal_a)
     elif state.minuto == 0:
         # Prematch scenario-mixture: combina tre regimi di ritmo (low/mid/high)
         # e aggiorna solo il totale λ mantenendo il rapporto casa/trasferta.
@@ -810,6 +899,21 @@ def analizza(
             _tot_new = (1.0 - _blend_mix) * _tot_base + _blend_mix * _tot_mix
             xg_h_final = max(DECAY.XG_FLOOR, _tot_new * _share_h)
             xg_a_final = max(DECAY.XG_FLOOR, _tot_new * _share_a)
+
+    # FIX PRECISION #3: Applica deviation budget su xG finali.
+    # Dopo tutti gli aggiustamenti, verifica che il drift cumulativo
+    # xg_final/xg_base non superi il budget. Se lo supera, scala
+    # conservativamente verso il valore originale.
+    if _xg_h_orig > 1e-9 and _xg_a_orig > 1e-9:
+        _drift_h = abs(xg_h_final / _xg_h_orig - 1.0)
+        _drift_a = abs(xg_a_final / _xg_a_orig - 1.0)
+        _max_drift = max(_drift_h, _drift_a)
+        if _max_drift > XG_DEVIATION_BUDGET_MAX:
+            _scale_back = XG_DEVIATION_BUDGET_MAX / _max_drift
+            xg_h_final = _xg_h_orig + (xg_h_final - _xg_h_orig) * _scale_back
+            xg_a_final = _xg_a_orig + (xg_a_final - _xg_a_orig) * _scale_back
+            xg_h_final = max(DECAY.XG_FLOOR, xg_h_final)
+            xg_a_final = max(DECAY.XG_FLOOR, xg_a_final)
 
     # 4b. Stale line detection: se le linee non si sono mosse dopo >15 minuti
     # di partita, il mercato è potenzialmente illiquido o sospeso.
@@ -1059,6 +1163,14 @@ def analizza(
         CONSENSUS.DRAW_SHRINKAGE_ABS_FLOOR,
         min(1.0, _draw_shrinkage_dyn),
     )
+    # FIX PRECISION #4: Applica cap MAX_TOTAL sul draw shrinkage.
+    # Il config definisce DRAW_SHRINKAGE_MAX_TOTAL=0.040 (max 4% riduzione)
+    # ma non era applicato nella pipeline. Ora il draw factor effettivo viene
+    # limitato per evitare correzioni eccessive che sposterebbero troppo
+    # probabilità da Draw a 1/2 (la letteratura Dixon-Coles stima ~2-3% max).
+    _draw_reduction = 1.0 - _draw_shrinkage_dyn
+    if _draw_reduction > CONSENSUS.DRAW_SHRINKAGE_MAX_TOTAL:
+        _draw_shrinkage_dyn = 1.0 - CONSENSUS.DRAW_SHRINKAGE_MAX_TOTAL
 
     p1, px, p2, p_over, p_under, p_btts = calibrate_probabilities(
         consensus_probs["p1"], consensus_probs["px"], consensus_probs["p2"],
@@ -1427,6 +1539,29 @@ def analizza(
         "p_over": p_over, "p_under": p_under,
     }
     _market_divergence = compute_model_market_divergence(_model_probs_for_div, _market_probs)
+
+    # FIX PRECISION #5: BTTS Time-Modulated Damping (solo live, ultimi 15').
+    # Nei minuti finali (75'+), se il punteggio è "settled" (gap >= 2 gol),
+    # la probabilità BTTS viene ridotta progressivamente perché la squadra
+    # in svantaggio ha meno tempo e incentive per segnare.
+    # La matrice Poisson non cattura questo effetto (modella solo le rates,
+    # non la motivazione/fatica psicologica dei giocatori).
+    if state.minuto >= 75 and (state.gol_casa > 0 or state.gol_trasf > 0):
+        _score_gap = abs(state.gol_casa - state.gol_trasf)
+        if _score_gap >= 2:
+            _minutes_left = max(1, 90 - state.minuto)
+            _damp_factor = _minutes_left / 15.0  # 1.0 al 75', 0.07 al 89'
+            _gap_boost = min(1.0, (_score_gap - 1) / 3.0)  # più gap = più damping
+            _btts_damp = 1.0 - (1.0 - _damp_factor) * _gap_boost * 0.35
+            p_btts = p_btts * _btts_damp
+            p_btts = max(0.0, min(1.0, p_btts))
+
+    # FINAL: Probability coherence enforcement — ensures final output probabilities
+    # are internally consistent after all calibration steps.
+    p1, px, p2, p_over, p_under, p_btts = _enforce_probability_coherence(
+        p1, px, p2, p_over, p_under, p_btts,
+        full_matrix, state.gol_casa, state.gol_trasf,
+    )
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,

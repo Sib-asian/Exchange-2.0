@@ -33,7 +33,20 @@ def apply_overdispersion(
         future_goals = a + b
         _x = max(0.0, float(future_goals) - _UI.CS_OVERDISP_K0)
         if _x > 0:
-            _mult = 1.0 + _UI.CS_OVERDISP_ALPHA * (_x ** _UI.CS_OVERDISP_EXP)
+            # Continuity correction: when future_goals is fractional
+            # (between integers, which can happen with derived matrices),
+            # interpolate the multiplier linearly instead of step-function.
+            # For integer future_goals, the floor/ceil are identical, so
+            # no change in behavior.
+            _floor_fg = float(future_goals)
+            _ceil_fg = _floor_fg + 1.0
+            _x_floor = max(0.0, _floor_fg - _UI.CS_OVERDISP_K0)
+            _x_ceil = max(0.0, _ceil_fg - _UI.CS_OVERDISP_K0)
+            _mult_floor = 1.0 + _UI.CS_OVERDISP_ALPHA * (_x_floor ** _UI.CS_OVERDISP_EXP)
+            _mult_ceil = 1.0 + _UI.CS_OVERDISP_ALPHA * (_x_ceil ** _UI.CS_OVERDISP_EXP)
+            # Linear interpolation factor (for integer fg this is 0.0)
+            _frac = float(future_goals) - _floor_fg
+            _mult = _mult_floor * (1.0 - _frac) + _mult_ceil * _frac
             corrected[(a, b)] = p * min(_UI.CS_OVERDISP_MAX, _mult)
         else:
             corrected[(a, b)] = p
