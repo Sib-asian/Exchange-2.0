@@ -51,10 +51,11 @@ def _compute_copula_model(
     xg_a: float,
     copula_theta: float,
     nu: float,
+    rho_dc: float = -0.13,
 ) -> dict[tuple[int, int], float]:
     """Wrapper per calcolo modello CMP + Copula (per parallelizzazione)."""
     from src.models.copula import build_copula_matrix
-    return build_copula_matrix(xg_h, xg_a, copula_theta, nu=nu)
+    return build_copula_matrix(xg_h, xg_a, copula_theta, nu=nu, rho_dc=rho_dc)
 
 
 def _compute_markov_model(
@@ -879,8 +880,8 @@ def analizza(
             shot_dom, _rho_dc_shared,
         )
         full_copula = cache.get_or_compute(
-            lambda: _compute_copula_model(xg_h_final, xg_a_final, copula_theta, nu_dynamic),
-            "copula", xg_h_final, xg_a_final, copula_theta, nu_dynamic
+            lambda: _compute_copula_model(xg_h_final, xg_a_final, copula_theta, nu_dynamic, _rho_dc_shared),
+            "copula", xg_h_final, xg_a_final, copula_theta, nu_dynamic, _rho_dc_shared
         )
         full_markov = cache.get_or_compute(
             lambda: _compute_markov_model(
@@ -901,7 +902,7 @@ def analizza(
                 ): "bivariate",
                 executor.submit(
                     _compute_copula_model,
-                    xg_h_final, xg_a_final, copula_theta, nu_dynamic
+                    xg_h_final, xg_a_final, copula_theta, nu_dynamic, _rho_dc_shared
                 ): "copula",
                 executor.submit(
                     _compute_markov_model,
@@ -946,6 +947,18 @@ def analizza(
         _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_MID, CONSENSUS.W_COP_MID, CONSENSUS.W_MK_MID
     else:
         _w_bp, _w_cop, _w_mk = CONSENSUS.W_BP_LATE, CONSENSUS.W_COP_LATE, CONSENSUS.W_MK_LATE
+
+    # Score-gap adjustment: in late game with big gap, boost Markov (score-state model)
+    # and reduce Poisson/Copula (distribution models that don't capture cascading effects).
+    # When score gap >= 3, Markov's score-dependent rates are most informative.
+    if state.minuto > 0:
+        _score_gap = abs(state.gol_casa - state.gol_trasf)
+        if _score_gap >= 3 and state.minuto > 60:
+            _boost = min(0.10, 0.04 * (_score_gap - 2))
+            _w_mk = min(0.50, _w_mk + _boost)
+            _redistribute = _boost / max(1e-6, _w_bp + _w_cop) if (_w_bp + _w_cop) > 1e-6 else 0.5
+            _w_bp = max(0.15, _w_bp - _boost * _redistribute * (_w_bp / max(1e-6, _w_bp + _w_cop)))
+            _w_cop = max(0.10, _w_cop - _boost * _redistribute * (_w_cop / max(1e-6, _w_bp + _w_cop)))
 
     if _n_ok < 3:
         import logging as _log_mod

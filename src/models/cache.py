@@ -186,7 +186,8 @@ def cached_copula_matrix(
     xg_a: float,
     theta: float,
     nu: float,
-    compute_fn: Callable[[], dict],
+    rho_dc: float = -0.13,
+    compute_fn: Callable[[], dict] | None = None,
 ) -> dict:
     """
     Wrapper cached per build_copula_matrix.
@@ -195,11 +196,15 @@ def cached_copula_matrix(
         xg_h, xg_a: xG casa e trasferta.
         theta: Parametro copula.
         nu: Parametro dispersione CMP.
-        compute_fn: Funzione che calcola la matrice.
+        rho_dc: Coefficiente Dixon-Coles.
+        compute_fn: Funzione che calcola la matrice (se None, usa build_copula_matrix).
 
     Returns:
         Matrice copula dal cache o appena calcolata.
     """
+    if compute_fn is None:
+        from src.models.copula import build_copula_matrix
+        compute_fn = lambda: build_copula_matrix(xg_h, xg_a, theta, nu=nu, rho_dc=rho_dc)
     return _matrix_cache.get_or_compute(
         compute_fn,
         "copula",
@@ -207,6 +212,7 @@ def cached_copula_matrix(
         xg_a,
         theta,
         nu,
+        rho_dc,
     )
 
 

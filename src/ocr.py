@@ -3500,6 +3500,7 @@ def _extract_all_with_regex(text: str) -> dict:
     # Se la pagina e` gia` in-play, i blocchi odds possono essere misti/ambigui
     # per un uso prematch: evita di popolare 1X2 init da questi fallback.
     _is_live_inplay = bool(re.search(r"\b(1st Half|2nd Half|In Play)\b", text, re.IGNORECASE))
+    _is_completed = bool(re.search(r"\b(FT|Full\s*Time|Finished|Ended|Halftime\s*Full\s*Time)\b", text, re.IGNORECASE))
 
     # === H2H ===
     pre_ps = _text_before_previous_scores_statistics(text)
@@ -4129,7 +4130,7 @@ def _extract_all_with_regex(text: str) -> dict:
                 result["total_over_odds_open"] = total_over
                 result["total_under_odds_open"] = total_under
                 # 1X2: index 5=home, 6=draw, 7=away
-                if (not _is_live_inplay) and result["mkt_init_1"] == 0 and len(opening_row) > 7:
+                if (not _is_live_inplay and not _is_completed) and result["mkt_init_1"] == 0 and len(opening_row) > 7:
                     try:
                         q1 = float(opening_row[5]) if opening_row[5] else 0.0
                         qx = float(opening_row[6]) if opening_row[6] else 0.0
@@ -4208,6 +4209,17 @@ def _extract_all_with_regex(text: str) -> dict:
                             break
                     if e_row is None:
                         e_row = min(e_elig, key=_ets)
+                import logging as _vl
+                _vl.getLogger("exchange.ocr").debug(
+                    "Vs_eOdds: eligible=%d, e_row_len=%d, ts=%s, init=[%.3f,%.3f,%.3f]%s",
+                    len(e_elig) if 'e_elig' in dir() else 0,
+                    len(e_row) if e_row is not None else 0,
+                    _ets(e_row) if e_row is not None and '_ets' in dir() else 'N/A',
+                    float(e_row[2]) if e_row is not None and len(e_row) > 2 else 0.0,
+                    float(e_row[3]) if e_row is not None and len(e_row) > 3 else 0.0,
+                    float(e_row[4]) if e_row is not None and len(e_row) > 4 else 0.0,
+                    f", live=[%.3f,%.3f,%.3f]" % (float(e_row[5]), float(e_row[6]), float(e_row[7])) if e_row is not None and len(e_row) > 7 else "",
+                )
                 if e_row is not None:
                     q1 = float(e_row[2]) if e_row[2] not in (None, "", "0", 0) else 0.0
                     qx = float(e_row[3]) if e_row[3] not in (None, "", "0", 0) else 0.0
@@ -4235,7 +4247,7 @@ def _extract_all_with_regex(text: str) -> dict:
 
     # Fallback finale 1X2 da testo libero: usalo solo se i parser più affidabili
     # (tabella Initial / Vs_hOdds / Vs_eOdds) non hanno popolato i campi.
-    if (not _is_live_inplay) and result["mkt_init_1"] <= 1.0 and _fallback_1x2_from_text is not None:
+    if (not _is_live_inplay and not _is_completed) and result["mkt_init_1"] <= 1.0 and _fallback_1x2_from_text is not None:
         q1, qx, q2 = _fallback_1x2_from_text
         _or3_fb = (1.0 / q1 + 1.0 / qx + 1.0 / q2) if q1 and qx and q2 else 99.0
         if 1.01 < q1 < 100 and 1.01 < qx < 100 and 1.01 < q2 < 100 and 1.0 <= _or3_fb <= OCR_QUOTES.MAX_OVERROUND_3WAY:
@@ -4243,7 +4255,7 @@ def _extract_all_with_regex(text: str) -> dict:
             result["mkt_init_x"] = qx
             result["mkt_init_2"] = q2
 
-    if _is_live_inplay and result["mkt_init_1"] <= 1.0:
+    if (_is_live_inplay or _is_completed) and result["mkt_init_1"] <= 1.0:
         # Su pagine in-play senza tripla 1X2 affidabile restiamo neutrali.
         result["mkt_init_1"] = 0.0
         result["mkt_init_x"] = 0.0
