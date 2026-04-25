@@ -636,9 +636,10 @@ class UIConfig:
     CS_OVERDISP_ALPHA: float = 0.102
     CS_OVERDISP_EXP: float = 1.12
     CS_OVERDISP_MAX: float = 1.24
-    CS_OVERDISP_3: float = 1.05  # legacy / documentazione approssimativa k=3
-    CS_OVERDISP_4: float = 1.12
-    CS_OVERDISP_5: float = 1.20
+    # Legacy step-function multipliers — non più usati, mantenuti solo come riferimento.
+    # CS_OVERDISP_3: float = 1.05  ≈ mult(future_goals=3)  ~ 1 + 0.102 * 0.5^1.12 ≈ 1.046
+    # CS_OVERDISP_4: float = 1.12  ≈ mult(future_goals=4)  ~ 1 + 0.102 * 1.5^1.12 ≈ 1.163
+    # CS_OVERDISP_5: float = 1.20  ≈ mult(future_goals=5)  ~ 1 + 0.102 * 2.5^1.12 ≈ 1.240
 
     # Livelli AH da mostrare nell'expander
     AH_LEVELS: tuple = (-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, +0.5, +1.0, +1.5, +2.0, +2.5)

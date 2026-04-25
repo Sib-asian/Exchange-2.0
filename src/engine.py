@@ -994,8 +994,9 @@ def analizza(
             _w_bp, _w_cop, _w_mk,
             _per_raw_pre["bp"], _per_raw_pre["copula"], _per_raw_pre["markov"],
         )
-    except Exception:
-        pass  # Best-effort: non rompere il pipeline
+    except Exception as _corr_err:
+        import logging as _corr_log
+        _corr_log.getLogger("exchange.engine").debug("Correlation ensemble error: %s", _corr_err)
 
     _per_raw = per_model_market_probs(
         full_bp, full_copula, full_markov,
@@ -1165,8 +1166,9 @@ def analizza(
             minuto=state.minuto,
             ht_result=_ht_result,
         )
-    except Exception:
-        pass  # Best-effort
+    except Exception as _htft_err:
+        import logging as _htft_log
+        _htft_log.getLogger("exchange.engine").debug("HTFT model error: %s", _htft_err)
 
     # 9d. H2H Over % blend (solo prematch).
     # Riferimento tipico Nowgoal = Over 2.5; traslazione euristica verso linea_ou analizzata.
@@ -1278,8 +1280,9 @@ def analizza(
             full_matrix, state.gol_casa, state.gol_trasf, state.linea_ou,
             p_over_15=p_over_15, p_under_15=p_under_15,
         )
-    except Exception:
-        pass  # Best-effort
+    except Exception as _recon_err:
+        import logging as _recon_log
+        _recon_log.getLogger("exchange.engine").debug("Probability reconciliation error: %s", _recon_err)
 
     # 10c. Coerenza O/U canonici (1.5, 2.5) con la distribuzione totale gol del consensus.
     if gol_tot_dist:
