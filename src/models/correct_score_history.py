@@ -8,7 +8,10 @@ lo stile reale del campionamento quando il log ha abbastanza partite.
 
 from __future__ import annotations
 
+import logging
 import math
+
+_LOG = logging.getLogger("exchange.correct_score_history")
 
 from src.config import PRECISION
 from src.tracking.prediction_log import PredictionRecord, get_prediction_log
@@ -43,7 +46,8 @@ def estimate_scoreline_empirical(
 
     try:
         records = get_prediction_log().get_completed()
-    except Exception:
+    except Exception as _cshe:
+        _LOG.debug("correct score history data load failed: %s", _cshe)
         return {}, 0, 0
 
     usable: list[PredictionRecord] = []

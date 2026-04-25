@@ -19,10 +19,13 @@ Configurazione:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+
+_LOG_W = logging.getLogger("exchange.weather")
 
 # Mapping squadra → città per geolocalizzazione
 # Aggiornare con le squadre più comuni
@@ -761,10 +764,8 @@ def _get_openweather_api_key() -> str | None:
                             key = line.split("=", 1)[1].strip().strip('"').strip("'")
                             if key:
                                 return key
-    except Exception:
-        pass
-
-    # 3. Prova da Streamlit secrets
+    except Exception as _wke:
+        _LOG_W.debug("OpenWeather .env file not found or unreadable: %s", _wke)
     try:
         import streamlit as st
         if hasattr(st, "secrets") and "OPENWEATHER_API_KEY" in st.secrets:

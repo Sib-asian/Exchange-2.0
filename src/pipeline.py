@@ -198,8 +198,8 @@ def run_analysis_pipeline(
                         p_over=risultati.p_over + _delta,
                         p_under=risultati.p_under - _delta,
                     )
-        except Exception:
-            pass  # Hyperparameter tuning is best-effort
+        except Exception as _hte:
+            _LOG.warning("pipeline hyperparameter tuning skipped: %s", _hte)
 
     q1, qx, q2, qo, qu, qb, qo15, qu15 = shrink_outcome_probs(
         risultati.p1,

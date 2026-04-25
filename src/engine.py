@@ -1330,7 +1330,7 @@ def analizza(
     # non catturata dalle linee AH/Total.
     if state.minuto == 0 and state.ocr_quota_gg > 1.0 and state.ocr_quota_ng > 1.0:
         from src.config import OCR_QUOTES
-        from src.models.calibration import _devig_two_way
+        from src.models.calibration import _devig_two_way, _devig_shin_power
         _overround_btts = 1.0 / state.ocr_quota_gg + 1.0 / state.ocr_quota_ng
         if _overround_btts <= OCR_QUOTES.MAX_OVERROUND_2WAY:
             _p_gg_ocr = _devig_two_way(state.ocr_quota_gg, state.ocr_quota_ng)
@@ -1358,6 +1358,7 @@ def analizza(
             _ovr_mkt = 1.0 / state.mkt_init_1 + 1.0 / state.mkt_init_x + 1.0 / state.mkt_init_2
             _mkt_q = max(0.55, min(1.0, 1.0 - max(0.0, _ovr_mkt - 1.08) * 1.8))
         from src.config import FORM_ANALYSIS as _FA_1X2
+        from src.models.calibration import _devig_shin_power
         _alpha_mkt = _FA_1X2.PREMATCH_1X2_MKT_ALPHA_BASE * _trust_fc * (0.65 + 0.35 * _cov_fc) * _mkt_q
         _w_h2h_n = min(1.0, max(0.0, float(state.h2h_matches_count) / 10.0))
         _alpha_h2h = _FA_1X2.PREMATCH_1X2_H2H_ALPHA_BASE * _trust_fc * _h2h_core_fc * _w_h2h_n
@@ -1369,19 +1370,29 @@ def analizza(
             _alpha_h2h *= _scale_alpha
         _p1_adj, _px_adj, _p2_adj = p1, px, p2  # partenza dal consensus calibrato
 
-        # Market-implied 1X2 (rimuovi vig e normalizza)
+        # Market-implied 1X2 (devig con Shin's power method)
         if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
             _raw1 = 1.0 / state.mkt_init_1
             _rawx = 1.0 / state.mkt_init_x
             _raw2 = 1.0 / state.mkt_init_2
-            _tot_raw = _raw1 + _rawx + _raw2
-            if _tot_raw > 0:
-                _p1_mkt = _raw1 / _tot_raw
-                _px_mkt = _rawx / _tot_raw
-                _p2_mkt = _raw2 / _tot_raw
-                _p1_adj = (1.0 - _alpha_mkt) * _p1_adj + _alpha_mkt * _p1_mkt
-                _px_adj = (1.0 - _alpha_mkt) * _px_adj + _alpha_mkt * _px_mkt
-                _p2_adj = (1.0 - _alpha_mkt) * _p2_adj + _alpha_mkt * _p2_mkt
+            if _raw1 > 0 and _rawx > 0 and _raw2 > 0:
+                # Use Shin's power method for consistent devigging across all market channels
+                _shin_probs = _devig_shin_power([_raw1, _rawx, _raw2])
+                _p1_mkt = _shin_probs[0]
+                _px_mkt = _shin_probs[1]
+                _p2_mkt = _shin_probs[2]
+            else:
+                # Fallback: simple normalization (shouldn't happen with validated odds)
+                _tot_raw = _raw1 + _rawx + _raw2
+                if _tot_raw > 0:
+                    _p1_mkt = _raw1 / _tot_raw
+                    _px_mkt = _rawx / _tot_raw
+                    _p2_mkt = _raw2 / _tot_raw
+                else:
+                    _p1_mkt = _px_mkt = _p2_mkt = 0.0
+            _p1_adj = (1.0 - _alpha_mkt) * _p1_adj + _alpha_mkt * _p1_mkt
+            _px_adj = (1.0 - _alpha_mkt) * _px_adj + _alpha_mkt * _px_mkt
+            _p2_adj = (1.0 - _alpha_mkt) * _p2_adj + _alpha_mkt * _p2_mkt
 
         # H2H storico 1X2 (normalizza le percentuali)
         _h2h_sum = state.h2h_home_win_pct + state.h2h_draw_pct + state.h2h_away_win_pct

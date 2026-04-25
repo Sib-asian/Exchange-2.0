@@ -419,13 +419,13 @@ def _extract_with_gemini(image_path: Path) -> ExtractedData:
 
     last_error = ""
     for model in _GEMINI_MODELS:
-        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent"
         # Retry con backoff per rate limit (429)
         for attempt in range(3):
             try:
                 req = urllib.request.Request(
                     url, data=payload,
-                    headers={"Content-Type": "application/json"}, method="POST",
+                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=60) as response:
                     response_data = json.loads(response.read().decode("utf-8"))
@@ -601,12 +601,12 @@ def _extract_live_stats_with_gemini(image_path: Path) -> LiveStatsExtracted:
 
     last_error = ""
     for model in _GEMINI_MODELS:
-        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent"
         for attempt in range(3):
             try:
                 req = urllib.request.Request(
                     url, data=payload,
-                    headers={"Content-Type": "application/json"}, method="POST",
+                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=60) as response:
                     response_data = json.loads(response.read().decode("utf-8"))
@@ -1216,11 +1216,20 @@ def _clean_team_name(value: str) -> str:
 def _clean_league_name(value: str) -> str:
     league = (value or "").strip()
     league = re.sub(r"\s+", " ", league)
+    # Check alias map first (handles NowGoal garbled text like "booreal")
+    _early_lookup = _LEAGUE_ALIAS_MAP.get(league.lower().strip())
+    if _early_lookup:
+        return _early_lookup
     if league.lower() in _INVALID_LEAGUE_TOKENS:
         return ""
     # Rimuove porzioni descrittive non di lega.
     league = re.sub(r"\s*[-:]\s*(round|statistics|analysis).*$", "", league, flags=re.IGNORECASE)
-    return league.strip()
+    result = league.strip()
+    # Final alias check after all cleaning
+    _final_lookup = _LEAGUE_ALIAS_MAP.get(result.lower().strip())
+    if _final_lookup:
+        return _final_lookup
+    return result
 
 
 def _extract_match_identity_from_text(text: str) -> tuple[str, str, str]:
@@ -1908,12 +1917,12 @@ def _extract_prematch_analysis_with_gemini(image_paths: list[Path]) -> PrematchA
 
     last_error = ""
     for model in _GEMINI_MODELS:
-        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent"
         for attempt in range(3):
             try:
                 req = urllib.request.Request(
                     url, data=payload,
-                    headers={"Content-Type": "application/json"}, method="POST",
+                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
@@ -1985,17 +1994,100 @@ _NOWGOAL_DOMAINS = (
     "live5.nowgoal26.com",  # Nuovo dominio funzionante
 )
 
-_LEAGUE_ALIAS_MAP = {
+# Mapping per nomi di lega alternativi/garbled da NowGoal → nome canonico.
+# NowGoal spesso produce nomi di lega troncati o distorti (es. "booreal" per "Premier League").
+_LEAGUE_ALIAS_MAP: dict[str, str] = {
+    # Australia
     "australian a-league": "Australia A-League",
     "a-league": "Australia A-League",
+    # England
     "english premier league": "England Premier League",
     "premier league": "England Premier League",
+    "premierleague": "England Premier League",
+    "england premier league": "England Premier League",
+    "epl": "England Premier League",
+    "premier league (england)": "England Premier League",
+    "barclays premier league": "England Premier League",
+    "booreal": "England Premier League",           # NowGoal garbled text
+    "boeran": "England Premier League",            # NowGoal garbled text
+    "boorean": "England Premier League",           # NowGoal garbled text
+    "borreal": "England Premier League",           # NowGoal garbled text
+    "boroal": "England Premier League",            # NowGoal garbled text
+    "boorel": "England Premier League",            # NowGoal garbled text
+    "premier lg": "England Premier League",
+    # Italy
     "italian serie a": "Italy Serie A",
     "serie a": "Italy Serie A",
+    "serie a (italy)": "Italy Serie A",
+    "italy serie a": "Italy Serie A",
+    "serie a italia": "Italy Serie A",
+    "serie a italy": "Italy Serie A",
+    # Spain
     "spanish la liga": "Spain LaLiga",
     "laliga": "Spain LaLiga",
+    "la liga": "Spain LaLiga",
+    "la liga (spain)": "Spain LaLiga",
+    "spain la liga": "Spain LaLiga",
+    "primera division": "Spain LaLiga",
+    "liga bbva": "Spain LaLiga",
+    # Germany
     "german bundesliga": "Germany Bundesliga",
+    "bundesliga": "Germany Bundesliga",
+    "bundesliga (germany)": "Germany Bundesliga",
+    "1. bundesliga": "Germany Bundesliga",
+    "germany bundesliga": "Germany Bundesliga",
+    # France
     "french ligue 1": "France Ligue 1",
+    "ligue 1": "France Ligue 1",
+    "ligue 1 (france)": "France Ligue 1",
+    "french ligue 1": "France Ligue 1",
+    "france ligue 1": "France Ligue 1",
+    # Portugal
+    "primeira liga": "Portugal Primeira Liga",
+    "liga portugal": "Portugal Primeira Liga",
+    "portuguese primeira liga": "Portugal Primeira Liga",
+    # Netherlands
+    "eredivisie": "Netherlands Eredivisie",
+    "dutch eredivisie": "Netherlands Eredivisie",
+    # Belgium
+    "first division a": "Belgium First Division A",
+    "belgian pro league": "Belgium First Division A",
+    # Turkey
+    "super lig": "Turkey Super Lig",
+    "turkish super lig": "Turkey Super Lig",
+    # Greece
+    "super league": "Greece Super League",
+    "super league greece": "Greece Super League",
+    # Champions League
+    "champions league": "UEFA Champions League",
+    "uefa champions league": "UEFA Champions League",
+    "ucl": "UEFA Champions League",
+    # Europa League
+    "europa league": "UEFA Europa League",
+    "uefa europa league": "UEFA Europa League",
+    "uel": "UEFA Europa League",
+    # Conference League
+    "conference league": "UEFA Conference League",
+    "uefa conference league": "UEFA Conference League",
+    # International
+    "world cup": "FIFA World Cup",
+    "euro": "UEFA European Championship",
+    "european championship": "UEFA European Championship",
+    "copa america": "Copa America",
+    "africa cup of nations": "Africa Cup of Nations",
+    # Argentina
+    "argentina primera division": "Argentina Primera Division",
+    "liga profesional": "Argentina Primera Division",
+    # Brazil
+    "brasileirao": "Brazil Serie A",
+    "brazilian serie a": "Brazil Serie A",
+    "campeonato brasileiro": "Brazil Serie A",
+    # USA
+    "mls": "USA MLS",
+    "major league soccer": "USA MLS",
+    # Mexico
+    "liga mx": "Mexico Liga MX",
+    "mexican liga mx": "Mexico Liga MX",
 }
 
 PREMATCH_ANALYSIS_TEXT_PROMPT = """Sei un assistente che estrae dati statistici da testo di una pagina Nowgoal Analysis/H2H.
@@ -4676,12 +4768,12 @@ def _extract_prematch_analysis_from_text(page_text: str) -> PrematchAnalysisExtr
 
     last_error = ""
     for model in _GEMINI_MODELS:
-        api_url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        api_url = f"{_GEMINI_BASE_URL}/{model}:generateContent"
         for attempt in range(3):
             try:
                 req = urllib.request.Request(
                     api_url, data=payload,
-                    headers={"Content-Type": "application/json"}, method="POST",
+                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
