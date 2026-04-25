@@ -33,7 +33,7 @@ MIN_RECORDS_FOR_LEARNING: int = 30
 # Range di ricerca per draw shrinkage
 DRAW_SHRINKAGE_SEARCH_MIN: float = 0.92
 DRAW_SHRINKAGE_SEARCH_MAX: float = 1.00
-DRAW_SHRINKAGE_SEARCH_STEP: float = 0.005
+DRAW_SHRINKAGE_SEARCH_STEP: float = 0.002
 
 # Previous-scores alpha: grid e default motore
 PREV_SCORES_ALPHA_DEFAULT: float = 0.15

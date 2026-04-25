@@ -65,7 +65,7 @@ def compute_live_recalibration_factor(
     frac_played = min(minuto / 90.0, 1.0)
 
     # Prior: gol attesi entro ora se il ritmo fosse uniforme sul tot prematch
-    expected_uniform = xg_total_prematch * frac_played
+    expected_uniform = xg_total_prematch * (1.0 - (1.0 - frac_played) ** 1.3)
 
     # Mercato: totale partita implicito ≈ segnati + rimanenti (linea live)
     expected_market_timeline = expected_uniform

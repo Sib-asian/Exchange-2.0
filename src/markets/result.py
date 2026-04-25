@@ -31,8 +31,8 @@ def apply_overdispersion(
     corrected: dict[tuple[int, int], float] = {}
     for (a, b), p in full.items():
         future_goals = a + b
-        if future_goals >= 3:
-            _x = max(0.0, float(future_goals) - _UI.CS_OVERDISP_K0)
+        _x = max(0.0, float(future_goals) - _UI.CS_OVERDISP_K0)
+        if _x > 0:
             _mult = 1.0 + _UI.CS_OVERDISP_ALPHA * (_x ** _UI.CS_OVERDISP_EXP)
             corrected[(a, b)] = p * min(_UI.CS_OVERDISP_MAX, _mult)
         else:

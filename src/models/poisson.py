@@ -83,16 +83,16 @@ def dixon_coles_tau(
     rho_dc: float = DC.RHO_DC,
 ) -> float:
     """
-    Fattore correttivo Dixon-Coles per i 4 punteggi bassi (i+j <= 1).
+    Fattore correttivo Dixon-Coles per i 4 punteggi (0,0), (1,0), (0,1), (1,1).
 
     Poisson indipendente sovrastima P(0-0) e sottostima P(1-0)/P(0-1)/P(1-1).
-    La correzione si applica SOLO a i,j in {0,1} con i+j <= 2:
+    La correzione si applica SOLO a i,j ∈ {0,1}:
 
         tau(0,0) = 1 - mu_h * mu_a * rho_dc
         tau(1,0) = 1 + mu_a * rho_dc
         tau(0,1) = 1 + mu_h * rho_dc
         tau(1,1) = 1 - rho_dc
-        tau(i,j) = 1  per tutti gli altri (i+j > 2 o i>1 o j>1)
+        tau(i,j) = 1  per tutti gli altri (i>1 o j>1)
 
     rho_dc < 0 (tipicamente -0.13): le squadre tendono a NON segnare
     simultaneamente (effetto difensivo).
@@ -152,6 +152,7 @@ def rho_dc_dinamico(
     Returns:
         rho_DC in [RHO_DC_MIN, RHO_DC_MAX].
     """
+    minuto = max(0, min(minuto, 120))
     # Effetto total: basso total → struttura difensiva → più negativo.
     # Usa sigmoide soft al posto di hard clip: evita discontinuità a tot_cur=TOT_REF
     # dove il fattore passava da ~0.003 a 0.0 in modo netto.
@@ -374,7 +375,7 @@ def build_bivariate_matrix(
     joint_ind: dict[tuple[int, int], float] = {}
     ji_sum = 0.0
     for (i, j), pij in joint_ind_raw.items():
-        tau = dixon_coles_tau(i, j, mu_h_ind, mu_a_ind, rho_dc=rho_dc_val)
+        tau = dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=rho_dc_val)
         val = pij * tau
         joint_ind[(i, j)] = val
         ji_sum += val

@@ -186,7 +186,7 @@ def calibra_btts(
     time_factor = 1.0 if minuto == 0 else max(0.3, 1.0 - minuto / 90.0 * 0.7)
     _trust_sig = max(0.0, min(1.0, float(signal_trust)))
 
-    _mult = 1.0 + adjustment * time_factor * _trust_sig / max(0.10, p_btts)
+    _mult = 1.0 + adjustment * time_factor * _trust_sig / max(0.20, p_btts)
     # Cap il moltiplicatore per evitare estremi
     _mult = max(0.80, min(1.25, _mult))
     p_btts_calibrated = p_btts * _mult
