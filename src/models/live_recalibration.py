@@ -8,6 +8,10 @@ Se a minuto 45 il modello si aspettava ~1.25 gol totali (50% di 2.5)
 ma il punteggio è 0-0, il modello era troppo ottimista → ridurre xG residui.
 
 L'effetto è leggero e conservativo per evitare overreaction a varianza normale.
+
+FIX PRECISION #2: Recalibration ora è ASIMMETRICA — fattori separati per casa e
+trasferta, basati sulla deviazione per-squadra tra gol osservati e xG attesi.
+Questo corregge il bias quando una squadra sovraperforma e l'altra sottoperforma.
 """
 
 from __future__ import annotations
@@ -42,25 +46,60 @@ def compute_live_recalibration_factor(
     """
     Calcola il fattore di ricalibrazione live basato su osservazioni.
 
-    Confronta i gol segnati con l'atteso al minuto corrente. L'atteso combina:
-    - prior lineare da tot apertura (tot_op);
-    - stima implicita dal mercato: gol fatti + linea Total **rimanente** (tot_cur),
-      ripartita linearmente sul tempo (stessa ipotesi semplice, ancorata al book).
+    Versione LEGACY (simmetrica) — mantenuta per retrocompatibilità.
+    Usa il fattore totale come media tra casa e trasferta.
 
     Args:
         xg_total_prematch: Total atteso a inizio partita (tot_op).
         gol_attuali: Gol totali segnati finora.
         minuto: Minuto attuale [0, 90].
-        tot_cur_remaining: Linea Total corrente (gol rimanenti); se assente, solo prior lineare.
+        tot_cur_remaining: Linea Total corrente (gol rimanenti).
 
     Returns:
         Fattore moltiplicativo per xG residui in [1 - MAX, 1 + MAX].
-        1.0 = nessun aggiustamento.
-        < 1.0 = modello sovrastimava gol → ridurre xG residui.
-        > 1.0 = modello sottostimava gol → aumentare xG residui.
+    """
+    factor_h, factor_a = compute_live_recalibration_factors(
+        xg_total_prematch, gol_attuali, minuto,
+        gol_casa=gol_attuali,  # fallback: assegna tutto alla casa
+        gol_trasf=0,
+        xg_h_share=0.50,
+        tot_cur_remaining=tot_cur_remaining,
+    )
+    return 0.5 * (factor_h + factor_a)
+
+
+def compute_live_recalibration_factors(
+    xg_total_prematch: float,
+    gol_attuali: int,
+    minuto: int,
+    *,
+    gol_casa: int = 0,
+    gol_trasf: int = 0,
+    xg_h_share: float = 0.50,
+    tot_cur_remaining: float | None = None,
+) -> tuple[float, float]:
+    """
+    Calcola fattori di ricalibrazione SEPARATI per casa e trasferta.
+
+    Confronta i gol segnati da ciascuna squadra con il suo xG atteso al minuto
+    corrente. Se una squadra sovraperforma (più gol del previsto) il suo xG
+    residuo viene ridotto (regressione alla media). Se sottoforma, aumenta.
+
+    Args:
+        xg_total_prematch: Total atteso a inizio partita (tot_op).
+        gol_attuali: Gol totali segnati finora (per compatibilità).
+        gol_casa: Gol segnati dalla squadra di casa.
+        gol_trasf: Gol segnati dalla squadra in trasferta.
+        minuto: Minuto attuale [0, 90].
+        xg_h_share: Quota xG casa sul totale (xg_h / (xg_h + xg_a)).
+        tot_cur_remaining: Linea Total corrente (gol rimanenti).
+
+    Returns:
+        (factor_h, factor_a): Fattori moltiplicativi per xG residui casa e trasferta.
+        Ciascuno in [1 - MAX, 1 + MAX]. 1.0 = nessun aggiustamento.
     """
     if minuto < MIN_MINUTE_FOR_RECAL or xg_total_prematch <= 0:
-        return 1.0
+        return 1.0, 1.0
 
     frac_played = min(minuto / 90.0, 1.0)
 
@@ -82,24 +121,41 @@ def compute_live_recalibration_factor(
     expected_goals_by_now = w_m * expected_market_timeline + (1.0 - w_m) * expected_uniform
 
     if expected_goals_by_now < 0.3:
-        return 1.0
+        return 1.0, 1.0
 
-    # Deviazione: positiva = più gol del previsto, negativa = meno gol del previsto
-    deviation = gol_attuali - expected_goals_by_now
+    # --- FIX PRECISION #2: Recalibration ASIMMETRICA ---
+    # Dividi il totale atteso tra casa e trasferta usando la quota xG.
+    # Se xg_h_share = 0.55, la casa dovrebbe aver segnato il 55% dei gol attesi.
+    expected_h_by_now = expected_goals_by_now * xg_h_share
+    expected_a_by_now = expected_goals_by_now * (1.0 - xg_h_share)
+
+    # Evita divisione per zero
+    expected_h_by_now = max(0.15, expected_h_by_now)
+    expected_a_by_now = max(0.15, expected_a_by_now)
+
+    # Deviazione per squadra
+    deviation_h = gol_casa - expected_h_by_now
+    deviation_a = gol_trasf - expected_a_by_now
 
     # Normalizzazione: quanto devia in proporzione ai gol attesi
-    normalized_deviation = deviation / expected_goals_by_now
+    norm_dev_h = deviation_h / expected_h_by_now
+    norm_dev_a = deviation_a / expected_a_by_now
 
-    # Aggiustamento: proporzionale alla deviazione, pesato per il tempo giocato
-    # Più tempo giocato = più il segnale è affidabile
-    time_reliability = min(1.0, frac_played / 0.50)  # piena affidabilità dopo 50%
+    # Affidabilità temporale: cresce con il tempo giocato
+    time_reliability = min(1.0, frac_played / 0.50)
 
-    adjustment = normalized_deviation * LIVE_RECAL_SENSITIVITY * time_reliability
+    # Fattori individuali
+    adj_h = norm_dev_h * LIVE_RECAL_SENSITIVITY * time_reliability
+    adj_a = norm_dev_a * LIVE_RECAL_SENSITIVITY * time_reliability
 
     # Clamp
-    adjustment = max(-MAX_LIVE_ADJUSTMENT, min(MAX_LIVE_ADJUSTMENT, adjustment))
+    factor_h = 1.0 + max(-MAX_LIVE_ADJUSTMENT, min(MAX_LIVE_ADJUSTMENT, adj_h))
+    factor_a = 1.0 + max(-MAX_LIVE_ADJUSTMENT, min(MAX_LIVE_ADJUSTMENT, adj_a))
 
-    return 1.0 + adjustment
+    return factor_h, factor_a
 
 
-__all__ = ["compute_live_recalibration_factor"]
+__all__ = [
+    "compute_live_recalibration_factor",
+    "compute_live_recalibration_factors",
+]

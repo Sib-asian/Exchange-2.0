@@ -544,6 +544,79 @@ def _apply_post_consensus_market_blend(
     return p1, px, p2
 
 
+def _enforce_probability_coherence(
+    p1: float, px: float, p2: float,
+    p_over: float, p_under: float,
+    p_btts: float,
+    full_matrix: dict[tuple[int, int], float],
+    gol_casa: int, gol_trasf: int,
+    *,
+    tol: float = 1e-9,
+    incoherence_threshold: float = 0.005,
+    correction_alpha: float = 0.10,
+) -> tuple[float, float, float, float, float, float]:
+    """
+    Enforce probability coherence on final output probabilities.
+
+    After all calibration steps (consensus, post-consensus market blend,
+    BTTS calibration, OU shrink), the final probabilities can drift from
+    the underlying score matrix. This function:
+
+    a) Ensures p1 + px + p2 = 1.0 (within tolerance)
+    b) Ensures p_over + p_under = 1.0 (within tolerance)
+    c) Cross-checks BTTS consistency with the score matrix
+    d) If incoherence > 0.5%, applies conservative 10% correction toward
+       matrix-derived values
+
+    Returns:
+        (p1, px, p2, p_over, p_under, p_btts) — corrected probabilities.
+    """
+    # a) Normalize 1X2
+    sum_1x2 = p1 + px + p2
+    if sum_1x2 > 0 and abs(sum_1x2 - 1.0) > tol:
+        p1 /= sum_1x2
+        px /= sum_1x2
+        p2 /= sum_1x2
+
+    # b) Normalize Over/Under
+    sum_ou = p_over + p_under
+    if sum_ou > 0 and abs(sum_ou - 1.0) > tol:
+        p_over /= sum_ou
+        p_under /= sum_ou
+
+    # c) Derive BTTS from matrix for cross-check
+    # P(BTTS) = 1 - P(home scores 0) - P(away scores 0) + P(0-0)
+    p_home_0 = 0.0
+    p_away_0 = 0.0
+    p_0_0 = 0.0
+    for (a, b), prob in full_matrix.items():
+        if a == 0:
+            p_away_0 += prob
+        if b == 0:
+            p_home_0 += prob
+        if a == 0 and b == 0:
+            p_0_0 += prob
+    p_btts_matrix = 1.0 - p_home_0 - p_away_0 + p_0_0
+    p_btts_matrix = max(0.0, min(1.0, p_btts_matrix))
+
+    # d) If BTTS incoherence > 0.5%, apply conservative correction.
+    # Skip correction when BTTS is at a definitive boundary (0 or 1),
+    # which typically means the market is already settled (both/none scored).
+    btts_gap = abs(p_btts - p_btts_matrix)
+    if btts_gap > incoherence_threshold and 1e-9 < p_btts < 1.0 - 1e-9:
+        p_btts = (1.0 - correction_alpha) * p_btts + correction_alpha * p_btts_matrix
+
+    # Clamp to [0, 1]
+    p1 = max(0.0, min(1.0, p1))
+    px = max(0.0, min(1.0, px))
+    p2 = max(0.0, min(1.0, p2))
+    p_over = max(0.0, min(1.0, p_over))
+    p_under = max(0.0, min(1.0, p_under))
+    p_btts = max(0.0, min(1.0, p_btts))
+
+    return p1, px, p2, p_over, p_under, p_btts
+
+
 # ---------------------------------------------------------------------------
 # Engine principale
 # ---------------------------------------------------------------------------
@@ -749,17 +822,24 @@ def analizza(
 
     # 4a. Live recalibration (Upgrade 5): correggi xG residui se il modello
     # sovra/sotto-stima i gol osservati finora.
+    # FIX PRECISION #2: Usa recalibration ASIMMETRICA (fattori separati per squadra).
     if state.minuto > 0:
-        from src.models.live_recalibration import compute_live_recalibration_factor
-        _live_recal = compute_live_recalibration_factor(
+        from src.models.live_recalibration import compute_live_recalibration_factors
+        _tot_xg = xg_h_final + xg_a_final
+        _xg_h_share = xg_h_final / _tot_xg if _tot_xg > 1e-9 else 0.50
+        _live_recal_h, _live_recal_a = compute_live_recalibration_factors(
             state.tot_op,
             state.gol_casa + state.gol_trasf,
             state.minuto,
+            gol_casa=state.gol_casa,
+            gol_trasf=state.gol_trasf,
+            xg_h_share=_xg_h_share,
             tot_cur_remaining=state.tot_cur,
         )
-        if _live_recal != 1.0:
-            xg_h_final = max(DECAY.XG_FLOOR, xg_h_final * _live_recal)
-            xg_a_final = max(DECAY.XG_FLOOR, xg_a_final * _live_recal)
+        if _live_recal_h != 1.0:
+            xg_h_final = max(DECAY.XG_FLOOR, xg_h_final * _live_recal_h)
+        if _live_recal_a != 1.0:
+            xg_a_final = max(DECAY.XG_FLOOR, xg_a_final * _live_recal_a)
     elif state.minuto == 0:
         # Prematch scenario-mixture: combina tre regimi di ritmo (low/mid/high)
         # e aggiorna solo il totale λ mantenendo il rapporto casa/trasferta.
@@ -1427,6 +1507,13 @@ def analizza(
         "p_over": p_over, "p_under": p_under,
     }
     _market_divergence = compute_model_market_divergence(_model_probs_for_div, _market_probs)
+
+    # FINAL: Probability coherence enforcement — ensures final output probabilities
+    # are internally consistent after all calibration steps.
+    p1, px, p2, p_over, p_under, p_btts = _enforce_probability_coherence(
+        p1, px, p2, p_over, p_under, p_btts,
+        full_matrix, state.gol_casa, state.gol_trasf,
+    )
 
     return ProbabilitaModello(
         p1=p1, px=px, p2=p2,

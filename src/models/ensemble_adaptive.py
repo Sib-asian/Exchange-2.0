@@ -213,4 +213,73 @@ def blend_consensus_weights_with_history(
     return w1, w_ou, w_bt
 
 
-__all__ = ["blend_consensus_weights_with_history"]
+__all__ = ["blend_consensus_weights_with_history", "smooth_ensemble_weights"]
+
+
+# ---------------------------------------------------------------------------
+# Weight smoothing — prevents oscillation between consecutive predictions
+# ---------------------------------------------------------------------------
+
+# In-memory tracking of the last weight combinations
+_last_weights_history: list[tuple[float, float, float]] = []
+_MAX_WEIGHT_HISTORY = 5
+_OSCILLATION_THRESHOLD = 0.15  # 15% change triggers smoothing
+_SMOOTHING_FACTOR = 0.60  # exponential smoothing: 60% previous, 40% current
+
+
+def smooth_ensemble_weights(
+    w_bp: float, w_cop: float, w_mk: float,
+) -> tuple[float, float, float]:
+    """Apply exponential smoothing to ensemble weights to prevent oscillation.
+
+    When weights change by more than 15% between consecutive predictions,
+    blend the new weights toward the previous ones using exponential smoothing.
+
+    This prevents the ensemble from being unstable when the 3 models disagree
+    sharply on marginal cases.
+
+    Args:
+        w_bp, w_cop, w_mk: Current weight combination (sum ≈ 1).
+
+    Returns:
+        Smoothed (w_bp, w_cop, w_mk).
+    """
+    global _last_weights_history
+
+    if not _last_weights_history:
+        _last_weights_history.append((w_bp, w_cop, w_mk))
+        return w_bp, w_cop, w_mk
+
+    prev = _last_weights_history[-1]
+
+    # Calculate max absolute change across all three weights
+    max_change = max(
+        abs(w_bp - prev[0]),
+        abs(w_cop - prev[1]),
+        abs(w_mk - prev[2]),
+    )
+
+    if max_change <= _OSCILLATION_THRESHOLD:
+        # No oscillation — use current weights as-is
+        _last_weights_history.append((w_bp, w_cop, w_mk))
+        if len(_last_weights_history) > _MAX_WEIGHT_HISTORY:
+            _last_weights_history = _last_weights_history[-_MAX_WEIGHT_HISTORY:]
+        return w_bp, w_cop, w_mk
+
+    # Oscillation detected — smooth toward previous
+    smoothed_bp = _SMOOTHING_FACTOR * prev[0] + (1.0 - _SMOOTHING_FACTOR) * w_bp
+    smoothed_cop = _SMOOTHING_FACTOR * prev[1] + (1.0 - _SMOOTHING_FACTOR) * w_cop
+    smoothed_mk = _SMOOTHING_FACTOR * prev[2] + (1.0 - _SMOOTHING_FACTOR) * w_mk
+
+    # Re-normalize
+    total = smoothed_bp + smoothed_cop + smoothed_mk
+    if total > 0:
+        smoothed_bp /= total
+        smoothed_cop /= total
+        smoothed_mk /= total
+
+    _last_weights_history.append((smoothed_bp, smoothed_cop, smoothed_mk))
+    if len(_last_weights_history) > _MAX_WEIGHT_HISTORY:
+        _last_weights_history = _last_weights_history[-_MAX_WEIGHT_HISTORY:]
+
+    return smoothed_bp, smoothed_cop, smoothed_mk
