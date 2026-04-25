@@ -246,12 +246,12 @@ def _chiama_gemini_con_ricerca(prompt: str) -> tuple[str, list[str]]:
 
     last_error = ""
     for model in _GEMINI_SEARCH_MODELS:
-        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent"
         try:
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
                 url, data=data,
-                headers={"Content-Type": "application/json"}, method="POST",
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST",
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
@@ -309,12 +309,12 @@ def _chiama_gemini_solo_testo(prompt: str) -> str:
 
     last_error = ""
     for model in _GEMINI_SEARCH_MODELS:
-        url = f"{_GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
+        url = f"{_GEMINI_BASE_URL}/{model}:generateContent"
         try:
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
                 url, data=data,
-                headers={"Content-Type": "application/json"}, method="POST",
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST",
             )
             with urllib.request.urlopen(req, timeout=20) as resp:
                 result = json.loads(resp.read().decode("utf-8"))

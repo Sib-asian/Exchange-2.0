@@ -17,7 +17,10 @@ Riferimenti:
 
 from __future__ import annotations
 
+import logging
 import math
+
+_LOG = logging.getLogger("exchange.calibration_curve")
 
 # ---------------------------------------------------------------------------
 # Costanti
@@ -204,7 +207,8 @@ def build_calibration_maps() -> dict[str, tuple[float, float]]:
             (r for r in log.get_completed() if r.is_prematch and r.is_completed()),
             key=lambda r: r.timestamp,
         )
-    except Exception:
+    except Exception as _cce:
+        _LOG.debug("calibration curve data load failed: %s", _cce)
         return {}
 
     if len(completed) < MIN_RECORDS_FOR_CALIBRATION:

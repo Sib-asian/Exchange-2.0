@@ -15,6 +15,7 @@ Il file sopravvive a:
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
@@ -256,10 +257,12 @@ class PredictionLog:
         if self._use_supabase:
             _sb.save_payload(data)
         try:
-            with open(PREDICTIONS_FILE, "w", encoding="utf-8") as f:
+            _tmp = PREDICTIONS_FILE.with_suffix(".tmp")
+            with open(_tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-        except OSError:
-            pass
+            _tmp.replace(PREDICTIONS_FILE)
+        except OSError as _ose:
+            logging.getLogger("exchange.prediction_log").warning("Failed to save predictions file: %s", _ose)
 
     def add(self, record: PredictionRecord) -> None:
         """Aggiunge una nuova previsione."""

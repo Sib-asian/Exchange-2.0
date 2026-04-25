@@ -17,418 +17,15 @@ Performance:
 
 from __future__ import annotations
 
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
 
 from src.config import BAYES, CACHE, DECAY, ENGINE
 
-# ---------------------------------------------------------------------------
-# Dataclass di Input
-# ---------------------------------------------------------------------------
-
-@dataclass
-class MatchState:
-    """Stato attuale della partita."""
-
-    minuto: int          # Minuto [0, 90]
-    gol_casa: int        # Gol attuali casa [0, +inf)
-    gol_trasf: int       # Gol attuali trasferta
-    rossi_casa: int      # Cartellini rossi casa [0, 4]
-    rossi_trasf: int     # Cartellini rossi trasferta
-
-    # Linee asiatiche
-    ah_op: float         # AH apertura (full 90')
-    tot_op: float        # Total apertura
-    ah_cur: float        # AH corrente (gol rimanenti)
-    tot_cur: float       # Total corrente (gol rimanenti)
-
-    # Linea Over/Under da analizzare
-    linea_ou: float
-
-    # Tiri live (0 = non disponibili)
-    sot_h: int = 0       # Tiri in porta casa
-    soff_h: int = 0      # Tiri fuori casa
-    sot_a: int = 0       # Tiri in porta trasferta
-    soff_a: int = 0      # Tiri fuori trasferta
-
-    # Statistiche live avanzate da screenshot (0 = non disponibili)
-    corner_h: int = 0
-    corner_a: int = 0
-    possesso_h: float = 0.0   # Percentuale (0-100)
-    possesso_a: float = 0.0
-    att_pericolosi_h: int = 0  # Dangerous attacks
-    att_pericolosi_a: int = 0
-
-    # Statistiche aggiuntive da OCR (0 = non disponibili)
-    gialli_casa: int = 0       # Cartellini gialli casa
-    gialli_trasf: int = 0      # Cartellini gialli trasferta
-    blk_h: int = 0             # Tiri bloccati casa
-    blk_a: int = 0             # Tiri bloccati trasferta
-    att_h: int = 0             # Attacchi totali casa
-    att_a: int = 0             # Attacchi totali trasferta
-    falli_casa: int = 0        # Falli casa
-    falli_trasf: int = 0       # Falli trasferta
-
-    # Linea O/U estratta da OCR (0 = non disponibile).
-    # Usata come soft prior per la calibrazione Bayesiana in prematch.
-    ocr_imp_total: float = 0.0
-
-    # Prior storico H2H (media gol partite precedenti tra queste due squadre).
-    # Calcolato da Gemini + Google Search. 0.0 = non disponibile.
-    # Blendato con tot_op al 10% solo in prematch (minuto=0).
-    fixture_historical_total: float = 0.0
-
-    # H2H: gol medi per squadra negli scontri diretti (URL Nowgoal, 0 = assente).
-    h2h_avg_goals_home: float = 0.0
-    h2h_avg_goals_away: float = 0.0
-    # Numero match H2H con HT valido (affidabilità HT/FT).
-    h2h_ht_matches_count: int = 0
-    # Segnale sharp da movimento linee (Nowgoal), 0 = assente.
-    odds_sharp_signal: float = 0.0
-    # Peso sezione H2H (extraction_section_scores), [0,1]. Riduce blend gol medi H2H se basso.
-    h2h_core_weight: float = 1.0
-
-    # Qualità del movimento linee (da Gemini). Range [0.80, 1.30], default 1.0.
-    # > 1.0 = movimento affidabile (sharp/notizie) → w_cur aumentato.
-    # < 1.0 = movimento rumoroso (pubblico/liquidità) → w_cur diminuito.
-    movement_quality: float = 1.0
-
-    # Movimento linee raw estratto da Nowgoal (full-game, apertura→chiusura).
-    # Usato in prematch come segnale secondario (peso basso) per evitare
-    # dipendenza totale dal solo movement_quality sintetico.
-    line_movement_ah_raw: float = 0.0
-    line_movement_total_raw: float = 0.0
-
-    # Copertura estrazione prematch [0,1] per gating dei micro-prior.
-    extraction_coverage: float = 0.0
-    # Fiducia sintetica [0.55,1]: penalità se extraction_notes segnala buchi critici.
-    extraction_trust_factor: float = 1.0
-
-    # Team stats prematch (ultimi 10): usati con peso conservativo come micro-prior.
-    team_stats_home_shots: float = 0.0
-    team_stats_away_shots: float = 0.0
-    team_stats_home_corners: float = 0.0
-    team_stats_away_corners: float = 0.0
-    team_stats_home_possession: float = 0.0
-    team_stats_away_possession: float = 0.0
-
-    # Team stats prematch aggiuntivi (da Nowgoal, ultimi 10)
-    team_stats_home_yellows: float = 0.0
-    team_stats_away_yellows: float = 0.0
-    team_stats_home_fouls: float = 0.0
-    team_stats_away_fouls: float = 0.0
-
-    # Previous scores Over% per squadra (0-100, da Nowgoal)
-    prev_over_pct_h: float = 0.0
-    prev_over_pct_a: float = 0.0
-
-    # HT/FT transition counts (da Nowgoal, ultimi ~10 match)
-    # 9 cells per squadra: HTW/HTD/HTL → FTW/FTD/FTL
-    htft_home_htw_ftw: int = 0
-    htft_home_htw_ftd: int = 0
-    htft_home_htw_ftl: int = 0
-    htft_home_htd_ftw: int = 0
-    htft_home_htd_ftd: int = 0
-    htft_home_htd_ftl: int = 0
-    htft_home_htl_ftw: int = 0
-    htft_home_htl_ftd: int = 0
-    htft_home_htl_ftl: int = 0
-    htft_away_htw_ftw: int = 0
-    htft_away_htw_ftd: int = 0
-    htft_away_htw_ftl: int = 0
-    htft_away_htd_ftw: int = 0
-    htft_away_htd_ftd: int = 0
-    htft_away_htd_ftl: int = 0
-    htft_away_htl_ftw: int = 0
-    htft_away_htl_ftd: int = 0
-    htft_away_htl_ftl: int = 0
-
-    # Scala di confidenza delle quote OCR (da validatore Gemini). Range [0.70, 1.0].
-    # 1.0 = quote verificate concordi col mercato; < 1.0 = quote sospette/anomale.
-    ocr_confidence_scale: float = 1.0
-
-    # Quote bookmaker prematch estratte da OCR (0.0 = non disponibili).
-    # Usate come prior addizionali per la calibrazione Bayesiana in prematch.
-    ocr_quota_1: float = 0.0
-    ocr_quota_x: float = 0.0
-    ocr_quota_2: float = 0.0
-    ocr_quota_over: float = 0.0
-    ocr_quota_under: float = 0.0
-    ocr_quota_gg: float = 0.0
-    ocr_quota_ng: float = 0.0
-
-    # Moltiplicatori xG da dati AI (da Gemini Ricerca Pre-Partita).
-    # Calcolati da assenze squadre e forma recente, scalati per affidabilità.
-    # 1.0 = nessun effetto (default quando la ricerca non è disponibile).
-    # < 1.0 = riduzione xG (proprie assenze); > 1.0 = aumento xG (GK avversario assente).
-    absence_mult_h: float = 1.0   # moltiplicatore xG casa (assenze + GK trasf. assente)
-    absence_mult_a: float = 1.0   # moltiplicatore xG trasferta (assenze + GK casa assente)
-    forma_mult_h: float = 1.0     # moltiplicatore xG casa dalla forma recente
-    forma_mult_a: float = 1.0     # moltiplicatore xG trasferta dalla forma recente
-
-    # Dati prematch per post-consensus correction (solo prematch, 0 = non disponibile)
-    mkt_init_1: float = 0.0       # quota 1X2 iniziale casa (media bookmaker)
-    mkt_init_x: float = 0.0       # quota 1X2 iniziale pareggio
-    mkt_init_2: float = 0.0       # quota 1X2 iniziale trasferta
-    h2h_home_win_pct: float = 0.0 # % vittorie casa nei precedenti H2H (0-100)
-    h2h_draw_pct: float = 0.0     # % pareggi nei precedenti H2H
-    h2h_away_win_pct: float = 0.0 # % vittorie trasferta nei precedenti H2H
-    h2h_over_pct: float = 0.0     # % partite H2H andate Over (0-100)
-
-    # Strength da Nowgoal (0-100)
-    strength_home: int = 0        # punteggio forza casa
-    strength_away: int = 0        # punteggio forza trasferta
-
-    # Previous scores (ultime 10 partite) per blend xG
-    prev_avg_scored_h: float = 0.0    # media gol segnati casa
-    prev_avg_conceded_h: float = 0.0  # media gol subiti casa
-    prev_avg_scored_a: float = 0.0    # media gol segnati trasferta
-    prev_avg_conceded_a: float = 0.0  # media gol subiti trasferta
-
-    # === FORM ANALYSIS - Dati estratti da Nowgoal ===
-
-    # Standings (Classifica) - per calcolo motivazione
-    standings_rank_h: int = 0          # posizione in classifica casa (1 = prima)
-    standings_rank_a: int = 0          # posizione in classifica trasferta
-    standings_points_h: int = 0        # punti in classifica casa
-    standings_points_a: int = 0        # punti in classifica trasferta
-    standings_played_h: int = 0        # partite giocate casa
-    standings_played_a: int = 0        # partite giocate trasferta
-    standings_total_teams: int = 20    # numero totale squadre in lega
-
-    # Last 6 games (Forma recente specifica)
-    last6_points_h: float = 0.0        # punti conquistati nelle ultime 6 casa
-    last6_points_a: float = 0.0        # punti conquistati nelle ultime 6 trasferta
-    last6_gf_h: float = 0.0            # gol fatti nelle ultime 6 casa
-    last6_ga_h: float = 0.0            # gol subiti nelle ultime 6 casa
-    last6_gf_a: float = 0.0            # gol fatti nelle ultime 6 trasferta
-    last6_ga_a: float = 0.0            # gol subiti nelle ultime 6 trasferta
-
-    # Home/Away Performance (Rendimento specifico)
-    home_ppg_h: float = 0.0            # punti per partita in casa della squadra di casa
-    away_ppg_a: float = 0.0            # punti per partita in trasferta della squadra trasferta
-    home_gf_h: float = 0.0             # gol fatti medi in casa
-    home_ga_h: float = 0.0             # gol subiti medi in casa
-    away_gf_a: float = 0.0             # gol fatti medi in trasferta
-    away_ga_a: float = 0.0             # gol subiti medi in trasferta
-
-    # Goal Timing (Quando segnano - opzionale)
-    late_goals_pct_h: float = 0.0      # % gol segnati nei minuti 75-90 casa
-    late_goals_pct_a: float = 0.0      # % gol segnati nei minuti 75-90 trasferta
-    early_conceded_pct_h: float = 0.0  # % gol subiti nei minuti 0-30 casa
-    early_conceded_pct_a: float = 0.0  # % gol subiti nei minuti 0-30 trasferta
-
-    # === H2H Half-Time (primo tempo negli scontri diretti) ===
-    h2h_ht_home_win_pct: float = 0.0   # % volte casa in vantaggio a HT nei H2H (0-100)
-    h2h_ht_draw_pct: float = 0.0       # % pareggi a HT nei H2H (0-100)
-    h2h_ht_away_win_pct: float = 0.0   # % volte trasferta in vantaggio a HT nei H2H (0-100)
-
-    # H2H: % partite in cui la casa ha coperto l’Asian Handicap (0–100, da URL)
-    h2h_ah_home_cover_pct: float = 0.0
-    # % vittorie ultime partite (previous scores, 0–100)
-    prev_win_pct_h: float = 0.0
-    prev_win_pct_a: float = 0.0
-    # xG/media gol implicita da partite recente (post OCR, 0 = assente)
-    recent_xg_prior_h: float = 0.0
-    recent_xg_prior_a: float = 0.0
-    # Motivazione qualitativa estratta (high | normal | low)
-    motivation_home: str = "normal"
-    motivation_away: str = "normal"
-    # Trend forma URL ([-1,1], positivo = forma in miglioramento).
-    url_form_trend_h: float = 0.0
-    url_form_trend_a: float = 0.0
-    # Qualità linee manuali prematch [0,1] da validazioni input.
-    line_quality_factor: float = 1.0
-
-    # === BTTS Calibration - Dati aggiuntivi ===
-    h2h_btts_pct: float = 0.0          # % storica partite H2H con BTTS (0-100)
-    h2h_matches_count: int = 0         # numero di H2H usati per stimare h2h_btts_pct
-    scoring_streak_h: int = 0          # partite consecutive con gol segnato casa
-    scoring_streak_a: int = 0          # partite consecutive con gol segnato trasferta
-    clean_sheet_streak_h: int = 0      # partite consecutive senza subire casa
-    clean_sheet_streak_a: int = 0      # partite consecutive senza subire trasferta
-
-    # Weather impact on xG (da OpenWeather API o da Gemini Vision)
-    weather_xg_impact: float = 0.0     # impatto meteo su xG (-0.15 a +0.02)
-
-    # Contradiction Detection: warning quando live stats contraddicono pre-match expectations
-    contradiction_warning: str = ""    # messaggio di warning per l'utente
-    has_contradiction: bool = False    # True se rilevata contraddizione significativa
-
-    # Bankroll e commissione
-    bankroll: float = 1000.0
-    comm_rate: float = 0.025   # 2.5%
-
-    def __post_init__(self) -> None:
-        """Validazione dei campi con eccezioni proper (Fix #3.6)."""
-        # NOTA: In produzione con -O gli assert vengono disabilitati,
-        # quindi usiamo ValueError per validazione critica
-        if not (0 <= self.minuto <= 90):
-            raise ValueError(f"Minuto fuori range: {self.minuto}")
-        if self.gol_casa < 0:
-            raise ValueError(f"Gol casa negativo: {self.gol_casa}")
-        if self.gol_trasf < 0:
-            raise ValueError(f"Gol trasf negativo: {self.gol_trasf}")
-        if not (0 <= self.rossi_casa <= 4):
-            raise ValueError(f"Rossi casa fuori range: {self.rossi_casa}")
-        if not (0 <= self.rossi_trasf <= 4):
-            raise ValueError(f"Rossi trasf fuori range: {self.rossi_trasf}")
-        if self.tot_op <= 0:
-            raise ValueError(f"Total apertura non valido: {self.tot_op}")
-        if self.tot_cur <= 0:
-            raise ValueError(f"Total corrente non valido: {self.tot_cur}")
-        if self.bankroll <= 0:
-            raise ValueError(f"Bankroll non valido: {self.bankroll}")
-        if not (0.0 <= self.comm_rate < 1.0):
-            raise ValueError(f"Commissione non valida: {self.comm_rate}")
+# Re-export for backward compatibility
+from src.types import ExchangeQuotes, MatchState, ProbabilitaModello  # noqa: F401
 
 
-@dataclass
-class ExchangeQuotes:
-    """Quote opzionali dall'exchange per l'analisi avanzata."""
-
-    q_1: float = 0.0
-    q_x: float = 0.0
-    q_2: float = 0.0
-    q_over: float = 0.0
-    q_under: float = 0.0
-    q_btts_si: float = 0.0
-    q_btts_no: float = 0.0
-
-    @property
-    def any_active(self) -> bool:
-        """True se almeno una quota è stata inserita (> 1.0)."""
-        return any(
-            q > 1.0
-            for q in [self.q_1, self.q_x, self.q_2, self.q_over, self.q_under,
-                       self.q_btts_si, self.q_btts_no]
-        )
-
-
-# ---------------------------------------------------------------------------
-# Dataclass di Output
-# ---------------------------------------------------------------------------
-
-@dataclass
-class ProbabilitaModello:
-    """Probabilità calcolate dal modello per tutti i mercati."""
-
-    # 1X2
-    p1: float
-    px: float
-    p2: float
-
-    # Over/Under
-    p_under: float
-    p_over: float
-
-    # BTTS
-    p_btts: float
-
-    # Correct Score (top N)
-    top_cs: list[tuple[tuple[int, int], float]]
-
-    # Distribuzione gol totali
-    gol_tot_dist: dict[int, float]
-
-    # Parametri interni
-    rho: float
-    xg_h_final: float      # xG casa dopo tutti gli aggiustamenti
-    xg_a_final: float      # xG trasferta dopo tutti gli aggiustamenti
-    xg_h_base: float       # xG casa da linee (pre-blend)
-    xg_a_base: float       # xG trasferta da linee
-    xg_h_blend: float      # xG casa dopo blend tiri
-    xg_a_blend: float      # xG trasferta dopo blend tiri
-    xg_h_accum: float      # xG accumulato dai tiri (debug)
-    xg_a_accum: float
-    alpha_t: float         # Peso T nel blend
-    alpha_d: float         # Peso D nel blend
-    shot_dom: float        # Indice dominio tiri
-    momentum: float        # Indice momentum mercato
-    flat_lines: bool       # Linee di mercato invariate
-    model_confidence: float = 0.0  # Score [0, 1] di fiducia del modello
-    stale_line: bool = False       # True se la linea corrente è stantia
-    model_agreement: float = 1.0   # [0,1] accordo tra i 3 modelli del consensus
-    market_divergence: float = 0.0 # Divergenza modello-mercato (proxy Brier)
-    delta_ah: float = 0.0          # Variazione pura AH (market movement)
-    delta_tot: float = 0.0         # Variazione pura Total (market movement)
-
-    # FIX: Campo per indicare linee probabilmente non aggiornate
-    # True se ci sono gol ma le linee sembrano ancora quelle d'apertura
-    lines_need_update: bool = False
-    # Quality firewall score [0,1]: misura sintetica di affidabilità operativa.
-    quality_score: float = 1.0
-    # Se True, blocca segnali operativi (No-Bet engine / quality firewall).
-    signals_blocked: bool = False
-    # Motivo sintetico del blocco operativo (utile in UI e tracking).
-    signals_block_reason: str = ""
-
-    # Market shock: True se il momentum supera la soglia di "movimento anomalo".
-    # Indica che le linee si sono mosse molto rispetto al tempo giocato →
-    # potrebbe esserci informazione asimmetrica (infortuni, formazioni, notizie).
-    market_shock: bool = False
-
-    # Pesi consensus effettivi e marginali 1X2 per modello (tracking / ensemble adattivo)
-    consensus_w_bp: float = 0.5
-    consensus_w_cop: float = 0.3
-    consensus_w_mk: float = 0.2
-    p1_bp: float = 0.0
-    px_bp: float = 0.0
-    p2_bp: float = 0.0
-    p1_cop: float = 0.0
-    px_cop: float = 0.0
-    p2_cop: float = 0.0
-    p1_mk: float = 0.0
-    px_mk: float = 0.0
-    p2_mk: float = 0.0
-    p_over_bp: float = 0.0
-    p_over_cop: float = 0.0
-    p_over_mk: float = 0.0
-    # Over 2.5 per modello (marginali da matrice a linea 2.5) — ensemble storico EU.
-    p_over_bp_eu: float = 0.0
-    p_over_cop_eu: float = 0.0
-    p_over_mk_eu: float = 0.0
-    p_btts_bp: float = 0.0
-    p_btts_cop: float = 0.0
-    p_btts_mk: float = 0.0
-    consensus_w_ou_bp: float = 0.0
-    consensus_w_ou_cop: float = 0.0
-    consensus_w_ou_mk: float = 0.0
-    consensus_w_btts_bp: float = 0.0
-    consensus_w_btts_cop: float = 0.0
-    consensus_w_btts_mk: float = 0.0
-    xg_h_pre_prev_blend: float = 0.0
-    xg_a_pre_prev_blend: float = 0.0
-    prev_lambda_h: float = 0.0
-    prev_lambda_a: float = 0.0
-
-    # Intervalli di credibilità multi-modello
-    credible_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
-
-    # Matrici
-    joint_ind: dict[tuple[int, int], float] = field(default_factory=dict)
-    full_matrix: dict[tuple[int, int], float] = field(default_factory=dict)
-
-    # Over/Under linea 1.5 (marginali; stessa pipeline shrink/calibrazione prematch della linea principale)
-    p_over_15: float = 0.0
-    p_under_15: float = 0.0
-    # Over/Under canonico 2.5 (sempre calcolato dalla stessa distribuzione, indipendente da linea_ou scelta)
-    p_over_25_ref: float = 0.0
-    p_under_25_ref: float = 0.0
-    # Dopo pipeline prematch: tightness CI [0,1] per Kelly (1 = modelli concordi).
-    pipeline_ci_tightness: float = 0.55
-
-    # Upgrade 8-1: Score di coerenza cross-mercato [0, 1].
-    # 1.0 = probabilità perfettamente coerenti tra mercati.
-    # <0.5 = divergenza significativa tra consensus e matrice punteggio.
-    probability_coherence: float = 1.0
-
-    # Correct score: diagnostica sulla distribuzione completa (non solo top-N).
-    cs_entropy_nats: float = 0.0
-    cs_top3_mass: float = 0.0
-
-
-# ---------------------------------------------------------------------------
 # Helper functions per parallelizzazione
 # ---------------------------------------------------------------------------
 
@@ -523,114 +120,52 @@ def _build_consensus_matrix(
 # Engine principale
 # ---------------------------------------------------------------------------
 
-def analizza(
+
+# ---------------------------------------------------------------------------
+# Helper functions — estratte da analizza() per leggibilità
+# ---------------------------------------------------------------------------
+
+def _extract_ocr_signals(
     state: MatchState,
-) -> ProbabilitaModello:
-    """
-    Esegue l'intera pipeline di analisi.
-
-    Pipeline:
-    1. Calibrazione xG Bayesiana dalle linee AH + Total
-    2. Blend xG con dati tiri (se disponibili)
-    3. Aggiustamenti time-decay / score effect / cartellini rossi
-    4. Costruzione matrice bivariata (Poisson + DC + Z)
-    5. Calcolo probabilità 1X2, Over/Under, BTTS, Correct Score, AH
-
-    Args:
-        state: MatchState validato con tutti i dati di input.
+) -> tuple[float, float, float, float]:
+    """Estrae segnali OCR da quote bookmaker (solo prematch).
 
     Returns:
-        ProbabilitaModello con tutte le probabilità e i parametri interni.
+        (ocr_total_quotes, ocr_delta_quotes, ocr_overround_ou, ocr_overround_1x2)
     """
-    from src.config import CMP, CONSENSUS, COPULA, MOMENTUM, STALE, UI
-    from src.markets.result import apply_overdispersion, calcola_correct_score
-    from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
-    from src.models.consensus import (
-        agreement_1x2_from_per_raw,
-        calibrate_probabilities,
-        compute_consensus,
-        compute_model_credible_intervals,
-        compute_model_market_divergence,
-        logistic_sharpen_over,
-        per_model_market_probs,
-    )
-    from src.models.prematch_diagnostics import ci_tightness_score
-    from src.models.ensemble_adaptive import blend_consensus_weights_with_history
-    from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
-
-    # Cap temporale: i gol rimanenti non possono superare ~(90-minuto)/90 * 4.0.
-    # Protegge dal caso frequente in cui l'utente cambia il punteggio/minuto ma
-    # dimentica di aggiornare le linee live → tot_cur rimane il valore full-game
-    # d'apertura (es. 2.75) che diventa insensato come "gol rimanenti" al 80'.
-    # Esempio: 0-0 al 80', default tot_cur=2.75 → cap a 0.44 (= 4.0 × 10/90).
-    _mins_rem = max(1, 90 - state.minuto)
-    _tot_cap = max(BAYES.TOT_BAYES_MIN, _mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
-    tot_cur_eff = min(state.tot_cur, _tot_cap)
-    _prematch_line_factor = 1.0
-    if state.minuto == 0:
-        # Coerenza linee manuali prematch: movimento più netto è informativo, ma
-        # contraddizioni AH vs 1X2 riducono l'affidabilità operativa.
-        _move_mag = abs(float(state.ah_cur) - float(state.ah_op)) + 0.5 * abs(float(state.tot_cur) - float(state.tot_op))
-        _prematch_line_factor = 0.92 + min(0.12, _move_mag * 0.08)
-        if state.mkt_init_1 > 1.01 and state.mkt_init_2 > 1.01 and abs(float(state.ah_cur)) >= 0.25:
-            _fav_ah_home = float(state.ah_cur) < 0.0
-            _fav_mkt_home = float(state.mkt_init_1) < float(state.mkt_init_2)
-            if _fav_ah_home != _fav_mkt_home:
-                _prematch_line_factor *= 0.86
-        _prematch_line_factor *= max(0.60, min(1.10, float(state.line_quality_factor)))
-        _prematch_line_factor = max(0.70, min(1.10, _prematch_line_factor))
-
-    # 0. Segnali OCR da quote bookmaker (solo prematch, minuto == 0)
     from src.models.calibration import estrai_segnali_ocr_da_quote
-    _ocr_total_quotes = 0.0
-    _ocr_delta_quotes = 0.0
-    _ocr_overround_ou = 0.0
-    _ocr_overround_1x2 = 0.0
+
+    ocr_total_quotes = 0.0
+    ocr_delta_quotes = 0.0
+    ocr_overround_ou = 0.0
+    ocr_overround_1x2 = 0.0
+
     if state.minuto == 0:
         # Se disponibile, usa la linea O/U estratta dalla stessa fonte delle quote OCR
         # (Nowgoal open line) per evitare mismatch con la linea analisi selezionata.
         _ou_line_for_ocr = state.ocr_imp_total if state.ocr_imp_total > 0.0 else state.linea_ou
-        _ocr_total_quotes, _ocr_delta_quotes = estrai_segnali_ocr_da_quote(
+        ocr_total_quotes, ocr_delta_quotes = estrai_segnali_ocr_da_quote(
             state.ocr_quota_1, state.ocr_quota_x, state.ocr_quota_2,
             state.ocr_quota_over, state.ocr_quota_under,
             _ou_line_for_ocr,
         )
         # #3: Calcola overround per quality-aware blending in calcola_xg_bayesiani()
         if state.ocr_quota_over > 1.0 and state.ocr_quota_under > 1.0:
-            _ocr_overround_ou = 1.0 / state.ocr_quota_over + 1.0 / state.ocr_quota_under
+            ocr_overround_ou = 1.0 / state.ocr_quota_over + 1.0 / state.ocr_quota_under
         if state.ocr_quota_1 > 1.0 and state.ocr_quota_x > 1.0 and state.ocr_quota_2 > 1.0:
-            _ocr_overround_1x2 = 1.0 / state.ocr_quota_1 + 1.0 / state.ocr_quota_x + 1.0 / state.ocr_quota_2
+            ocr_overround_1x2 = 1.0 / state.ocr_quota_1 + 1.0 / state.ocr_quota_x + 1.0 / state.ocr_quota_2
 
-    # 1. xG da linee (prior bayesiano)
-    xg_h_base, xg_a_base = calcola_xg_bayesiani(
-        state.ah_op, state.tot_op,
-        state.ah_cur, tot_cur_eff,
-        state.minuto,
-        gol_diff=state.gol_casa - state.gol_trasf,
-        gol_tot=state.gol_casa + state.gol_trasf,
-        ocr_imp_total=state.ocr_imp_total,
-        ocr_total_quotes=_ocr_total_quotes,
-        ocr_delta_quotes=_ocr_delta_quotes,
-        ocr_overround_ou=_ocr_overround_ou,
-        ocr_overround_1x2=_ocr_overround_1x2,
-        fixture_historical_total=state.fixture_historical_total,
-        movement_quality=state.movement_quality,
-        ocr_confidence_scale=state.ocr_confidence_scale,
-        line_movement_ah_raw=state.line_movement_ah_raw,
-        line_movement_total_raw=state.line_movement_total_raw,
-        extraction_coverage=state.extraction_coverage,
-        team_stats_home_shots=state.team_stats_home_shots,
-        team_stats_away_shots=state.team_stats_away_shots,
-        team_stats_home_corners=state.team_stats_home_corners,
-        team_stats_away_corners=state.team_stats_away_corners,
-        team_stats_home_possession=state.team_stats_home_possession,
-        team_stats_away_possession=state.team_stats_away_possession,
-        ocr_quota_gg=state.ocr_quota_gg,
-        ocr_quota_ng=state.ocr_quota_ng,
-        odds_sharp_signal=state.odds_sharp_signal,
-    )
+    return ocr_total_quotes, ocr_delta_quotes, ocr_overround_ou, ocr_overround_1x2
 
-    # 1b. Asimmetria λ da gol medi H2H per squadra (prematch).
+
+def _apply_h2h_blend(
+    xg_h: float, xg_a: float, state: MatchState,
+) -> tuple[float, float]:
+    """Applica blend asimmetria λ da gol medi H2H per squadra (solo prematch).
+
+    Returns:
+        (xg_h_adjusted, xg_a_adjusted)
+    """
     if state.minuto == 0:
         from src.config import FORM_ANALYSIS
         _h2h_gh = float(state.h2h_avg_goals_home)
@@ -649,77 +184,76 @@ def analizza(
                 * max(0.0, min(1.0, float(state.h2h_core_weight)))
             )
             _S = _h2h_gh + _h2h_ga
-            _T = xg_h_base + xg_a_base
+            _T = xg_h + xg_a
             if _S > 1e-6 and _T > 1e-6:
                 _scale = _T / _S
                 _idh = _h2h_gh * _scale
                 _ida = _h2h_ga * _scale
-                xg_h_base = (1.0 - _beta_h2h) * xg_h_base + _beta_h2h * _idh
-                xg_a_base = (1.0 - _beta_h2h) * xg_a_base + _beta_h2h * _ida
+                xg_h = (1.0 - _beta_h2h) * xg_h + _beta_h2h * _idh
+                xg_a = (1.0 - _beta_h2h) * xg_a + _beta_h2h * _ida
 
-    # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
-    n_shots_tot = state.sot_h + state.soff_h + state.sot_a + state.soff_a
-    if n_shots_tot > 0 and state.minuto > 0:
-        xg_h_blend, xg_a_blend, xg_h_accum, xg_a_accum, alpha_t, alpha_d, shot_dom = blend_xg_shots(
-            xg_h_base, xg_a_base,
-            state.sot_h, state.soff_h,
-            state.sot_a, state.soff_a,
-            state.gol_casa, state.gol_trasf,
-            state.minuto,
-            corner_h=state.corner_h,
-            corner_a=state.corner_a,
-            possesso_h=state.possesso_h,
-            possesso_a=state.possesso_a,
-            att_pericolosi_h=state.att_pericolosi_h,
-            att_pericolosi_a=state.att_pericolosi_a,
-            blk_h=state.blk_h,
-            blk_a=state.blk_a,
-            att_h=state.att_h,
-            att_a=state.att_a,
-        )
-    else:
-        xg_h_blend = xg_h_base
-        xg_a_blend = xg_a_base
-        xg_h_accum = xg_a_accum = 0.0
-        alpha_t = alpha_d = shot_dom = 0.0
+    return xg_h, xg_a
 
-    # 2b. Aggiustamenti AI: assenze + forma (miglioramento #1, #3, #7).
+
+def _apply_ai_adjustments(
+    xg_h: float, xg_a: float, state: MatchState,
+) -> tuple[float, float]:
+    """Applica aggiustamenti assenze, forma e meteo all'xG.
+
+    Returns:
+        (xg_h_adjusted, xg_a_adjusted)
+    """
+    from src.config import DECAY
+
+    # Aggiustamenti AI: assenze + forma (miglioramento #1, #3, #7).
     # Applicati DOPO il blend per modular sia l'xG da linee che l'xG da tiri.
     # ABSENCE_MARKET_ALPHA=0.40 già applicato in calcola_assenze_mult → nessun double-count.
     # Condizione: skip se entrambi i moltiplicatori sono 1.0 per evitare ricompute inutile.
     if state.absence_mult_h != 1.0 or state.forma_mult_h != 1.0:
-        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * state.absence_mult_h * state.forma_mult_h)
+        xg_h = max(DECAY.XG_FLOOR, xg_h * state.absence_mult_h * state.forma_mult_h)
     if state.absence_mult_a != 1.0 or state.forma_mult_a != 1.0:
-        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * state.absence_mult_a * state.forma_mult_a)
+        xg_a = max(DECAY.XG_FLOOR, xg_a * state.absence_mult_a * state.forma_mult_a)
 
     # Meteo: applica un micro-adjustment simmetrico se disponibile.
     if state.weather_xg_impact != 0.0:
         _wx_mult = max(0.85, min(1.05, 1.0 + state.weather_xg_impact))
-        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * _wx_mult)
-        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * _wx_mult)
+        xg_h = max(DECAY.XG_FLOOR, xg_h * _wx_mult)
+        xg_a = max(DECAY.XG_FLOOR, xg_a * _wx_mult)
 
-    # 2c. Previous scores blend (Miglioramento #2) - solo prematch.
-    # Snapshot pre-blend per apprendimento alpha da log; alpha effettivo da storico.
-    _xg_h_pre_prev = 0.0
-    _xg_a_pre_prev = 0.0
-    _prev_lambda_h = 0.0
-    _prev_lambda_a = 0.0
+    return xg_h, xg_a
+
+
+def _apply_prematch_priors(
+    xg_h: float, xg_a: float, state: MatchState,
+) -> tuple[float, float, float, float, float, float]:
+    """Applica blend previous scores, strength model, URL signals (solo prematch).
+
+    Returns:
+        (xg_h, xg_a, xg_h_pre_prev, xg_a_pre_prev, prev_lambda_h, prev_lambda_a)
+    """
+    from src.config import DECAY
+
+    xg_h_pre_prev = 0.0
+    xg_a_pre_prev = 0.0
+    prev_lambda_h = 0.0
+    prev_lambda_a = 0.0
+
     if state.minuto == 0:
         from src.models.parameter_learning import effective_prev_scores_alpha
 
-        _xg_h_pre_prev = xg_h_blend
-        _xg_a_pre_prev = xg_a_blend
+        xg_h_pre_prev = xg_h
+        xg_a_pre_prev = xg_a
         _prev_alpha = effective_prev_scores_alpha()
         if state.prev_avg_scored_h > 0 and state.prev_avg_conceded_a > 0:
             _xg_h_from_prev = (state.prev_avg_scored_h + state.prev_avg_conceded_a) / 2.0
-            _prev_lambda_h = _xg_h_from_prev
-            xg_h_blend = (1.0 - _prev_alpha) * xg_h_blend + _prev_alpha * _xg_h_from_prev
+            prev_lambda_h = _xg_h_from_prev
+            xg_h = (1.0 - _prev_alpha) * xg_h + _prev_alpha * _xg_h_from_prev
         if state.prev_avg_scored_a > 0 and state.prev_avg_conceded_h > 0:
             _xg_a_from_prev = (state.prev_avg_scored_a + state.prev_avg_conceded_h) / 2.0
-            _prev_lambda_a = _xg_a_from_prev
-            xg_a_blend = (1.0 - _prev_alpha) * xg_a_blend + _prev_alpha * _xg_a_from_prev
-        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
-        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
+            prev_lambda_a = _xg_a_from_prev
+            xg_a = (1.0 - _prev_alpha) * xg_a + _prev_alpha * _xg_a_from_prev
+        xg_h = max(DECAY.XG_FLOOR, xg_h)
+        xg_a = max(DECAY.XG_FLOOR, xg_a)
 
         # 2c-bis. Strength model blend (Upgrade 3) — xG indipendente dal mercato.
         # Usa solo dati storici (gol segnati/subiti, casa/trasferta, forma)
@@ -734,8 +268,8 @@ def analizza(
             last6_gf_a=state.last6_gf_a, last6_ga_a=state.last6_ga_a,
         )
         if _strength_xg is not None:
-            xg_h_blend, xg_a_blend = blend_strength_with_market(
-                xg_h_blend, xg_a_blend,
+            xg_h, xg_a = blend_strength_with_market(
+                xg_h, xg_a,
                 _strength_xg[0], _strength_xg[1],
             )
 
@@ -744,31 +278,39 @@ def analizza(
         _x_cov = max(0.0, min(1.0, state.extraction_coverage))
         _rx_amp = _FA_URL.RECENT_XG_PRIOR_ALPHA_MAX * (0.30 + 0.70 * _x_cov)
         if state.recent_xg_prior_h > 0.08:
-            xg_h_blend = (1.0 - _rx_amp) * xg_h_blend + _rx_amp * state.recent_xg_prior_h
-            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
+            xg_h = (1.0 - _rx_amp) * xg_h + _rx_amp * state.recent_xg_prior_h
+            xg_h = max(DECAY.XG_FLOOR, xg_h)
         if state.recent_xg_prior_a > 0.08:
-            xg_a_blend = (1.0 - _rx_amp) * xg_a_blend + _rx_amp * state.recent_xg_prior_a
-            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
+            xg_a = (1.0 - _rx_amp) * xg_a + _rx_amp * state.recent_xg_prior_a
+            xg_a = max(DECAY.XG_FLOOR, xg_a)
         # Trend forma URL esplicito (second-order): nudge asimmetrico, piccolo ma persistente.
         _trend_h = max(-1.0, min(1.0, float(state.url_form_trend_h)))
         _trend_a = max(-1.0, min(1.0, float(state.url_form_trend_a)))
         _trend_delta = (_trend_h - _trend_a) * 0.030 * (0.35 + 0.65 * _x_cov)
         if abs(_trend_delta) > 1e-6:
-            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * (1.0 + _trend_delta))
-            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * (1.0 - 0.82 * _trend_delta))
+            xg_h = max(DECAY.XG_FLOOR, xg_h * (1.0 + _trend_delta))
+            xg_a = max(DECAY.XG_FLOOR, xg_a * (1.0 - 0.82 * _trend_delta))
         if state.h2h_matches_count >= 5 and state.h2h_ah_home_cover_pct > 1.0:
             _ahc = max(0.0, min(100.0, state.h2h_ah_home_cover_pct)) / 100.0
             _ahw = max(0.0, min(1.0, (state.h2h_matches_count - 4) / 10.0))
             _dh = (_ahc - 0.5) * 2.0 * _FA_URL.H2H_AH_COVER_TILT_MAX * _ahw * (0.45 + 0.55 * _x_cov)
-            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * (1.0 + _dh))
-            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * (1.0 - _dh * 0.62))
+            xg_h = max(DECAY.XG_FLOOR, xg_h * (1.0 + _dh))
+            xg_a = max(DECAY.XG_FLOOR, xg_a * (1.0 - _dh * 0.62))
 
-    # 2d. Form Analysis - Standings, Last6, Home/Away Performance (solo prematch).
-    # RIDUCE la dipendenza dalle linee manuali utilizzando dati estratti da Nowgoal.
-    # Questi aggiustamenti sono applicati DOPO previous scores per non interferire.
+    return xg_h, xg_a, xg_h_pre_prev, xg_a_pre_prev, prev_lambda_h, prev_lambda_a
+
+
+def _apply_form_analysis(
+    xg_h: float, xg_a: float, state: MatchState,
+) -> tuple[float, float]:
+    """Applica aggiustamenti standings, last 6, home/away performance (solo prematch).
+
+    Returns:
+        (xg_h_adjusted, xg_a_adjusted)
+    """
+    from src.config import DECAY, FORM_ANALYSIS
+
     if state.minuto == 0:
-        from src.config import FORM_ANALYSIS
-
         # === 2d.1 STANDINGS - Fattore motivazione ===
         # Squadre in zona critica (retrocessione/titolo/europa) sono più motivate.
         # Squadre senza obiettivi (posizione centrale) possono essere meno motivate.
@@ -817,7 +359,7 @@ def analizza(
                 if state.standings_rank_a > _rel_z and _gap > FORM_ANALYSIS.RELEGATION_PPG_GAP_THRESHOLD:
                     _motivation_mult_a += FORM_ANALYSIS.RELEGATION_UNDERDOG_BONUS
 
-        # Motivazione qualitativa dall’URL (affianca classifica; pesi conservativi).
+        # Motivazione qualitativa dall'URL (affianca classifica; pesi conservativi).
         _mot_ocr_h = (state.motivation_home or "normal").strip().lower()
         _mot_ocr_a = (state.motivation_away or "normal").strip().lower()
         if _mot_ocr_h == "high":
@@ -919,8 +461,220 @@ def analizza(
         _combined_mult_a = 1.0 + _form_weight * (_motivation_mult_a + _last6_mult_a + _home_away_mult_a + _timing_mult_a - 4.0)
 
         # Applica con floor di sicurezza
-        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * _combined_mult_h)
-        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * _combined_mult_a)
+        xg_h = max(DECAY.XG_FLOOR, xg_h * _combined_mult_h)
+        xg_a = max(DECAY.XG_FLOOR, xg_a * _combined_mult_a)
+
+    return xg_h, xg_a
+
+
+def _apply_post_consensus_market_blend(
+    p1: float, px: float, p2: float,
+    state: MatchState,
+    prematch_line_factor: float,
+    agree_1x2_pre: float,
+) -> tuple[float, float, float]:
+    """Applica blend 1X2 prior market e H2H post-consensus (solo prematch).
+
+    Returns:
+        (p1, px, p2)
+    """
+    if state.minuto == 0:
+        _trust_fc = max(0.0, min(1.0, float(state.extraction_trust_factor) * prematch_line_factor))
+        _h2h_core_fc = max(0.0, min(1.0, float(state.h2h_core_weight)))
+        _cov_fc = max(0.0, min(1.0, float(state.extraction_coverage)))
+        _mkt_q = 1.0
+        if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
+            _ovr_mkt = 1.0 / state.mkt_init_1 + 1.0 / state.mkt_init_x + 1.0 / state.mkt_init_2
+            _mkt_q = max(0.55, min(1.0, 1.0 - max(0.0, _ovr_mkt - 1.08) * 1.8))
+        from src.config import FORM_ANALYSIS as _FA_1X2
+        from src.models.calibration import _devig_shin_power
+        _alpha_mkt = _FA_1X2.PREMATCH_1X2_MKT_ALPHA_BASE * _trust_fc * (0.65 + 0.35 * _cov_fc) * _mkt_q
+        _w_h2h_n = min(1.0, max(0.0, float(state.h2h_matches_count) / 10.0))
+        _alpha_h2h = _FA_1X2.PREMATCH_1X2_H2H_ALPHA_BASE * _trust_fc * _h2h_core_fc * _w_h2h_n
+        _alpha_cap = _FA_1X2.PREMATCH_1X2_EXTERNAL_ALPHA_CAP * _trust_fc * (0.70 + 0.30 * agree_1x2_pre)
+        _alpha_sum = _alpha_mkt + _alpha_h2h
+        if _alpha_sum > _alpha_cap and _alpha_sum > 1e-12:
+            _scale_alpha = _alpha_cap / _alpha_sum
+            _alpha_mkt *= _scale_alpha
+            _alpha_h2h *= _scale_alpha
+        _p1_adj, _px_adj, _p2_adj = p1, px, p2  # partenza dal consensus calibrato
+
+        # Market-implied 1X2 (devig con Shin's power method)
+        if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
+            _raw1 = 1.0 / state.mkt_init_1
+            _rawx = 1.0 / state.mkt_init_x
+            _raw2 = 1.0 / state.mkt_init_2
+            if _raw1 > 0 and _rawx > 0 and _raw2 > 0:
+                # Use Shin's power method for consistent devigging across all market channels
+                _shin_probs = _devig_shin_power([_raw1, _rawx, _raw2])
+                _p1_mkt = _shin_probs[0]
+                _px_mkt = _shin_probs[1]
+                _p2_mkt = _shin_probs[2]
+            else:
+                # Fallback: simple normalization (shouldn't happen with validated odds)
+                _tot_raw = _raw1 + _rawx + _raw2
+                if _tot_raw > 0:
+                    _p1_mkt = _raw1 / _tot_raw
+                    _px_mkt = _rawx / _tot_raw
+                    _p2_mkt = _raw2 / _tot_raw
+                else:
+                    _p1_mkt = _px_mkt = _p2_mkt = 0.0
+            _p1_adj = (1.0 - _alpha_mkt) * _p1_adj + _alpha_mkt * _p1_mkt
+            _px_adj = (1.0 - _alpha_mkt) * _px_adj + _alpha_mkt * _px_mkt
+            _p2_adj = (1.0 - _alpha_mkt) * _p2_adj + _alpha_mkt * _p2_mkt
+
+        # H2H storico 1X2 (normalizza le percentuali)
+        _h2h_sum = state.h2h_home_win_pct + state.h2h_draw_pct + state.h2h_away_win_pct
+        if _h2h_sum > 0:
+            _p1_h2h = state.h2h_home_win_pct / _h2h_sum
+            _px_h2h = state.h2h_draw_pct / _h2h_sum
+            _p2_h2h = state.h2h_away_win_pct / _h2h_sum
+            _p1_adj = (1.0 - _alpha_h2h) * _p1_adj + _alpha_h2h * _p1_h2h
+            _px_adj = (1.0 - _alpha_h2h) * _px_adj + _alpha_h2h * _px_h2h
+            _p2_adj = (1.0 - _alpha_h2h) * _p2_adj + _alpha_h2h * _p2_h2h
+
+        # Rinormalizza per garantire somma = 1
+        _sum_1x2 = _p1_adj + _px_adj + _p2_adj
+        if _sum_1x2 > 0:
+            p1 = _p1_adj / _sum_1x2
+            px = _px_adj / _sum_1x2
+            p2 = _p2_adj / _sum_1x2
+
+    return p1, px, p2
+
+
+# ---------------------------------------------------------------------------
+# Engine principale
+# ---------------------------------------------------------------------------
+
+
+def analizza(
+    state: MatchState,
+) -> ProbabilitaModello:
+    """
+    Esegue l'intera pipeline di analisi.
+
+    Pipeline:
+    1. Calibrazione xG Bayesiana dalle linee AH + Total
+    2. Blend xG con dati tiri (se disponibili)
+    3. Aggiustamenti time-decay / score effect / cartellini rossi
+    4. Costruzione matrice bivariata (Poisson + DC + Z)
+    5. Calcolo probabilità 1X2, Over/Under, BTTS, Correct Score, AH
+
+    Args:
+        state: MatchState validato con tutti i dati di input.
+
+    Returns:
+        ProbabilitaModello con tutte le probabilità e i parametri interni.
+    """
+    from src.config import CMP, CONSENSUS, COPULA, MOMENTUM, STALE, UI
+    from src.markets.result import apply_overdispersion, calcola_correct_score
+    from src.models.calibration import blend_xg_shots, calcola_xg_bayesiani
+    from src.models.consensus import (
+        agreement_1x2_from_per_raw,
+        calibrate_probabilities,
+        compute_consensus,
+        compute_model_credible_intervals,
+        compute_model_market_divergence,
+        logistic_sharpen_over,
+        per_model_market_probs,
+    )
+    from src.models.prematch_diagnostics import ci_tightness_score
+    from src.models.ensemble_adaptive import blend_consensus_weights_with_history
+    from src.models.time_decay import calcola_momentum_mercato, time_decay_dinamico
+
+    # Cap temporale: i gol rimanenti non possono superare ~(90-minuto)/90 * 4.0.
+    # Protegge dal caso frequente in cui l'utente cambia il punteggio/minuto ma
+    # dimentica di aggiornare le linee live → tot_cur rimane il valore full-game
+    # d'apertura (es. 2.75) che diventa insensato come "gol rimanenti" al 80'.
+    # Esempio: 0-0 al 80', default tot_cur=2.75 → cap a 0.44 (= 4.0 × 10/90).
+    _mins_rem = max(1, 90 - state.minuto)
+    _tot_cap = max(BAYES.TOT_BAYES_MIN, _mins_rem / 90.0 * BAYES.TOT_TEMPORAL_MAX)
+    tot_cur_eff = min(state.tot_cur, _tot_cap)
+    _prematch_line_factor = 1.0
+    if state.minuto == 0:
+        # Coerenza linee manuali prematch: movimento più netto è informativo, ma
+        # contraddizioni AH vs 1X2 riducono l'affidabilità operativa.
+        _move_mag = abs(float(state.ah_cur) - float(state.ah_op)) + 0.5 * abs(float(state.tot_cur) - float(state.tot_op))
+        _prematch_line_factor = 0.92 + min(0.12, _move_mag * 0.08)
+        if state.mkt_init_1 > 1.01 and state.mkt_init_2 > 1.01 and abs(float(state.ah_cur)) >= 0.25:
+            _fav_ah_home = float(state.ah_cur) < 0.0
+            _fav_mkt_home = float(state.mkt_init_1) < float(state.mkt_init_2)
+            if _fav_ah_home != _fav_mkt_home:
+                _prematch_line_factor *= 0.86
+        _prematch_line_factor *= max(0.60, min(1.10, float(state.line_quality_factor)))
+        _prematch_line_factor = max(0.70, min(1.10, _prematch_line_factor))
+
+    # 0. Segnali OCR da quote bookmaker (solo prematch, minuto == 0)
+    _ocr_total_quotes, _ocr_delta_quotes, _ocr_overround_ou, _ocr_overround_1x2 = _extract_ocr_signals(state)
+
+    # 1. xG da linee (prior bayesiano)
+    xg_h_base, xg_a_base = calcola_xg_bayesiani(
+        state.ah_op, state.tot_op,
+        state.ah_cur, tot_cur_eff,
+        state.minuto,
+        gol_diff=state.gol_casa - state.gol_trasf,
+        gol_tot=state.gol_casa + state.gol_trasf,
+        ocr_imp_total=state.ocr_imp_total,
+        ocr_total_quotes=_ocr_total_quotes,
+        ocr_delta_quotes=_ocr_delta_quotes,
+        ocr_overround_ou=_ocr_overround_ou,
+        ocr_overround_1x2=_ocr_overround_1x2,
+        fixture_historical_total=state.fixture_historical_total,
+        movement_quality=state.movement_quality,
+        ocr_confidence_scale=state.ocr_confidence_scale,
+        line_movement_ah_raw=state.line_movement_ah_raw,
+        line_movement_total_raw=state.line_movement_total_raw,
+        extraction_coverage=state.extraction_coverage,
+        team_stats_home_shots=state.team_stats_home_shots,
+        team_stats_away_shots=state.team_stats_away_shots,
+        team_stats_home_corners=state.team_stats_home_corners,
+        team_stats_away_corners=state.team_stats_away_corners,
+        team_stats_home_possession=state.team_stats_home_possession,
+        team_stats_away_possession=state.team_stats_away_possession,
+        ocr_quota_gg=state.ocr_quota_gg,
+        ocr_quota_ng=state.ocr_quota_ng,
+        odds_sharp_signal=state.odds_sharp_signal,
+    )
+
+    # 1b. Asimmetria λ da gol medi H2H per squadra (prematch).
+    xg_h_base, xg_a_base = _apply_h2h_blend(xg_h_base, xg_a_base, state)
+
+    # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
+    n_shots_tot = state.sot_h + state.soff_h + state.sot_a + state.soff_a
+    if n_shots_tot > 0 and state.minuto > 0:
+        xg_h_blend, xg_a_blend, xg_h_accum, xg_a_accum, alpha_t, alpha_d, shot_dom = blend_xg_shots(
+            xg_h_base, xg_a_base,
+            state.sot_h, state.soff_h,
+            state.sot_a, state.soff_a,
+            state.gol_casa, state.gol_trasf,
+            state.minuto,
+            corner_h=state.corner_h,
+            corner_a=state.corner_a,
+            possesso_h=state.possesso_h,
+            possesso_a=state.possesso_a,
+            att_pericolosi_h=state.att_pericolosi_h,
+            att_pericolosi_a=state.att_pericolosi_a,
+            blk_h=state.blk_h,
+            blk_a=state.blk_a,
+            att_h=state.att_h,
+            att_a=state.att_a,
+        )
+    else:
+        xg_h_blend = xg_h_base
+        xg_a_blend = xg_a_base
+        xg_h_accum = xg_a_accum = 0.0
+        alpha_t = alpha_d = shot_dom = 0.0
+
+    # 2b. Aggiustamenti AI: assenze + forma + meteo.
+    xg_h_blend, xg_a_blend = _apply_ai_adjustments(xg_h_blend, xg_a_blend, state)
+
+    # 2c. Previous scores blend (Miglioramento #2) - solo prematch.
+    # Include strength model (2c-bis) e segnali URL (2c-tris).
+    xg_h_blend, xg_a_blend, _xg_h_pre_prev, _xg_a_pre_prev, _prev_lambda_h, _prev_lambda_a = _apply_prematch_priors(xg_h_blend, xg_a_blend, state)
+
+    # 2d. Form Analysis - Standings, Last6, Home/Away Performance (solo prematch).
+    xg_h_blend, xg_a_blend = _apply_form_analysis(xg_h_blend, xg_a_blend, state)
 
     # 2e. Coerenza prematch: avvicina la somma λ alla Total di mercato (tot_op), mantenendo il rapporto H/A.
     if state.minuto == 0:
@@ -1330,7 +1084,7 @@ def analizza(
     # non catturata dalle linee AH/Total.
     if state.minuto == 0 and state.ocr_quota_gg > 1.0 and state.ocr_quota_ng > 1.0:
         from src.config import OCR_QUOTES
-        from src.models.calibration import _devig_two_way
+        from src.models.calibration import _devig_two_way, _devig_shin_power
         _overround_btts = 1.0 / state.ocr_quota_gg + 1.0 / state.ocr_quota_ng
         if _overround_btts <= OCR_QUOTES.MAX_OVERROUND_2WAY:
             _p_gg_ocr = _devig_two_way(state.ocr_quota_gg, state.ocr_quota_ng)
@@ -1346,59 +1100,7 @@ def analizza(
             p_btts = (1.0 - _w_btts_quote) * p_btts + _w_btts_quote * _p_gg_ocr
 
     # 9c. Post-consensus 1X2 correction da market initial odds e H2H prior (solo prematch).
-    # Due segnali indipendenti dal modello Poisson/Copula/Markov vengono blended
-    # con peso conservativo per ancorare la 1X2 a informazioni esterne.
-    # Pesi: 8% market-implied 1X2 + 5% H2H storico → max 13% totale (scalati da trust/core).
-    if state.minuto == 0:
-        _trust_fc = max(0.0, min(1.0, float(state.extraction_trust_factor) * _prematch_line_factor))
-        _h2h_core_fc = max(0.0, min(1.0, float(state.h2h_core_weight)))
-        _cov_fc = max(0.0, min(1.0, float(state.extraction_coverage)))
-        _mkt_q = 1.0
-        if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
-            _ovr_mkt = 1.0 / state.mkt_init_1 + 1.0 / state.mkt_init_x + 1.0 / state.mkt_init_2
-            _mkt_q = max(0.55, min(1.0, 1.0 - max(0.0, _ovr_mkt - 1.08) * 1.8))
-        from src.config import FORM_ANALYSIS as _FA_1X2
-        _alpha_mkt = _FA_1X2.PREMATCH_1X2_MKT_ALPHA_BASE * _trust_fc * (0.65 + 0.35 * _cov_fc) * _mkt_q
-        _w_h2h_n = min(1.0, max(0.0, float(state.h2h_matches_count) / 10.0))
-        _alpha_h2h = _FA_1X2.PREMATCH_1X2_H2H_ALPHA_BASE * _trust_fc * _h2h_core_fc * _w_h2h_n
-        _alpha_cap = _FA_1X2.PREMATCH_1X2_EXTERNAL_ALPHA_CAP * _trust_fc * (0.70 + 0.30 * _agree_1x2_pre)
-        _alpha_sum = _alpha_mkt + _alpha_h2h
-        if _alpha_sum > _alpha_cap and _alpha_sum > 1e-12:
-            _scale_alpha = _alpha_cap / _alpha_sum
-            _alpha_mkt *= _scale_alpha
-            _alpha_h2h *= _scale_alpha
-        _p1_adj, _px_adj, _p2_adj = p1, px, p2  # partenza dal consensus calibrato
-
-        # Market-implied 1X2 (rimuovi vig e normalizza)
-        if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
-            _raw1 = 1.0 / state.mkt_init_1
-            _rawx = 1.0 / state.mkt_init_x
-            _raw2 = 1.0 / state.mkt_init_2
-            _tot_raw = _raw1 + _rawx + _raw2
-            if _tot_raw > 0:
-                _p1_mkt = _raw1 / _tot_raw
-                _px_mkt = _rawx / _tot_raw
-                _p2_mkt = _raw2 / _tot_raw
-                _p1_adj = (1.0 - _alpha_mkt) * _p1_adj + _alpha_mkt * _p1_mkt
-                _px_adj = (1.0 - _alpha_mkt) * _px_adj + _alpha_mkt * _px_mkt
-                _p2_adj = (1.0 - _alpha_mkt) * _p2_adj + _alpha_mkt * _p2_mkt
-
-        # H2H storico 1X2 (normalizza le percentuali)
-        _h2h_sum = state.h2h_home_win_pct + state.h2h_draw_pct + state.h2h_away_win_pct
-        if _h2h_sum > 0:
-            _p1_h2h = state.h2h_home_win_pct / _h2h_sum
-            _px_h2h = state.h2h_draw_pct / _h2h_sum
-            _p2_h2h = state.h2h_away_win_pct / _h2h_sum
-            _p1_adj = (1.0 - _alpha_h2h) * _p1_adj + _alpha_h2h * _p1_h2h
-            _px_adj = (1.0 - _alpha_h2h) * _px_adj + _alpha_h2h * _px_h2h
-            _p2_adj = (1.0 - _alpha_h2h) * _p2_adj + _alpha_h2h * _p2_h2h
-
-        # Rinormalizza per garantire somma = 1
-        _sum_1x2 = _p1_adj + _px_adj + _p2_adj
-        if _sum_1x2 > 0:
-            p1 = _p1_adj / _sum_1x2
-            px = _px_adj / _sum_1x2
-            p2 = _p2_adj / _sum_1x2
+    p1, px, p2 = _apply_post_consensus_market_blend(p1, px, p2, state, _prematch_line_factor, _agree_1x2_pre)
 
     # 9c-bis. Upgrade 8-4: HT/FT predictive model.
     # Usa i pattern di transizione HT→FT storici delle squadre per calibrare 1X2.
@@ -1776,3 +1478,4 @@ def analizza(
         cs_entropy_nats=cs_entropy_nats,
         cs_top3_mass=cs_top3_mass,
     )
+

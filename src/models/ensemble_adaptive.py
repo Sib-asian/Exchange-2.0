@@ -14,7 +14,10 @@ e per analisi future; non alterano la matrice blended.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
+
+_LOG = logging.getLogger("exchange.ensemble_adaptive")
 
 if TYPE_CHECKING:
     from src.tracking.prediction_log import PredictionRecord
@@ -149,7 +152,8 @@ def blend_consensus_weights_with_history(
             for r in completed
             if _record_has_btts_probs(r) and r.btts_hit is not None
         ]
-    except Exception:
+    except Exception as _ewe:
+        _LOG.debug("ensemble weight learning data load failed: %s", _ewe)
         return base, base, base
 
     losses_1x2: list[tuple[float, float, float]] = []

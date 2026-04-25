@@ -9,12 +9,15 @@ Il file è in data/partite_salvate.json (locale, solo per l'utente corrente).
 
 from __future__ import annotations
 
+import fcntl
 import json
+import logging
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+_LOG_S = logging.getLogger("exchange.session_storage")
 _STORAGE_PATH = Path("data/partite_salvate.json")
 _MAX_PARTITE = 8
 
@@ -49,8 +52,8 @@ def load_partite() -> list[PartitaSalvata]:
     try:
         raw = json.loads(_STORAGE_PATH.read_text(encoding="utf-8"))
         return [PartitaSalvata(**p) for p in raw]
-    except Exception:
-        # File corrotto o versione incompatibile: ignora silenziosamente
+    except Exception as _lpe:
+        _LOG_S.warning("session storage load failed, returning empty list: %s", _lpe)
         return []
 
 
@@ -87,10 +90,12 @@ def delete_partita(pid: str) -> None:
 
 
 def _write(partite: list[PartitaSalvata]) -> None:
-    _STORAGE_PATH.write_text(
-        json.dumps([asdict(p) for p in partite], ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _tmp = _STORAGE_PATH.with_suffix(".tmp")
+    data = json.dumps([asdict(p) for p in partite], ensure_ascii=False, indent=2)
+    _tmp.write_text(data, encoding="utf-8")
+    # Atomic rename + flush for data safety
+    _tmp.replace(_STORAGE_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -203,5 +208,5 @@ def restore_prematch_analysis(session_state: Any, data: dict[str, Any] | None) -
         payload["extraction_success"] = True
         pa = PrematchAnalysisExtracted(**payload)
         session_state["prematch_analysis"] = pa
-    except Exception:
-        pass  # Dati corrotti o versione incompatibile: ignora
+    except Exception as _rpe:
+        _LOG_S.warning("restore prematch analysis failed: %s", _rpe)

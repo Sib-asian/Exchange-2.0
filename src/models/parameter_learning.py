@@ -14,7 +14,10 @@ Riferimenti:
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import TYPE_CHECKING
+
+_LOG = logging.getLogger("exchange.parameter_learning")
 
 if TYPE_CHECKING:
     pass
@@ -106,7 +109,8 @@ def learn_draw_shrinkage() -> float | None:
             r for r in log.get_completed()
             if r.is_prematch and r.is_completed() and r.risultato_1x2 in ("1", "X", "2")
         ]
-    except Exception:
+    except Exception as _dle:
+        _LOG.debug("parameter learning data load failed: %s", _dle)
         return None
 
     if len(completed) < MIN_RECORDS_FOR_LEARNING:
@@ -178,7 +182,8 @@ def learn_prev_scores_alpha() -> float | None:
             and r.prev_lambda_h > 1e-6
             and r.prev_lambda_a > 1e-6
         ]
-    except Exception:
+    except Exception as _ale:
+        _LOG.debug("previous scores alpha data load failed: %s", _ale)
         return None
 
     if len(usable) < MIN_RECORDS_FOR_LEARNING:

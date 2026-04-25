@@ -10,10 +10,13 @@ liste di Signal invece di usare flag globali.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 
 from src.config import KELLY, SIGNALS
+
+_LOG = logging.getLogger("exchange.signals")
 from src.engine import ExchangeQuotes  # noqa: F401 — used in type annotations
 from src.models.kelly import (
     calcola_edge_back,
@@ -123,8 +126,8 @@ def calcola_soglie(
         _info_adj = compute_threshold_adjustment(
             minuto, n_shots_tot, model_confidence, momentum,
         )
-    except Exception:
-        pass
+    except Exception as _ate:
+        _LOG.debug("adaptive threshold computation skipped: %s", _ate)
     base_1x2 = max(SIGNALS.SOGLIA_BACK_MIN, base_1x2 + _info_adj)
     base_ou = max(SIGNALS.OVER_BASE_MIN, base_ou + _info_adj)
 
@@ -773,8 +776,8 @@ def genera_segnali_avanzati(
                         _discount = compute_edge_uncertainty_discount(s.edge, _ci[1] - _ci[0])
                         s.stake *= _discount
                         s.ev_euro *= _discount
-                except Exception:
-                    pass
+                except Exception as _cde:
+                    _LOG.debug("credible interval edge discount skipped: %s", _cde)
             segnali.append(s)
 
     # 1X2 — soglia adattiva per penalizzare il BACK sulla squadra già vincente
