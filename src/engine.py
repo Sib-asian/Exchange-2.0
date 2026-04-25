@@ -17,6 +17,7 @@ Performance:
 
 from __future__ import annotations
 
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.config import BAYES, CACHE, DECAY, ENGINE
@@ -25,7 +26,6 @@ from src.config import BAYES, CACHE, DECAY, ENGINE
 from src.types import ExchangeQuotes, MatchState, ProbabilitaModello  # noqa: F401
 
 
-# ---------------------------------------------------------------------------
 # Helper functions per parallelizzazione
 # ---------------------------------------------------------------------------
 
@@ -543,6 +543,11 @@ def _apply_post_consensus_market_blend(
     return p1, px, p2
 
 
+# ---------------------------------------------------------------------------
+# Engine principale
+# ---------------------------------------------------------------------------
+
+
 def analizza(
     state: MatchState,
 ) -> ProbabilitaModello:
@@ -633,31 +638,7 @@ def analizza(
     )
 
     # 1b. Asimmetria λ da gol medi H2H per squadra (prematch).
-    if state.minuto == 0:
-        from src.config import FORM_ANALYSIS
-        _h2h_gh = float(state.h2h_avg_goals_home)
-        _h2h_ga = float(state.h2h_avg_goals_away)
-        if (
-            _h2h_gh > 0.08
-            and _h2h_ga > 0.08
-            and state.h2h_matches_count >= 4
-        ):
-            _cov_h2h = max(0.0, min(1.0, state.extraction_coverage))
-            _w_n = min(1.0, state.h2h_matches_count / 10.0)
-            _beta_h2h = (
-                FORM_ANALYSIS.H2H_AVG_GOALS_XG_BLEND_MAX
-                * _w_n
-                * _cov_h2h
-                * max(0.0, min(1.0, float(state.h2h_core_weight)))
-            )
-            _S = _h2h_gh + _h2h_ga
-            _T = xg_h_base + xg_a_base
-            if _S > 1e-6 and _T > 1e-6:
-                _scale = _T / _S
-                _idh = _h2h_gh * _scale
-                _ida = _h2h_ga * _scale
-                xg_h_base = (1.0 - _beta_h2h) * xg_h_base + _beta_h2h * _idh
-                xg_a_base = (1.0 - _beta_h2h) * xg_a_base + _beta_h2h * _ida
+    xg_h_base, xg_a_base = _apply_h2h_blend(xg_h_base, xg_a_base, state)
 
     # 2. Blend tiri + linee (solo se ci sono tiri inseriti)
     n_shots_tot = state.sot_h + state.soff_h + state.sot_a + state.soff_a
@@ -685,244 +666,15 @@ def analizza(
         xg_h_accum = xg_a_accum = 0.0
         alpha_t = alpha_d = shot_dom = 0.0
 
-    # 2b. Aggiustamenti AI: assenze + forma (miglioramento #1, #3, #7).
-    # Applicati DOPO il blend per modular sia l'xG da linee che l'xG da tiri.
-    # ABSENCE_MARKET_ALPHA=0.40 già applicato in calcola_assenze_mult → nessun double-count.
-    # Condizione: skip se entrambi i moltiplicatori sono 1.0 per evitare ricompute inutile.
-    if state.absence_mult_h != 1.0 or state.forma_mult_h != 1.0:
-        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * state.absence_mult_h * state.forma_mult_h)
-    if state.absence_mult_a != 1.0 or state.forma_mult_a != 1.0:
-        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * state.absence_mult_a * state.forma_mult_a)
-
-    # Meteo: applica un micro-adjustment simmetrico se disponibile.
-    if state.weather_xg_impact != 0.0:
-        _wx_mult = max(0.85, min(1.05, 1.0 + state.weather_xg_impact))
-        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * _wx_mult)
-        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * _wx_mult)
+    # 2b. Aggiustamenti AI: assenze + forma + meteo.
+    xg_h_blend, xg_a_blend = _apply_ai_adjustments(xg_h_blend, xg_a_blend, state)
 
     # 2c. Previous scores blend (Miglioramento #2) - solo prematch.
-    # Snapshot pre-blend per apprendimento alpha da log; alpha effettivo da storico.
-    _xg_h_pre_prev = 0.0
-    _xg_a_pre_prev = 0.0
-    _prev_lambda_h = 0.0
-    _prev_lambda_a = 0.0
-    if state.minuto == 0:
-        from src.models.parameter_learning import effective_prev_scores_alpha
-
-        _xg_h_pre_prev = xg_h_blend
-        _xg_a_pre_prev = xg_a_blend
-        _prev_alpha = effective_prev_scores_alpha()
-        if state.prev_avg_scored_h > 0 and state.prev_avg_conceded_a > 0:
-            _xg_h_from_prev = (state.prev_avg_scored_h + state.prev_avg_conceded_a) / 2.0
-            _prev_lambda_h = _xg_h_from_prev
-            xg_h_blend = (1.0 - _prev_alpha) * xg_h_blend + _prev_alpha * _xg_h_from_prev
-        if state.prev_avg_scored_a > 0 and state.prev_avg_conceded_h > 0:
-            _xg_a_from_prev = (state.prev_avg_scored_a + state.prev_avg_conceded_h) / 2.0
-            _prev_lambda_a = _xg_a_from_prev
-            xg_a_blend = (1.0 - _prev_alpha) * xg_a_blend + _prev_alpha * _xg_a_from_prev
-        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
-        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
-
-        # 2c-bis. Strength model blend (Upgrade 3) — xG indipendente dal mercato.
-        # Usa solo dati storici (gol segnati/subiti, casa/trasferta, forma)
-        # per rompere la dipendenza circolare xG←mercato.
-        from src.models.strength_model import blend_strength_with_market, compute_strength_xg
-        _strength_xg = compute_strength_xg(
-            state.prev_avg_scored_h, state.prev_avg_conceded_h,
-            state.prev_avg_scored_a, state.prev_avg_conceded_a,
-            home_gf_h=state.home_gf_h, home_ga_h=state.home_ga_h,
-            away_gf_a=state.away_gf_a, away_ga_a=state.away_ga_a,
-            last6_gf_h=state.last6_gf_h, last6_ga_h=state.last6_ga_h,
-            last6_gf_a=state.last6_gf_a, last6_ga_a=state.last6_ga_a,
-        )
-        if _strength_xg is not None:
-            xg_h_blend, xg_a_blend = blend_strength_with_market(
-                xg_h_blend, xg_a_blend,
-                _strength_xg[0], _strength_xg[1],
-            )
-
-        # 2c-tris. Segnali URL aggiuntivi: xG implicito da partite recenti + tilt H2H AH cover.
-        from src.config import FORM_ANALYSIS as _FA_URL
-        _x_cov = max(0.0, min(1.0, state.extraction_coverage))
-        _rx_amp = _FA_URL.RECENT_XG_PRIOR_ALPHA_MAX * (0.30 + 0.70 * _x_cov)
-        if state.recent_xg_prior_h > 0.08:
-            xg_h_blend = (1.0 - _rx_amp) * xg_h_blend + _rx_amp * state.recent_xg_prior_h
-            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend)
-        if state.recent_xg_prior_a > 0.08:
-            xg_a_blend = (1.0 - _rx_amp) * xg_a_blend + _rx_amp * state.recent_xg_prior_a
-            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend)
-        # Trend forma URL esplicito (second-order): nudge asimmetrico, piccolo ma persistente.
-        _trend_h = max(-1.0, min(1.0, float(state.url_form_trend_h)))
-        _trend_a = max(-1.0, min(1.0, float(state.url_form_trend_a)))
-        _trend_delta = (_trend_h - _trend_a) * 0.030 * (0.35 + 0.65 * _x_cov)
-        if abs(_trend_delta) > 1e-6:
-            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * (1.0 + _trend_delta))
-            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * (1.0 - 0.82 * _trend_delta))
-        if state.h2h_matches_count >= 5 and state.h2h_ah_home_cover_pct > 1.0:
-            _ahc = max(0.0, min(100.0, state.h2h_ah_home_cover_pct)) / 100.0
-            _ahw = max(0.0, min(1.0, (state.h2h_matches_count - 4) / 10.0))
-            _dh = (_ahc - 0.5) * 2.0 * _FA_URL.H2H_AH_COVER_TILT_MAX * _ahw * (0.45 + 0.55 * _x_cov)
-            xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * (1.0 + _dh))
-            xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * (1.0 - _dh * 0.62))
+    # Include strength model (2c-bis) e segnali URL (2c-tris).
+    xg_h_blend, xg_a_blend, _xg_h_pre_prev, _xg_a_pre_prev, _prev_lambda_h, _prev_lambda_a = _apply_prematch_priors(xg_h_blend, xg_a_blend, state)
 
     # 2d. Form Analysis - Standings, Last6, Home/Away Performance (solo prematch).
-    # RIDUCE la dipendenza dalle linee manuali utilizzando dati estratti da Nowgoal.
-    # Questi aggiustamenti sono applicati DOPO previous scores per non interferire.
-    if state.minuto == 0:
-        from src.config import FORM_ANALYSIS
-
-        # === 2d.1 STANDINGS - Fattore motivazione ===
-        # Squadre in zona critica (retrocessione/titolo/europa) sono più motivate.
-        # Squadre senza obiettivi (posizione centrale) possono essere meno motivate.
-        _motivation_mult_h = 1.0
-        _motivation_mult_a = 1.0
-
-        if state.standings_total_teams > 0 and state.standings_rank_h > 0 and state.standings_rank_a > 0:
-            # Zona retrocessione (ultime N posizioni)
-            if state.standings_rank_h > state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE:
-                _motivation_mult_h += FORM_ANALYSIS.RELEGATION_MOTIVATION_BONUS
-            if state.standings_rank_a > state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE:
-                _motivation_mult_a += FORM_ANALYSIS.RELEGATION_MOTIVATION_BONUS
-
-            # Zona titolo (prime N posizioni)
-            if state.standings_rank_h <= FORM_ANALYSIS.TITLE_ZONE:
-                _motivation_mult_h += FORM_ANALYSIS.TITLE_MOTIVATION_BONUS
-            if state.standings_rank_a <= FORM_ANALYSIS.TITLE_ZONE:
-                _motivation_mult_a += FORM_ANALYSIS.TITLE_MOTIVATION_BONUS
-
-            # Zona europa (prime N posizioni per qualificazione europea)
-            elif state.standings_rank_h <= FORM_ANALYSIS.EUROPE_ZONE:
-                _motivation_mult_h += FORM_ANALYSIS.EUROPE_MOTIVATION_BONUS
-            elif state.standings_rank_a <= FORM_ANALYSIS.EUROPE_ZONE:
-                _motivation_mult_a += FORM_ANALYSIS.EUROPE_MOTIVATION_BONUS
-
-            # Nessun obiettivo (posizione centrale) - penalità solo se le posizioni sono veramente centrali
-            # (non in zona critica né vicino)
-            _mid_start = FORM_ANALYSIS.EUROPE_ZONE + 1
-            _mid_end = state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE - 1
-            if _mid_start < _mid_end:
-                if _mid_start <= state.standings_rank_h <= _mid_end:
-                    _motivation_mult_h += FORM_ANALYSIS.NO_STAKES_PENALTY
-                if _mid_start <= state.standings_rank_a <= _mid_end:
-                    _motivation_mult_a += FORM_ANALYSIS.NO_STAKES_PENALTY
-
-            # Retrocessione + netto svantaggio PPG: urgenza oltre il semplice bonus zona
-            _ph = state.standings_played_h
-            _pa = state.standings_played_a
-            if _ph > 0 and _pa > 0:
-                _pph = state.standings_points_h / _ph
-                _ppa = state.standings_points_a / _pa
-                _gap = _pph - _ppa
-                _rel_z = state.standings_total_teams - FORM_ANALYSIS.RELEGATION_ZONE
-                if state.standings_rank_h > _rel_z and _gap < -FORM_ANALYSIS.RELEGATION_PPG_GAP_THRESHOLD:
-                    _motivation_mult_h += FORM_ANALYSIS.RELEGATION_UNDERDOG_BONUS
-                if state.standings_rank_a > _rel_z and _gap > FORM_ANALYSIS.RELEGATION_PPG_GAP_THRESHOLD:
-                    _motivation_mult_a += FORM_ANALYSIS.RELEGATION_UNDERDOG_BONUS
-
-        # Motivazione qualitativa dall’URL (affianca classifica; pesi conservativi).
-        _mot_ocr_h = (state.motivation_home or "normal").strip().lower()
-        _mot_ocr_a = (state.motivation_away or "normal").strip().lower()
-        if _mot_ocr_h == "high":
-            _motivation_mult_h += FORM_ANALYSIS.OCR_MOTIVATION_HIGH_BONUS
-        elif _mot_ocr_h == "low":
-            _motivation_mult_h += FORM_ANALYSIS.OCR_MOTIVATION_LOW_ADJ
-        if _mot_ocr_a == "high":
-            _motivation_mult_a += FORM_ANALYSIS.OCR_MOTIVATION_HIGH_BONUS
-        elif _mot_ocr_a == "low":
-            _motivation_mult_a += FORM_ANALYSIS.OCR_MOTIVATION_LOW_ADJ
-
-        # === 2d.2 LAST 6 GAMES - Forma recente specifica ===
-        # Calcola punti per partita (PPG) nelle ultime 6 e applica boost/penalità.
-        _last6_mult_h = 1.0
-        _last6_mult_a = 1.0
-
-        if state.last6_points_h > 0 or state.last6_points_a > 0:
-            # PPG = punti / 6 partite (max 18 punti)
-            _ppg_h = state.last6_points_h / 6.0 if state.last6_points_h > 0 else 1.5  # default neutro
-            _ppg_a = state.last6_points_a / 6.0 if state.last6_points_a > 0 else 1.5
-
-            # Forma eccellente (PPG alto)
-            if _ppg_h >= FORM_ANALYSIS.LAST6_POINTS_EXCELLENT:
-                _last6_mult_h += FORM_ANALYSIS.LAST6_MAX_BOOST
-            elif _ppg_h <= FORM_ANALYSIS.LAST6_POINTS_POOR:
-                _last6_mult_h += FORM_ANALYSIS.LAST6_MAX_PENALTY
-            else:
-                # Interpolazione lineare tra povero e eccellente
-                _range = FORM_ANALYSIS.LAST6_POINTS_EXCELLENT - FORM_ANALYSIS.LAST6_POINTS_POOR
-                _pos = (_ppg_h - FORM_ANALYSIS.LAST6_POINTS_POOR) / max(_range, 0.1)
-                _effect = FORM_ANALYSIS.LAST6_MAX_PENALTY + _pos * (FORM_ANALYSIS.LAST6_MAX_BOOST - FORM_ANALYSIS.LAST6_MAX_PENALTY)
-                _last6_mult_h += _effect * FORM_ANALYSIS.LAST6_WEIGHT
-
-            if _ppg_a >= FORM_ANALYSIS.LAST6_POINTS_EXCELLENT:
-                _last6_mult_a += FORM_ANALYSIS.LAST6_MAX_BOOST
-            elif _ppg_a <= FORM_ANALYSIS.LAST6_POINTS_POOR:
-                _last6_mult_a += FORM_ANALYSIS.LAST6_MAX_PENALTY
-            else:
-                _range = FORM_ANALYSIS.LAST6_POINTS_EXCELLENT - FORM_ANALYSIS.LAST6_POINTS_POOR
-                _pos = (_ppg_a - FORM_ANALYSIS.LAST6_POINTS_POOR) / max(_range, 0.1)
-                _effect = FORM_ANALYSIS.LAST6_MAX_PENALTY + _pos * (FORM_ANALYSIS.LAST6_MAX_BOOST - FORM_ANALYSIS.LAST6_MAX_PENALTY)
-                _last6_mult_a += _effect * FORM_ANALYSIS.LAST6_WEIGHT
-
-        # % vittorie previous scores (URL): rifinitura forma, scalata da extraction_coverage.
-        _ext_w = max(0.0, min(1.0, state.extraction_coverage))
-        if state.prev_win_pct_h >= 53.0:
-            _phw = min(1.0, max(0.0, (state.prev_win_pct_h - 50.0) / 35.0))
-            _last6_mult_h += FORM_ANALYSIS.PREV_WIN_PCT_TILT_MAX * _phw * _ext_w
-        if state.prev_win_pct_a >= 53.0:
-            _paw = min(1.0, max(0.0, (state.prev_win_pct_a - 50.0) / 35.0))
-            _last6_mult_a += FORM_ANALYSIS.PREV_WIN_PCT_TILT_MAX * _paw * _ext_w
-
-        # === 2d.3 HOME/AWAY PERFORMANCE ===
-        # Rendimento specifico casa/trasferta per le due squadre.
-        _home_away_mult_h = 1.0
-        _home_away_mult_a = 1.0
-
-        if state.home_ppg_h > 0 or state.away_ppg_a > 0:
-            # Squadra di casa: bonus se forte in casa
-            if state.home_ppg_h >= FORM_ANALYSIS.HOME_STRONG_THRESHOLD:
-                _home_away_mult_h += FORM_ANALYSIS.HOME_STRONG_BONUS
-
-            # Squadra trasferta: penalità se debole fuori casa
-            if state.away_ppg_a > 0 and state.away_ppg_a <= FORM_ANALYSIS.AWAY_WEAK_THRESHOLD:
-                _home_away_mult_a += FORM_ANALYSIS.AWAY_WEAK_PENALTY
-
-            # Effetto gol fatti/subiti casa/trasferta
-            # Se la casa fa molti gol in casa, aumenta xG casa
-            if state.home_gf_h > 1.5:
-                _home_away_mult_h += 0.02
-            # Se la trasferta subisce molti gol fuori, aumenta xG casa
-            if state.away_ga_a > 1.3:
-                _home_away_mult_h += 0.015
-            # Se la trasferta fa molti gol fuori, aumenta xG trasferta
-            if state.away_gf_a > 1.3:
-                _home_away_mult_a += 0.02
-            # Se la casa subisce molti gol in casa, aumenta xG trasferta
-            if state.home_ga_h > 1.3:
-                _home_away_mult_a += 0.015
-
-        # === 2d.4 GOAL TIMING (opzionale) ===
-        # Squadre che segnano a fine partita possono essere più pericolose.
-        _timing_mult_h = 1.0
-        _timing_mult_a = 1.0
-
-        if state.late_goals_pct_h > 35:
-            _timing_mult_h += FORM_ANALYSIS.LATE_SCORER_BONUS
-        if state.late_goals_pct_a > 35:
-            _timing_mult_a += FORM_ANALYSIS.LATE_SCORER_BONUS
-        if state.early_conceded_pct_h > 40:
-            _timing_mult_h += FORM_ANALYSIS.EARLY_CONCEDER_PENALTY
-        if state.early_conceded_pct_a > 40:
-            _timing_mult_a += FORM_ANALYSIS.EARLY_CONCEDER_PENALTY
-
-        # === APPLICA TUTTI GLI AGGIUSTAMENTI FORM ANALYSIS ===
-        # Peso complessivo ridotto per evitare double-counting con previous scores e assenze
-        _form_weight = 0.40  # Gli aggiustamenti form analysis pesano al 40% del totale
-        _combined_mult_h = 1.0 + _form_weight * (_motivation_mult_h + _last6_mult_h + _home_away_mult_h + _timing_mult_h - 4.0)
-        _combined_mult_a = 1.0 + _form_weight * (_motivation_mult_a + _last6_mult_a + _home_away_mult_a + _timing_mult_a - 4.0)
-
-        # Applica con floor di sicurezza
-        xg_h_blend = max(DECAY.XG_FLOOR, xg_h_blend * _combined_mult_h)
-        xg_a_blend = max(DECAY.XG_FLOOR, xg_a_blend * _combined_mult_a)
+    xg_h_blend, xg_a_blend = _apply_form_analysis(xg_h_blend, xg_a_blend, state)
 
     # 2e. Coerenza prematch: avvicina la somma λ alla Total di mercato (tot_op), mantenendo il rapporto H/A.
     if state.minuto == 0:
@@ -1348,70 +1100,7 @@ def analizza(
             p_btts = (1.0 - _w_btts_quote) * p_btts + _w_btts_quote * _p_gg_ocr
 
     # 9c. Post-consensus 1X2 correction da market initial odds e H2H prior (solo prematch).
-    # Due segnali indipendenti dal modello Poisson/Copula/Markov vengono blended
-    # con peso conservativo per ancorare la 1X2 a informazioni esterne.
-    # Pesi: 8% market-implied 1X2 + 5% H2H storico → max 13% totale (scalati da trust/core).
-    if state.minuto == 0:
-        _trust_fc = max(0.0, min(1.0, float(state.extraction_trust_factor) * _prematch_line_factor))
-        _h2h_core_fc = max(0.0, min(1.0, float(state.h2h_core_weight)))
-        _cov_fc = max(0.0, min(1.0, float(state.extraction_coverage)))
-        _mkt_q = 1.0
-        if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
-            _ovr_mkt = 1.0 / state.mkt_init_1 + 1.0 / state.mkt_init_x + 1.0 / state.mkt_init_2
-            _mkt_q = max(0.55, min(1.0, 1.0 - max(0.0, _ovr_mkt - 1.08) * 1.8))
-        from src.config import FORM_ANALYSIS as _FA_1X2
-        from src.models.calibration import _devig_shin_power
-        _alpha_mkt = _FA_1X2.PREMATCH_1X2_MKT_ALPHA_BASE * _trust_fc * (0.65 + 0.35 * _cov_fc) * _mkt_q
-        _w_h2h_n = min(1.0, max(0.0, float(state.h2h_matches_count) / 10.0))
-        _alpha_h2h = _FA_1X2.PREMATCH_1X2_H2H_ALPHA_BASE * _trust_fc * _h2h_core_fc * _w_h2h_n
-        _alpha_cap = _FA_1X2.PREMATCH_1X2_EXTERNAL_ALPHA_CAP * _trust_fc * (0.70 + 0.30 * _agree_1x2_pre)
-        _alpha_sum = _alpha_mkt + _alpha_h2h
-        if _alpha_sum > _alpha_cap and _alpha_sum > 1e-12:
-            _scale_alpha = _alpha_cap / _alpha_sum
-            _alpha_mkt *= _scale_alpha
-            _alpha_h2h *= _scale_alpha
-        _p1_adj, _px_adj, _p2_adj = p1, px, p2  # partenza dal consensus calibrato
-
-        # Market-implied 1X2 (devig con Shin's power method)
-        if state.mkt_init_1 > 1.0 and state.mkt_init_x > 1.0 and state.mkt_init_2 > 1.0:
-            _raw1 = 1.0 / state.mkt_init_1
-            _rawx = 1.0 / state.mkt_init_x
-            _raw2 = 1.0 / state.mkt_init_2
-            if _raw1 > 0 and _rawx > 0 and _raw2 > 0:
-                # Use Shin's power method for consistent devigging across all market channels
-                _shin_probs = _devig_shin_power([_raw1, _rawx, _raw2])
-                _p1_mkt = _shin_probs[0]
-                _px_mkt = _shin_probs[1]
-                _p2_mkt = _shin_probs[2]
-            else:
-                # Fallback: simple normalization (shouldn't happen with validated odds)
-                _tot_raw = _raw1 + _rawx + _raw2
-                if _tot_raw > 0:
-                    _p1_mkt = _raw1 / _tot_raw
-                    _px_mkt = _rawx / _tot_raw
-                    _p2_mkt = _raw2 / _tot_raw
-                else:
-                    _p1_mkt = _px_mkt = _p2_mkt = 0.0
-            _p1_adj = (1.0 - _alpha_mkt) * _p1_adj + _alpha_mkt * _p1_mkt
-            _px_adj = (1.0 - _alpha_mkt) * _px_adj + _alpha_mkt * _px_mkt
-            _p2_adj = (1.0 - _alpha_mkt) * _p2_adj + _alpha_mkt * _p2_mkt
-
-        # H2H storico 1X2 (normalizza le percentuali)
-        _h2h_sum = state.h2h_home_win_pct + state.h2h_draw_pct + state.h2h_away_win_pct
-        if _h2h_sum > 0:
-            _p1_h2h = state.h2h_home_win_pct / _h2h_sum
-            _px_h2h = state.h2h_draw_pct / _h2h_sum
-            _p2_h2h = state.h2h_away_win_pct / _h2h_sum
-            _p1_adj = (1.0 - _alpha_h2h) * _p1_adj + _alpha_h2h * _p1_h2h
-            _px_adj = (1.0 - _alpha_h2h) * _px_adj + _alpha_h2h * _px_h2h
-            _p2_adj = (1.0 - _alpha_h2h) * _p2_adj + _alpha_h2h * _p2_h2h
-
-        # Rinormalizza per garantire somma = 1
-        _sum_1x2 = _p1_adj + _px_adj + _p2_adj
-        if _sum_1x2 > 0:
-            p1 = _p1_adj / _sum_1x2
-            px = _px_adj / _sum_1x2
-            p2 = _p2_adj / _sum_1x2
+    p1, px, p2 = _apply_post_consensus_market_blend(p1, px, p2, state, _prematch_line_factor, _agree_1x2_pre)
 
     # 9c-bis. Upgrade 8-4: HT/FT predictive model.
     # Usa i pattern di transizione HT→FT storici delle squadre per calibrare 1X2.
