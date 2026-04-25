@@ -14,12 +14,14 @@ def apply_overdispersion(
     full: dict[tuple[int, int], float],
 ) -> dict[tuple[int, int], float]:
     """
-    Applica correzione overdispersion alla matrice di punteggio.
+    Applica correzione overdispersion continua alla matrice di punteggio.
 
-    Il modello Poisson sottostima i punteggi con molti gol futuri (a+b >= 3)
-    perché la varianza reale supera la media. Questa correzione viene applicata
-    UNA VOLTA alla matrice blended, prima di derivare qualsiasi mercato (1X2,
-    O/U, BTTS, CS), garantendo coerenza tra tutti i mercati.
+    Usa una funzione potenza continua invece di gradini:
+    mult(future_goals) = 1 + alpha * max(0, future_goals - k0)^exp
+
+    Questo evita discontinuità nei Correct Score alla soglia future_goals=3.
+    La correzione viene applicata UNA VOLTA alla matrice blended, prima di
+    derivare qualsiasi mercato (1X2, O/U, BTTS, CS), garantendo coerenza.
 
     Returns:
         Matrice corretta e rinormalizzata.
@@ -29,13 +31,12 @@ def apply_overdispersion(
     corrected: dict[tuple[int, int], float] = {}
     for (a, b), p in full.items():
         future_goals = a + b
-        if future_goals == 3:
-            p *= _UI.CS_OVERDISP_3
-        elif future_goals == 4:
-            p *= _UI.CS_OVERDISP_4
-        elif future_goals >= 5:
-            p *= _UI.CS_OVERDISP_5
-        corrected[(a, b)] = p
+        if future_goals >= 3:
+            _x = max(0.0, float(future_goals) - _UI.CS_OVERDISP_K0)
+            _mult = 1.0 + _UI.CS_OVERDISP_ALPHA * (_x ** _UI.CS_OVERDISP_EXP)
+            corrected[(a, b)] = p * min(_UI.CS_OVERDISP_MAX, _mult)
+        else:
+            corrected[(a, b)] = p
 
     total = sum(corrected.values())
     if total > 0:

@@ -295,6 +295,22 @@ def build_bivariate_matrix(
     mu_h_ind = max(POISSON.EPS, mu_h - lambda0)
     mu_a_ind = max(POISSON.EPS, mu_a - lambda0)
 
+    # -----------------------------------------------------------------
+    # Concentration guard: when one lambda is very small (< 0.15),
+    # the bivariate Z component is meaningless and should be skipped.
+    #
+    # Mathematical justification:
+    #   The bivariate Poisson model assumes  X = X_ind + Z,  Y = Y_ind + Z
+    #   where X_ind ~ Poisson(mu_h - lambda0),  Z ~ Poisson(lambda0).
+    #   When E[X] ≈ 0.05 and lambda0 ≈ rho * harmon_mu ≈ 0.03, we get
+    #   X_ind ≈ 0.02, which is essentially always 0.  The shared component Z
+    #   then creates artificial joint probability mass at (0,0), (1,1), etc.
+    #   that does not reflect reality when one team is clearly not going to
+    #   score.  In such cases the independent Poisson + Dixon-Coles is the
+    #   correct model.
+    # -----------------------------------------------------------------
+    _use_bivariate = mu_h >= 0.15 and mu_a >= 0.15
+
     pmf_h = poisson_pmf(mu_h_ind)
     pmf_a = poisson_pmf(mu_a_ind)
     pmf_z = poisson_pmf(lambda0)
@@ -315,6 +331,19 @@ def build_bivariate_matrix(
 
     if raw_sum > 0:
         joint_ind_raw = {k: v / raw_sum for k, v in joint_ind_raw.items()}
+
+    if not _use_bivariate:
+        # Pure independent Poisson + Dixon-Coles (no Z component)
+        joint_dc: dict[tuple[int, int], float] = {}
+        dc_sum = 0.0
+        for (i, j), pij in joint_ind_raw.items():
+            tau = dixon_coles_tau(i, j, mu_h, mu_a, rho_dc=rho_dc_val)
+            val = pij * tau
+            joint_dc[(i, j)] = val
+            dc_sum += val
+        if dc_sum > 0:
+            joint_dc = {k: v / dc_sum for k, v in joint_dc.items()}
+        return joint_dc, joint_dc, 0.0  # rho=0 since no bivariate component
 
     # Matrice full: convoluzione con Z
     # P(X_rem=a, Y_rem=b) = sum_z P(X_ind=a-z, Y_ind=b-z) * P(Z=z)
