@@ -550,6 +550,7 @@ def _enforce_probability_coherence(
     p_btts: float,
     full_matrix: dict[tuple[int, int], float],
     gol_casa: int, gol_trasf: int,
+    linea_ou: float = 2.5,
     *,
     tol: float = 1e-9,
     incoherence_threshold: float = 0.005,
@@ -565,7 +566,8 @@ def _enforce_probability_coherence(
     a) Ensures p1 + px + p2 = 1.0 (within tolerance)
     b) Ensures p_over + p_under = 1.0 (within tolerance)
     c) Cross-checks BTTS consistency with the score matrix
-    d) If incoherence > 0.5%, applies conservative 10% correction toward
+    d) FIX PRECISION #7: Cross-checks O/U consistency with the score matrix
+    e) If incoherence > 0.5%, applies conservative 10% correction toward
        matrix-derived values
 
     Returns:
@@ -605,6 +607,29 @@ def _enforce_probability_coherence(
     btts_gap = abs(p_btts - p_btts_matrix)
     if btts_gap > incoherence_threshold and 1e-9 < p_btts < 1.0 - 1e-9:
         p_btts = (1.0 - correction_alpha) * p_btts + correction_alpha * p_btts_matrix
+
+    # e) FIX PRECISION #7: Cross-check O/U with matrix-derived values.
+    # P(Under linea_ou) = sum of P(total < linea_ou) + 0.5 * P(total == linea_ou) for half-lines.
+    gol_totali = gol_casa + gol_trasf
+    p_under_matrix = 0.0
+    _line4 = round(linea_ou * 4)
+    for (a, b), prob in full_matrix.items():
+        total_goals = gol_totali + a + b
+        if _line4 % 4 == 0:
+            int_line = int(linea_ou)
+            if total_goals < int_line:
+                p_under_matrix += prob
+            elif total_goals == int_line:
+                p_under_matrix += 0.5 * prob
+        else:
+            if total_goals < linea_ou:
+                p_under_matrix += prob
+    p_under_matrix = max(0.0, min(1.0, p_under_matrix))
+    p_over_matrix = 1.0 - p_under_matrix
+    ou_gap = abs(p_over - p_over_matrix)
+    if ou_gap > incoherence_threshold and 1e-9 < p_over < 1.0 - 1e-9:
+        p_over = (1.0 - correction_alpha) * p_over + correction_alpha * p_over_matrix
+        p_under = 1.0 - p_over
 
     # Clamp to [0, 1]
     p1 = max(0.0, min(1.0, p1))
@@ -1060,9 +1085,20 @@ def analizza(
         if _score_gap >= 3 and state.minuto > 60:
             _boost = min(0.10, 0.04 * (_score_gap - 2))
             _w_mk = min(0.50, _w_mk + _boost)
-            _redistribute = _boost / max(1e-6, _w_bp + _w_cop) if (_w_bp + _w_cop) > 1e-6 else 0.5
-            _w_bp = max(0.15, _w_bp - _boost * _redistribute * (_w_bp / max(1e-6, _w_bp + _w_cop)))
-            _w_cop = max(0.10, _w_cop - _boost * _redistribute * (_w_cop / max(1e-6, _w_bp + _w_cop)))
+            # FIX PRECISION #9: Robust weight redistribution with guaranteed minimums.
+            # The original formula could produce near-zero weights if _w_bp + _w_cop
+            # was very small. Now we use proportional redistribution that preserves
+            # minimum weights (0.15 for BP, 0.10 for Copula).
+            _sum_others = _w_bp + _w_cop
+            if _sum_others > 1e-6:
+                _reduction_share_bp = _w_bp / _sum_others
+                _reduction_share_cop = _w_cop / _sum_others
+                _w_bp = max(0.15, _w_bp - _boost * _reduction_share_bp)
+                _w_cop = max(0.10, _w_cop - _boost * _reduction_share_cop)
+            else:
+                # Fallback: equal redistribution if weights are effectively zero
+                _w_bp = max(0.15, _w_bp - _boost * 0.5)
+                _w_cop = max(0.10, _w_cop - _boost * 0.5)
 
     if _n_ok < 3:
         import logging as _log_mod
@@ -1561,6 +1597,7 @@ def analizza(
     p1, px, p2, p_over, p_under, p_btts = _enforce_probability_coherence(
         p1, px, p2, p_over, p_under, p_btts,
         full_matrix, state.gol_casa, state.gol_trasf,
+        linea_ou=state.linea_ou,
     )
 
     return ProbabilitaModello(

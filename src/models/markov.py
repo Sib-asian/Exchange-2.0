@@ -132,7 +132,7 @@ def markov_score_distribution(
     minuto: int,
     gol_h: int,
     gol_a: int,
-    max_goals: int = 8,
+    max_goals: int = 10,
     rho_dc: float = -0.13,
 ) -> dict[tuple[int, int], float]:
     """
