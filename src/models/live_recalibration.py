@@ -23,7 +23,7 @@ from src.config import BAYES, ENGINE
 # ---------------------------------------------------------------------------
 
 # Minuto minimo per attivare la ricalibrazione (serve abbastanza tempo per il segnale)
-MIN_MINUTE_FOR_RECAL: int = 20
+MIN_MINUTE_FOR_RECAL: int = 30
 
 # Massimo aggiustamento xG dalla ricalibrazione live
 MAX_LIVE_ADJUSTMENT: float = 0.12  # ±12% massimo
